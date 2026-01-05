@@ -21,7 +21,7 @@ from selenium.common.exceptions import (
 )
 
 # Secrets:
-# - SPREADSHEET_ID: ID da planilha Google
+# - SPREADSHEET_ID: ID da planilha Google (entre /d/ e /edit)
 # - GOOGLE_CREDENTIALS_JSON: JSON inteiro da service account
 # Pré-requisito: compartilhar a planilha com o e-mail da service account (editor)
 #
@@ -43,7 +43,7 @@ SCOPES = [
 ]
 
 HEADLESS = os.getenv("HEADLESS", "true").lower() in {"1", "true", "yes", "y"}
-SEL_TIMEOUT = int(os.getenv("SEL_TIMEOUT", "30"))
+SEL_TIMEOUT = int(os.getenv("SEL_TIMEOUT", "60"))
 INSERT_AT_ROW = 2
 
 ID_ELEICAO_LABEL = "formPesquisa:eleicoes_label"
@@ -62,9 +62,24 @@ def make_driver(headless: bool = True) -> webdriver.Chrome:
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
+    opts.add_argument("--lang=pt-BR")
+
+    opts.add_argument("--disable-blink-features=AutomationControlled")
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    opts.add_experimental_option("useAutomationExtension", False)
+
     if headless:
         opts.add_argument("--headless=new")
-    return webdriver.Chrome(options=opts)
+
+    driver = webdriver.Chrome(options=opts)
+
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"},
+    )
+
+    return driver
 
 
 def wait_dom_ready(driver: webdriver.Chrome, timeout: int = 30) -> None:
@@ -74,11 +89,16 @@ def wait_dom_ready(driver: webdriver.Chrome, timeout: int = 30) -> None:
 
 
 def safe_click(driver: webdriver.Chrome, wait: WebDriverWait, by: By, value: str, timeout: int = 30):
-    el = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable((by, value)))
+    el = WebDriverWait(driver, timeout).until(EC.presence_of_element_located((by, value)))
+    try:
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+    except Exception:
+        pass
+
     try:
         el.click()
         return el
-    except ElementClickInterceptedException:
+    except Exception:
         driver.execute_script("arguments[0].click();", el)
         return el
 
@@ -94,6 +114,27 @@ def force_close_any_menu(driver: webdriver.Chrome):
         pass
 
 
+def dismiss_overlays(driver: webdriver.Chrome):
+    candidates = [
+        "//button[contains(., 'Aceitar')]",
+        "//button[contains(., 'ACEITAR')]",
+        "//button[contains(., 'Concordo')]",
+        "//button[contains(., 'Entendi')]",
+        "//button[contains(., 'Fechar')]",
+        "//a[contains(., 'Aceitar')]",
+        "//a[contains(., 'Fechar')]",
+        "//*[@aria-label='Fechar']",
+        "//*[@aria-label='Close']",
+    ]
+    for xp in candidates:
+        try:
+            el = driver.find_element(By.XPATH, xp)
+            driver.execute_script("arguments[0].click();", el)
+            time.sleep(0.3)
+        except Exception:
+            pass
+
+
 def open_menu(driver: webdriver.Chrome, wait: WebDriverWait, label_id: str, panel_id: str) -> None:
     safe_click(driver, wait, By.ID, label_id)
     wait.until(EC.presence_of_element_located((By.ID, panel_id)))
@@ -102,6 +143,7 @@ def open_menu(driver: webdriver.Chrome, wait: WebDriverWait, label_id: str, pane
 
 def select_one_menu_by_text(driver: webdriver.Chrome, wait: WebDriverWait, label_id: str, panel_id: str, text: str) -> None:
     open_menu(driver, wait, label_id, panel_id)
+
     panel = driver.find_element(By.ID, panel_id)
     item = panel.find_element(By.XPATH, f".//li[normalize-space()='{text}']")
     driver.execute_script("arguments[0].scrollIntoView({block:'center'});", item)
@@ -109,13 +151,16 @@ def select_one_menu_by_text(driver: webdriver.Chrome, wait: WebDriverWait, label
         item.click()
     except Exception:
         driver.execute_script("arguments[0].click();", item)
+
     force_close_any_menu(driver)
 
 
 def list_one_menu_items(driver: webdriver.Chrome, wait: WebDriverWait, label_id: str, panel_id: str) -> List[str]:
     open_menu(driver, wait, label_id, panel_id)
+
     panel = driver.find_element(By.ID, panel_id)
     lis = panel.find_elements(By.CSS_SELECTOR, "li.ui-selectonemenu-item")
+
     items = []
     for li in lis:
         t = (li.text or "").strip()
@@ -124,6 +169,7 @@ def list_one_menu_items(driver: webdriver.Chrome, wait: WebDriverWait, label_id:
         if t.lower() == "selecione":
             continue
         items.append(t)
+
     force_close_any_menu(driver)
     return items
 
@@ -135,7 +181,11 @@ def click_and_wait_table_refresh(driver: webdriver.Chrome, wait: WebDriverWait, 
         old_tbody = None
 
     btn = safe_click(driver, wait, By.ID, btn_id)
-    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
+    try:
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
+    except Exception:
+        pass
+
     try:
         btn.click()
     except Exception:
@@ -153,18 +203,21 @@ def click_and_wait_table_refresh(driver: webdriver.Chrome, wait: WebDriverWait, 
 def parse_current_table(driver: webdriver.Chrome, tbody_id: str) -> List[Dict[str, str]]:
     tbody = driver.find_element(By.ID, tbody_id)
     rows = tbody.find_elements(By.XPATH, ".//tr")
+
     out: List[Dict[str, str]] = []
     for r in rows:
         cols = [c.text.strip() for c in r.find_elements(By.XPATH, "./td")]
         if len(cols) < 5:
             continue
-        out.append({
-            "numero_identificacao": cols[0],
-            "eleicao": cols[1],
-            "empresa_contratada": cols[2],
-            "data_registro": cols[3],
-            "abrangencia": cols[4],
-        })
+        out.append(
+            {
+                "numero_identificacao": cols[0],
+                "eleicao": cols[1],
+                "empresa_contratada": cols[2],
+                "data_registro": cols[3],
+                "abrangencia": cols[4],
+            }
+        )
     return out
 
 
@@ -183,16 +236,19 @@ def dedup_by_numero(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
 def get_page_numbers(driver: webdriver.Chrome, wait: WebDriverWait, paginator_id: str) -> List[int]:
     pag = wait.until(EC.presence_of_element_located((By.ID, paginator_id)))
     links = pag.find_elements(By.CSS_SELECTOR, "a.ui-paginator-page")
+
     nums = []
     for a in links:
         txt = (a.text or "").strip()
         if txt.isdigit():
             nums.append(int(txt))
+
     return sorted(set(nums))
 
 
 def go_to_page(driver: webdriver.Chrome, wait: WebDriverWait, paginator_id: str, tbody_id: str, page_num: int, max_tries: int = 6) -> None:
     last_err = None
+
     for _ in range(max_tries):
         try:
             pag = wait.until(EC.presence_of_element_located((By.ID, paginator_id)))
@@ -285,7 +341,7 @@ def read_existing_ids(ws: gspread.Worksheet, id_col_name: str = "numero_identifi
 def insert_rows_batched(ws: gspread.Worksheet, rows: List[List[str]], insert_at: int = 2, batch_size: int = 200) -> None:
     i = 0
     while i < len(rows):
-        chunk = rows[i:i + batch_size]
+        chunk = rows[i : i + batch_size]
         try:
             ws.insert_rows(chunk, row=insert_at, value_input_option="RAW")
         except APIError:
@@ -313,6 +369,7 @@ def run_daily_scrape_to_sheets(eleicao_text: str = ELEICAO_TEXT, headless: bool 
     try:
         driver.get(URL)
         wait_dom_ready(driver, timeout=SEL_TIMEOUT)
+        dismiss_overlays(driver)
 
         select_one_menu_by_text(driver, wait, ID_ELEICAO_LABEL, ID_ELEICAO_PANEL, eleicao_text)
 
@@ -320,7 +377,7 @@ def run_daily_scrape_to_sheets(eleicao_text: str = ELEICAO_TEXT, headless: bool 
         ufs = [u for u in ufs if u.upper() not in {"BRASIL"}]
 
         for uf in ufs:
-            uf_clean = uf.strip()
+            uf_clean = (uf or "").strip()
             if not uf_clean:
                 continue
 
@@ -338,15 +395,17 @@ def run_daily_scrape_to_sheets(eleicao_text: str = ELEICAO_TEXT, headless: bool 
                 if not rid or rid in existing_ids:
                     continue
 
-                new_rows.append([
-                    rid,
-                    r.get("eleicao", ""),
-                    r.get("empresa_contratada", ""),
-                    r.get("data_registro", ""),
-                    r.get("abrangencia", ""),
-                    uf_clean,
-                    now_str,
-                ])
+                new_rows.append(
+                    [
+                        rid,
+                        r.get("eleicao", ""),
+                        r.get("empresa_contratada", ""),
+                        r.get("data_registro", ""),
+                        r.get("abrangencia", ""),
+                        uf_clean,
+                        now_str,
+                    ]
+                )
 
             if new_rows:
                 insert_rows_batched(ws, new_rows, insert_at=INSERT_AT_ROW, batch_size=200)
