@@ -146,7 +146,7 @@ def list_one_menu_items(
         t = (li.text or "").strip()
         if not t:
             continue
-        if t.lower() in {"selecione"}:
+        if t.lower() in {"selecione", "[selecione]"}:
             continue
         items.append(t)
 
@@ -492,24 +492,54 @@ def run_one_scope(
     wait: WebDriverWait,
     eleicao_text: str,
     uf_text: str,
+    max_retries: int = 3
 ) -> pd.DataFrame:
-    select_one_menu_by_text(driver, wait, ID_ELEICAO_LABEL, ID_ELEICAO_PANEL, eleicao_text)
-    select_one_menu_by_text(driver, wait, ID_UF_LABEL, ID_UF_PANEL, uf_text)
+    """Executa scraping para um escopo (eleição + UF) com retry em caso de erro"""
+    
+    for attempt in range(max_retries):
+        try:
+            select_one_menu_by_text(driver, wait, ID_ELEICAO_LABEL, ID_ELEICAO_PANEL, eleicao_text)
+            time.sleep(0.5)  # pequena pausa após selecionar eleição
+            
+            select_one_menu_by_text(driver, wait, ID_UF_LABEL, ID_UF_PANEL, uf_text)
+            time.sleep(0.5)  # pequena pausa após selecionar UF
 
-    click_and_wait_table_refresh(driver, wait, ID_BTN_PESQUISAR, ID_TBODY)
-    wait_list_page_ready(driver, wait)
+            click_and_wait_table_refresh(driver, wait, ID_BTN_PESQUISAR, ID_TBODY)
+            wait_list_page_ready(driver, wait)
 
-    rows = scrape_all_pages_current_query(driver, wait, ID_PAGINATOR, ID_TBODY)
-    df = pd.DataFrame(rows)
+            rows = scrape_all_pages_current_query(driver, wait, ID_PAGINATOR, ID_TBODY)
+            df = pd.DataFrame(rows)
 
-    df["uf_filtro"] = uf_text
-    df["capturado_em"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            df["uf_filtro"] = uf_text
+            df["capturado_em"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-    for c in COLS_BASE:
-        if c not in df.columns:
-            df[c] = ""
+            for c in COLS_BASE:
+                if c not in df.columns:
+                    df[c] = ""
 
-    return df[COLS_BASE]
+            return df[COLS_BASE]
+            
+        except StaleElementReferenceException as e:
+            if attempt < max_retries - 1:
+                print(f"  Tentativa {attempt + 1} falhou com stale element, tentando novamente...")
+                time.sleep(2)  # espera antes de tentar novamente
+                # Recarrega a página para garantir elementos frescos
+                driver.get(URL_LISTAR)
+                wait_dom_ready(driver)
+                time.sleep(1)
+                continue
+            else:
+                raise e
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"  Tentativa {attempt + 1} falhou: {str(e)[:100]}, tentando novamente...")
+                time.sleep(2)
+                driver.get(URL_LISTAR)
+                wait_dom_ready(driver)
+                time.sleep(1)
+                continue
+            else:
+                raise e
 
 
 def run_to_google_sheets_insert_dedup(
@@ -534,19 +564,20 @@ def run_to_google_sheets_insert_dedup(
             print(f"BRASIL: {novos} registros novos inseridos")
 
         ufs = list_one_menu_items(driver, wait, ID_UF_LABEL, ID_UF_PANEL)
-        ufs = [u for u in ufs if u.upper() != "BRASIL"]
+        ufs = [u for u in ufs if u.upper() not in {"BRASIL", "[SELECIONE]"}]
 
-        for uf in ufs:
+        for i, uf in enumerate(ufs, 1):
             if uf in SKIP_SHEETS:
                 continue
             try:
-                print(f"Processando {uf}...")
+                print(f"Processando {uf} ({i}/{len(ufs)})...")
                 df_uf = run_one_scope(driver, wait, eleicao_text=eleicao_text, uf_text=uf)
                 ws = ensure_worksheet(ss, uf, rows=2000, cols=max(30, len(COLS_BASE) + 5))
                 novos = insert_new_rows_top(ws, df_uf)
                 print(f"{uf}: {novos} registros novos inseridos")
+                time.sleep(1)  # pequena pausa entre estados
             except Exception as e:
-                print(f"Erro ao processar {uf}: {e}")
+                print(f"Erro ao processar {uf}: {str(e)[:200]}")
                 continue
 
     finally:
@@ -565,4 +596,4 @@ if __name__ == "__main__":
     print(f"SPREADSHEET_ID: {os.getenv('SPREADSHEET_ID', SPREADSHEET_ID)}")
     
     run_to_google_sheets_insert_dedup(eleicao_text=eleicao, headless=headless)
-    print("Atualização concluída (INSERT na linha 4; ISO + USER_ENTERED; sem mexer no Dashboard).")
+    print("Atualização concluída (INSERT na linha 4; ISO + USER_ENTERED; sem mexer no Dashboard)."
