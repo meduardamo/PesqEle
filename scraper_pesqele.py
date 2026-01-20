@@ -1,7 +1,7 @@
 import os
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Optional
 
 import pandas as pd
@@ -15,12 +15,10 @@ from selenium.common.exceptions import (
     ElementClickInterceptedException,
     StaleElementReferenceException,
     NoSuchElementException,
-    WebDriverException,
 )
 
 import gspread
 from google.oauth2.service_account import Credentials
-
 
 URL_LISTAR = "https://pesqele-divulgacao.tse.jus.br/app/pesquisa/listar.xhtml"
 
@@ -35,8 +33,11 @@ ID_BTN_PESQUISAR = "formPesquisa:idBtnPesquisar"
 ID_TBODY = "formPesquisa:tabelaPesquisas_data"
 ID_PAGINATOR = "formPesquisa:tabelaPesquisas_paginator_bottom"
 
+SHEET_URL = os.getenv("SHEET_URL", "https://docs.google.com/spreadsheets/d/1OEmfn_RyTgrkPenzXlc6qvySs8rbVV39qmuHoULwtjQ/edit")
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1OEmfn_RyTgrkPenzXlc6qvySs8rbVV39qmuHoULwtjQ")
 CREDS_PATH = "credentials.json"
 
+# mantém duas primeiras linhas livres (banner)
 HEADER_ROW = 3
 DATA_START_ROW = 4
 
@@ -54,160 +55,90 @@ COLS_BASE = [
 SKIP_SHEETS = {"Dashboard"}
 
 
-def env_bool(name: str, default: bool = False) -> bool:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    return str(v).strip().lower() in {"1", "true", "yes", "y", "sim"}
-
-
-def now_with_offset() -> datetime:
-    add_hours = int(os.getenv("ADD_HOURS", "0"))
-    return datetime.now() + timedelta(hours=add_hours)
-
-
-def make_driver(headless: bool = True) -> webdriver.Chrome:
+def make_driver(profile_dir: str = "./chrome-profile-pesqele", headless: bool = False) -> webdriver.Chrome:
     opts = webdriver.ChromeOptions()
-
-    # no GH Actions isso é obrigatório na prática
+    opts.add_argument("--start-maximized")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-gpu")
-    opts.add_argument("--window-size=1920,1080")
-    opts.add_argument("--lang=pt-BR")
-
-    if headless:
+    
+    # No CI, usar headless sempre
+    if headless or os.getenv("CI"):
         opts.add_argument("--headless=new")
-
-    # evita profile persistente no Actions (pasta pode dar permissão/lock)
-    # se você quiser usar profile localmente, rode com USE_PROFILE=1 e CHROME_PROFILE_DIR=...
-    if env_bool("USE_PROFILE", False):
-        profile_dir = os.getenv("CHROME_PROFILE_DIR", "./chrome-profile-pesqele")
+    
+    # No CI, não usar profile persistente
+    if not os.getenv("CI"):
         opts.add_argument(f"--user-data-dir={os.path.abspath(profile_dir)}")
-
+    
+    # No CI, usar chromium-chromedriver do sistema
+    if os.getenv("CI"):
+        opts.binary_location = "/usr/bin/chromium-browser"
+        return webdriver.Chrome(options=opts)
+    
     return webdriver.Chrome(options=opts)
 
 
-def wait_dom_ready(driver: webdriver.Chrome, timeout: int = 60) -> None:
+def wait_dom_ready(driver: webdriver.Chrome, timeout: int = 30) -> None:
     WebDriverWait(driver, timeout).until(
         lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
     )
 
 
-def js_click(driver: webdriver.Chrome, el) -> None:
-    driver.execute_script("arguments[0].click();", el)
+def safe_click(driver: webdriver.Chrome, wait: WebDriverWait, by: By, value: str, timeout: int = 30):
+    el = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable((by, value)))
+    try:
+        el.click()
+        return el
+    except ElementClickInterceptedException:
+        driver.execute_script("arguments[0].click();", el)
+        return el
 
 
-def scroll_center(driver: webdriver.Chrome, el) -> None:
-    driver.execute_script("arguments[0].scrollIntoView({block:'center', inline:'center'});", el)
-
-
-def force_close_any_menu(driver: webdriver.Chrome) -> None:
+def force_close_any_menu(driver: webdriver.Chrome):
     try:
         driver.switch_to.active_element.send_keys(Keys.ESCAPE)
     except Exception:
         pass
     try:
-        driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+        driver.find_element(By.TAG_NAME, "body").click()
     except Exception:
         pass
 
 
-def dismiss_overlays_best_effort(driver: webdriver.Chrome) -> None:
-    # best-effort: cookie banners / dialogs comuns
-    xpaths = [
-        "//button[contains(translate(.,'ACEITARCONCORDOFECHAROK','aceitarconcordofecharok'),'aceitar')]",
-        "//button[contains(translate(.,'ACEITARCONCORDOFECHAROK','aceitarconcordofecharok'),'concordo')]",
-        "//button[contains(translate(.,'ACEITARCONCORDOFECHAROK','aceitarconcordofecharok'),'fechar')]",
-        "//button[contains(translate(.,'ACEITARCONCORDOFECHAROK','aceitarconcordofecharok'),'ok')]",
-        "//a[contains(translate(.,'FECHAR','fechar'),'fechar')]",
-    ]
-    for xp in xpaths:
-        try:
-            els = driver.find_elements(By.XPATH, xp)
-            if els:
-                try:
-                    scroll_center(driver, els[0])
-                    js_click(driver, els[0])
-                    time.sleep(0.2)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-
 def open_menu(driver: webdriver.Chrome, wait: WebDriverWait, label_id: str, panel_id: str) -> None:
-    # PrimeFaces: às vezes clicar no label não abre o panel no headless
-    # aqui fazemos retries + JS click + tentativa de clicar no "trigger" interno.
-    last_err = None
-    for _ in range(8):
-        try:
-            dismiss_overlays_best_effort(driver)
-            force_close_any_menu(driver)
-
-            label = wait.until(EC.presence_of_element_located((By.ID, label_id)))
-            scroll_center(driver, label)
-
-            try:
-                label.click()
-            except Exception:
-                js_click(driver, label)
-
-            # tentativa extra: clicar no botão gatilho dentro do componente, se existir
-            try:
-                wrapper = driver.find_element(By.ID, label_id).find_element(By.XPATH, "./ancestor::*[contains(@class,'ui-selectonemenu')]")
-                trig = wrapper.find_elements(By.CSS_SELECTOR, ".ui-selectonemenu-trigger")
-                if trig:
-                    scroll_center(driver, trig[0])
-                    js_click(driver, trig[0])
-            except Exception:
-                pass
-
-            # o panel pode existir e só não estar visível ainda; checa presença + visibilidade
-            wait.until(EC.presence_of_element_located((By.ID, panel_id)))
-            panel = driver.find_element(By.ID, panel_id)
-            if panel.is_displayed():
-                return
-
-            # às vezes abre e fecha rápido: dá um respiro e tenta de novo
-            time.sleep(0.25)
-
-        except Exception as e:
-            last_err = e
-            time.sleep(0.35)
-
-    raise TimeoutException(f"Falha ao abrir menu {label_id} -> {panel_id}. Último erro: {last_err}")
+    safe_click(driver, wait, By.ID, label_id)
+    wait.until(EC.presence_of_element_located((By.ID, panel_id)))
+    wait.until(EC.visibility_of_element_located((By.ID, panel_id)))
 
 
-def select_one_menu_by_text(driver: webdriver.Chrome, wait: WebDriverWait, label_id: str, panel_id: str, text: str) -> None:
+def select_one_menu_by_text(
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+    label_id: str,
+    panel_id: str,
+    text: str
+) -> None:
     open_menu(driver, wait, label_id, panel_id)
+
     panel = driver.find_element(By.ID, panel_id)
-
-    # normaliza espaços e tenta match exato; fallback para contains
-    target = None
+    item = panel.find_element(By.XPATH, f".//li[normalize-space()='{text}']")
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", item)
     try:
-        target = panel.find_element(By.XPATH, f".//li[contains(@class,'ui-selectonemenu-item')][normalize-space()='{text}']")
-    except NoSuchElementException:
-        try:
-            target = panel.find_element(By.XPATH, f".//li[contains(@class,'ui-selectonemenu-item')][contains(normalize-space(),'{text}')]")
-        except NoSuchElementException:
-            target = None
-
-    if target is None:
-        force_close_any_menu(driver)
-        raise NoSuchElementException(f"Item '{text}' não encontrado no menu {label_id}")
-
-    scroll_center(driver, target)
-    try:
-        target.click()
+        item.click()
     except Exception:
-        js_click(driver, target)
+        driver.execute_script("arguments[0].click();", item)
 
     force_close_any_menu(driver)
 
 
-def list_one_menu_items(driver: webdriver.Chrome, wait: WebDriverWait, label_id: str, panel_id: str) -> List[str]:
+def list_one_menu_items(
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+    label_id: str,
+    panel_id: str
+) -> List[str]:
     open_menu(driver, wait, label_id, panel_id)
+
     panel = driver.find_element(By.ID, panel_id)
     lis = panel.find_elements(By.CSS_SELECTOR, "li.ui-selectonemenu-item")
 
@@ -224,21 +155,23 @@ def list_one_menu_items(driver: webdriver.Chrome, wait: WebDriverWait, label_id:
     return items
 
 
-def click_and_wait_table_refresh(driver: webdriver.Chrome, wait: WebDriverWait, btn_id: str, tbody_id: str) -> None:
+def click_and_wait_table_refresh(
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+    btn_id: str,
+    tbody_id: str
+) -> None:
     try:
         old_tbody = driver.find_element(By.ID, tbody_id)
     except Exception:
         old_tbody = None
 
-    btn = wait.until(EC.presence_of_element_located((By.ID, btn_id)))
-    scroll_center(driver, btn)
-
+    btn = safe_click(driver, wait, By.ID, btn_id)
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
     try:
         btn.click()
-    except ElementClickInterceptedException:
-        js_click(driver, btn)
     except Exception:
-        js_click(driver, btn)
+        driver.execute_script("arguments[0].click();", btn)
 
     if old_tbody is not None:
         try:
@@ -264,11 +197,13 @@ def dedup_by_numero(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
 def get_page_numbers(driver: webdriver.Chrome, wait: WebDriverWait, paginator_id: str) -> List[int]:
     pag = wait.until(EC.presence_of_element_located((By.ID, paginator_id)))
     links = pag.find_elements(By.CSS_SELECTOR, "a.ui-paginator-page")
+
     nums = []
     for a in links:
         txt = (a.text or "").strip()
         if txt.isdigit():
             nums.append(int(txt))
+
     return sorted(set(nums))
 
 
@@ -286,16 +221,23 @@ def get_active_page(driver: webdriver.Chrome, wait: WebDriverWait, paginator_id:
         return None
 
 
-def go_to_page(driver: webdriver.Chrome, wait: WebDriverWait, paginator_id: str, tbody_id: str, page_num: int, max_tries: int = 8) -> None:
+def go_to_page(
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+    paginator_id: str,
+    tbody_id: str,
+    page_num: int,
+    max_tries: int = 6
+) -> None:
     last_err = None
     for _ in range(max_tries):
         try:
             pag = wait.until(EC.presence_of_element_located((By.ID, paginator_id)))
             a = pag.find_element(By.CSS_SELECTOR, f"a.ui-paginator-page[aria-label='Page {page_num}']")
-            scroll_center(driver, a)
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", a)
 
             tbody_before = driver.find_element(By.ID, tbody_id)
-            js_click(driver, a)
+            driver.execute_script("arguments[0].click();", a)
 
             try:
                 wait.until(EC.staleness_of(tbody_before))
@@ -304,19 +246,20 @@ def go_to_page(driver: webdriver.Chrome, wait: WebDriverWait, paginator_id: str,
 
             wait.until(EC.presence_of_element_located((By.ID, tbody_id)))
             return
-        except (StaleElementReferenceException, ElementClickInterceptedException, TimeoutException, WebDriverException) as e:
+
+        except (StaleElementReferenceException, ElementClickInterceptedException, TimeoutException) as e:
             last_err = e
-            time.sleep(0.4)
+            time.sleep(0.5)
 
     raise last_err
 
 
-def wait_list_page_ready(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
+def wait_list_page_ready(driver: webdriver.Chrome, wait: WebDriverWait):
     wait.until(EC.presence_of_element_located((By.ID, ID_TBODY)))
     wait.until(EC.presence_of_element_located((By.ID, ID_PAGINATOR)))
 
 
-def wait_detail_page_ready(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
+def wait_detail_page_ready(driver: webdriver.Chrome, wait: WebDriverWait):
     wait.until(EC.presence_of_element_located((By.ID, "print")))
 
 
@@ -337,7 +280,12 @@ def extract_field_by_label(driver: webdriver.Chrome, label_text: str) -> Optiona
     return None
 
 
-def click_row_lupa_and_get_data_divulgacao(driver: webdriver.Chrome, wait: WebDriverWait, row_el, current_page: Optional[int]) -> Optional[str]:
+def click_row_lupa_and_get_data_divulgacao(
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+    row_el,
+    current_page: Optional[int],
+) -> Optional[str]:
     try:
         lupa = row_el.find_element(By.CSS_SELECTOR, "a[id$=':detalhar']")
     except NoSuchElementException:
@@ -346,9 +294,9 @@ def click_row_lupa_and_get_data_divulgacao(driver: webdriver.Chrome, wait: WebDr
         except NoSuchElementException:
             return None
 
-    scroll_center(driver, lupa)
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", lupa)
     try:
-        js_click(driver, lupa)
+        driver.execute_script("arguments[0].click();", lupa)
     except Exception:
         try:
             lupa.click()
@@ -399,7 +347,6 @@ def parse_current_table_with_details(driver: webdriver.Chrome, wait: WebDriverWa
             "data_divulgacao": data_divulgacao,
         })
 
-        # re-cache após voltar do detalhe
         try:
             tbody = driver.find_element(By.ID, tbody_id)
             rows = tbody.find_elements(By.XPATH, ".//tr")
@@ -409,7 +356,12 @@ def parse_current_table_with_details(driver: webdriver.Chrome, wait: WebDriverWa
     return out
 
 
-def scrape_all_pages_current_query(driver: webdriver.Chrome, wait: WebDriverWait, paginator_id: str, tbody_id: str) -> List[Dict[str, str]]:
+def scrape_all_pages_current_query(
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+    paginator_id: str,
+    tbody_id: str
+) -> List[Dict[str, str]]:
     pages = get_page_numbers(driver, wait, paginator_id)
     if not pages:
         return dedup_by_numero(parse_current_table_with_details(driver, wait, tbody_id))
@@ -436,7 +388,20 @@ def gspread_client(creds_path: str) -> gspread.Client:
     return gspread.authorize(creds)
 
 
-def ensure_worksheet(ss: gspread.Spreadsheet, title: str, rows: int = 2000, cols: int = 30) -> gspread.Worksheet:
+def get_spreadsheet(gc: gspread.Client) -> gspread.Spreadsheet:
+    """Abre a planilha usando ID ou URL, com preferência para ID"""
+    spreadsheet_id = os.getenv("SPREADSHEET_ID")
+    
+    if spreadsheet_id:
+        # Se tem ID, usa direto (mais rápido e seguro)
+        return gc.open_by_key(spreadsheet_id)
+    else:
+        # Fallback para URL
+        sheet_url = os.getenv("SHEET_URL", SHEET_URL)
+        return gc.open_by_url(sheet_url)
+
+
+def ensure_worksheet(ss: gspread.Spreadsheet, title: str, rows: int = 1000, cols: int = 30) -> gspread.Worksheet:
     title = sheet_safe(title)
     try:
         return ss.worksheet(title)
@@ -462,10 +427,12 @@ def get_existing_keys(ws: gspread.Worksheet, key_col_name: str = "numero_identif
 
     col_vals = ws.col_values(idx)
     keys = set()
+
     for v in col_vals[DATA_START_ROW - 1:]:
         v = (v or "").strip()
         if v:
             keys.add(v)
+
     return keys
 
 
@@ -497,11 +464,13 @@ def insert_new_rows_top(ws: gspread.Worksheet, df: pd.DataFrame, key_col_name: s
         return 0
 
     df = df.copy()
+
     for c in COLS_BASE:
         if c not in df.columns:
             df[c] = ""
     df = df[COLS_BASE].fillna("")
 
+    # manda ISO pra o Sheets reconhecer como data quando usar USER_ENTERED
     df["data_registro"] = df["data_registro"].apply(parse_br_date_to_iso)
     df["data_divulgacao"] = df["data_divulgacao"].apply(parse_br_date_to_iso)
     df["capturado_em"] = df["capturado_em"].apply(parse_br_datetime_to_iso)
@@ -514,16 +483,24 @@ def insert_new_rows_top(ws: gspread.Worksheet, df: pd.DataFrame, key_col_name: s
     if df_new.empty:
         return 0
 
+    # deixa as mais recentes em cima (melhor esforço usando data_divulgacao; fallback fica estável)
     df_new["__sort"] = df_new["data_divulgacao"].apply(iso_date_sort_key)
     df_new = df_new.sort_values(by=["__sort", "numero_identificacao"], ascending=[False, False], kind="mergesort")
     df_new = df_new.drop(columns=["__sort"])
 
     values = df_new.astype(str).values.tolist()
+
+    # insert real: entra na linha 4 e empurra o que já existe pra baixo
     ws.insert_rows(values, row=DATA_START_ROW, value_input_option="USER_ENTERED")
     return len(df_new)
 
 
-def run_one_scope(driver: webdriver.Chrome, wait: WebDriverWait, eleicao_text: str, uf_text: str) -> pd.DataFrame:
+def run_one_scope(
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+    eleicao_text: str,
+    uf_text: str,
+) -> pd.DataFrame:
     select_one_menu_by_text(driver, wait, ID_ELEICAO_LABEL, ID_ELEICAO_PANEL, eleicao_text)
     select_one_menu_by_text(driver, wait, ID_UF_LABEL, ID_UF_PANEL, uf_text)
 
@@ -534,7 +511,7 @@ def run_one_scope(driver: webdriver.Chrome, wait: WebDriverWait, eleicao_text: s
     df = pd.DataFrame(rows)
 
     df["uf_filtro"] = uf_text
-    df["capturado_em"] = now_with_offset().strftime("%d/%m/%Y %H:%M:%S")
+    df["capturado_em"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
     for c in COLS_BASE:
         if c not in df.columns:
@@ -543,31 +520,27 @@ def run_one_scope(driver: webdriver.Chrome, wait: WebDriverWait, eleicao_text: s
     return df[COLS_BASE]
 
 
-def open_spreadsheet(gc: gspread.Client) -> gspread.Spreadsheet:
-    sid = (os.getenv("SPREADSHEET_ID", "") or "").strip()
-    if not sid:
-        raise RuntimeError("Defina SPREADSHEET_ID (secret/variável).")
-    return gc.open_by_key(sid)
-
-
-def run_to_google_sheets_insert_dedup(eleicao_text: str, headless: bool = True) -> None:
+def run_to_google_sheets_insert_dedup(
+    eleicao_text: str = "Eleições Gerais 2026",
+    headless: bool = False
+) -> None:
     gc = gspread_client(CREDS_PATH)
-    ss = open_spreadsheet(gc)
+    ss = get_spreadsheet(gc)
 
     driver = make_driver(headless=headless)
-    wait = WebDriverWait(driver, 60)
+    wait = WebDriverWait(driver, 30)
 
     try:
         driver.get(URL_LISTAR)
-        wait_dom_ready(driver, timeout=60)
-        dismiss_overlays_best_effort(driver)
+        wait_dom_ready(driver)
 
-        # BRASIL
-        df_brasil = run_one_scope(driver, wait, eleicao_text=eleicao_text, uf_text="BRASIL")
-        ws_brasil = ensure_worksheet(ss, "BRASIL", rows=3000, cols=max(30, len(COLS_BASE) + 5))
-        insert_new_rows_top(ws_brasil, df_brasil)
+        if "BRASIL" not in SKIP_SHEETS:
+            print(f"Processando BRASIL...")
+            df_brasil = run_one_scope(driver, wait, eleicao_text=eleicao_text, uf_text="BRASIL")
+            ws_brasil = ensure_worksheet(ss, "BRASIL", rows=2000, cols=max(30, len(COLS_BASE) + 5))
+            novos = insert_new_rows_top(ws_brasil, df_brasil)
+            print(f"BRASIL: {novos} registros novos inseridos")
 
-        # UFs
         ufs = list_one_menu_items(driver, wait, ID_UF_LABEL, ID_UF_PANEL)
         ufs = [u for u in ufs if u.upper() != "BRASIL"]
 
@@ -575,23 +548,34 @@ def run_to_google_sheets_insert_dedup(eleicao_text: str, headless: bool = True) 
             if uf in SKIP_SHEETS:
                 continue
             try:
+                print(f"Processando {uf}...")
                 df_uf = run_one_scope(driver, wait, eleicao_text=eleicao_text, uf_text=uf)
-                ws = ensure_worksheet(ss, uf, rows=3000, cols=max(30, len(COLS_BASE) + 5))
-                insert_new_rows_top(ws, df_uf)
-            except Exception:
-                # não derruba o job por UF problemática
+                ws = ensure_worksheet(ss, uf, rows=2000, cols=max(30, len(COLS_BASE) + 5))
+                novos = insert_new_rows_top(ws, df_uf)
+                print(f"{uf}: {novos} registros novos inseridos")
+            except Exception as e:
+                print(f"Erro ao processar {uf}: {e}")
                 continue
 
     finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
+        driver.quit()
 
 
 if __name__ == "__main__":
-    eleicao = os.getenv("ELEICAO_TEXT", "Eleições Gerais 2026").strip()
-    headless = env_bool("HEADLESS", True)
-
+    # Pega texto da eleição do env ou usa padrão
+    eleicao = os.getenv("ELEICAO_TEXT", "Eleições Gerais 2026")
+    
+    # No CI sempre headless
+    headless = bool(os.getenv("CI", False))
+    
+    print(f"Iniciando scraper para: {eleicao}")
+    print(f"Modo headless: {headless}")
+    
+    # Verifica se tem SPREADSHEET_ID configurado
+    if os.getenv("SPREADSHEET_ID"):
+        print(f"Usando SPREADSHEET_ID: {os.getenv('SPREADSHEET_ID')}")
+    else:
+        print(f"Usando SHEET_URL padrão")
+    
     run_to_google_sheets_insert_dedup(eleicao_text=eleicao, headless=headless)
-    print("Atualização concluída (INSERT na linha 4; USER_ENTERED; dedup por numero_identificacao).")
+    print("Atualização concluída (INSERT na linha 4; ISO + USER_ENTERED; sem mexer no Dashboard)."
