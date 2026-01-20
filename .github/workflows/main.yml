@@ -1,13 +1,23 @@
 name: pesqele-daily
 
 on:
-  schedule:
-    - cron: "0 10 * * *"
   workflow_dispatch:
+  schedule:
+    # 07:00 Recife (UTC-3) = 10:00 UTC
+    - cron: "0 10 * * *"
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      HEADLESS: "1"
+      ELEICAO_TEXT: "Eleições Gerais 2026"
+      # você disse que precisa somar +3 nas datas/horas que grava
+      ADD_HOURS: "3"
+      # se quiser tentar "horário local" do runner também:
+      TZ: "America/Recife"
 
     steps:
       - name: Checkout
@@ -16,21 +26,30 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install Chrome
-        uses: browser-actions/setup-chrome@v1
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Write Google credentials
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: |
+          python - << 'PY'
+          import os, json
+          raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+          if not raw.strip():
+            raise SystemExit("Secret GOOGLE_CREDENTIALS_JSON está vazio.")
+          data = json.loads(raw)
+          with open("credentials.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+          print("credentials.json escrito.")
+          PY
+
       - name: Run scraper
         env:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-          HEADLESS: "true"
-          SEL_TIMEOUT: "30"
         run: |
           python scraper_pesqele.py
