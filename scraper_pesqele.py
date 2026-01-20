@@ -596,4 +596,4 @@ if __name__ == "__main__":
     print(f"SPREADSHEET_ID: {os.getenv('SPREADSHEET_ID', SPREADSHEET_ID)}")
     
     run_to_google_sheets_insert_dedup(eleicao_text=eleicao, headless=headless)
-    print("Atualização concluída (INSERT na linha 4; ISO + USER_ENTERED; sem mexer no Dashboard)."
+    print("Atualização concluída (INSERT na linha 4; ISO + USER_ENTERED; sem mexer no Dashboard).")
