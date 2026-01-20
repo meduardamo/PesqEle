@@ -5,3 +5,4 @@ sendgrid==6.7.1
 selenium==4.22.0
 gspread==6.1.4
 google-auth==2.34.0
+pandas
