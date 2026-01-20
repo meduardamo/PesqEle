@@ -33,7 +33,6 @@ ID_BTN_PESQUISAR = "formPesquisa:idBtnPesquisar"
 ID_TBODY = "formPesquisa:tabelaPesquisas_data"
 ID_PAGINATOR = "formPesquisa:tabelaPesquisas_paginator_bottom"
 
-SHEET_URL = os.getenv("SHEET_URL", "https://docs.google.com/spreadsheets/d/1OEmfn_RyTgrkPenzXlc6qvySs8rbVV39qmuHoULwtjQ/edit")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1OEmfn_RyTgrkPenzXlc6qvySs8rbVV39qmuHoULwtjQ")
 CREDS_PATH = "credentials.json"
 
@@ -389,16 +388,9 @@ def gspread_client(creds_path: str) -> gspread.Client:
 
 
 def get_spreadsheet(gc: gspread.Client) -> gspread.Spreadsheet:
-    """Abre a planilha usando ID ou URL, com preferência para ID"""
-    spreadsheet_id = os.getenv("SPREADSHEET_ID")
-    
-    if spreadsheet_id:
-        # Se tem ID, usa direto (mais rápido e seguro)
-        return gc.open_by_key(spreadsheet_id)
-    else:
-        # Fallback para URL
-        sheet_url = os.getenv("SHEET_URL", SHEET_URL)
-        return gc.open_by_url(sheet_url)
+    """Abre a planilha usando SPREADSHEET_ID"""
+    spreadsheet_id = os.getenv("SPREADSHEET_ID", SPREADSHEET_ID)
+    return gc.open_by_key(spreadsheet_id)
 
 
 def ensure_worksheet(ss: gspread.Spreadsheet, title: str, rows: int = 1000, cols: int = 30) -> gspread.Worksheet:
@@ -570,12 +562,7 @@ if __name__ == "__main__":
     
     print(f"Iniciando scraper para: {eleicao}")
     print(f"Modo headless: {headless}")
-    
-    # Verifica se tem SPREADSHEET_ID configurado
-    if os.getenv("SPREADSHEET_ID"):
-        print(f"Usando SPREADSHEET_ID: {os.getenv('SPREADSHEET_ID')}")
-    else:
-        print(f"Usando SHEET_URL padrão")
+    print(f"SPREADSHEET_ID: {os.getenv('SPREADSHEET_ID', SPREADSHEET_ID)}")
     
     run_to_google_sheets_insert_dedup(eleicao_text=eleicao, headless=headless)
     print("Atualização concluída (INSERT na linha 4; ISO + USER_ENTERED; sem mexer no Dashboard)."
