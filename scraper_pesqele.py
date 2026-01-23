@@ -51,7 +51,7 @@ COLS_BASE = [
     "capturado_em",
 ]
 
-SKIP_SHEETS = {"Dashboard"}
+SKIP_SHEETS = {"Dashboard"}  # -selecione- será criada automaticamente, não pula ela
 
 
 def make_driver(profile_dir: str = "./chrome-profile-pesqele", headless: bool = False) -> webdriver.Chrome:
@@ -552,6 +552,8 @@ def run_to_google_sheets_insert_dedup(
     driver = make_driver(headless=headless)
     wait = WebDriverWait(driver, 30)
 
+    all_data = []  # Lista para acumular TODOS os dados
+
     try:
         driver.get(URL_LISTAR)
         wait_dom_ready(driver)
@@ -562,9 +564,10 @@ def run_to_google_sheets_insert_dedup(
             ws_brasil = ensure_worksheet(ss, "BRASIL", rows=2000, cols=max(30, len(COLS_BASE) + 5))
             novos = insert_new_rows_top(ws_brasil, df_brasil)
             print(f"BRASIL: {novos} registros novos inseridos")
+            all_data.append(df_brasil)  # Adiciona à lista geral
 
         ufs = list_one_menu_items(driver, wait, ID_UF_LABEL, ID_UF_PANEL)
-        ufs = [u for u in ufs if u.upper() not in {"BRASIL", "[SELECIONE]"}]
+        ufs = [u for u in ufs if u.upper() not in {"BRASIL", "[SELECIONE]", "SELECIONE"}]
 
         for i, uf in enumerate(ufs, 1):
             if uf in SKIP_SHEETS:
@@ -575,10 +578,21 @@ def run_to_google_sheets_insert_dedup(
                 ws = ensure_worksheet(ss, uf, rows=2000, cols=max(30, len(COLS_BASE) + 5))
                 novos = insert_new_rows_top(ws, df_uf)
                 print(f"{uf}: {novos} registros novos inseridos")
+                all_data.append(df_uf)  # Adiciona à lista geral
                 time.sleep(1)  # pequena pausa entre estados
             except Exception as e:
                 print(f"Erro ao processar {uf}: {str(e)[:200]}")
                 continue
+
+        # Cria a aba "-selecione-" com TODOS os dados combinados
+        if all_data:
+            print("\n📊 Criando aba '-selecione-' com todos os dados...")
+            df_all = pd.concat(all_data, ignore_index=True)
+            df_all = df_all.drop_duplicates(subset=["numero_identificacao"], keep="first")
+            
+            ws_all = ensure_worksheet(ss, "-selecione-", rows=5000, cols=max(30, len(COLS_BASE) + 5))
+            novos_all = insert_new_rows_top(ws_all, df_all)
+            print(f"-selecione-: {novos_all} registros novos inseridos (de {len(df_all)} totais)")
 
     finally:
         driver.quit()
@@ -596,4 +610,4 @@ if __name__ == "__main__":
     print(f"SPREADSHEET_ID: {os.getenv('SPREADSHEET_ID', SPREADSHEET_ID)}")
     
     run_to_google_sheets_insert_dedup(eleicao_text=eleicao, headless=headless)
-    print("Atualização concluída (INSERT na linha 4; ISO + USER_ENTERED; sem mexer no Dashboard).")
+    print("Atualização concluída (INSERT na linha 4; ISO + USER_ENTERED; sem mexer no Dashboard)."
