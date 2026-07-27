@@ -133,10 +133,13 @@ def consolidar(df_api, csv_path):
     (link do plano + situação em tempo real), pelo SQ_CANDIDATO.
     O CSV é a espinha; a API só acrescenta o que ele não tem."""
     base = carregar_base(csv_path)
-    extra = (df_api[["sq_candidato", "link_plano", "situacao"]]
+    _extra_cols = [c for c in ("sq_candidato", "link_plano", "situacao", "foto_url")
+                   if c in df_api.columns]
+    extra = (df_api[_extra_cols]
              .rename(columns={"sq_candidato": "SQ_CANDIDATO",
                               "link_plano": "LINK_PLANO",
-                              "situacao": "SITUACAO_TEMPO_REAL"}))
+                              "situacao": "SITUACAO_TEMPO_REAL",
+                              "foto_url": "FOTO_URL"}))
     return base.merge(extra, on="SQ_CANDIDATO", how="left")
 
 
@@ -173,6 +176,10 @@ def extrair_candidaturas(ano=ANO, cargos=CARGOS_PADRAO, enriquecer=True):
                         # link do plano de governo (só presidente/governador têm)
                         idarq = _id_plano(det)
                         row["link_plano"] = f"{DOC}/{idarq}" if idarq else None
+                        # A foto sai do MESMO detalhe, sem chamada extra. O TSE
+                        # marca fotoUrlPublicavel quando pode ser exibida.
+                        row["foto_url"] = (det.get("fotoUrl") or ""
+                                           if det.get("fotoUrlPublicavel") else "")
                 linhas.append(row)
             print(f"{CARGOS[cargo]} {ue}: {len(cands)}")
     return pd.DataFrame(linhas)
