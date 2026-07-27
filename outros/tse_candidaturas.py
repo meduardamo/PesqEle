@@ -236,11 +236,20 @@ def extrair_chapas(ano=ANO):
 
 
 def _id_plano(detalhe):
-    # codTipo 5 = proposta de governo (os outros arquivos são certidões, bens etc.)
-    for f in detalhe.get('arquivos') or []:
-        if str(f.get('codTipo')) == "5":
-            return f['idArquivo']
-    return None
+    """ID do plano de governo MAIS RECENTE.
+
+    codTipo 5 = proposta de governo (os outros arquivos são certidões, bens etc.).
+
+    O candidato pode substituir o plano durante o registro, e aí ficam dois
+    arquivos tipo 5 (Lula e Pablo Marçal em 2022, por exemplo). Pegar o
+    primeiro da lista dava certo só porque a API vinha ordenada; o idArquivo é
+    sequencial, então o maior é o último enviado — isso não depende da ordem.
+    """
+    planos = [f for f in (detalhe.get('arquivos') or [])
+              if str(f.get('codTipo')) == "5" and f.get('idArquivo')]
+    if not planos:
+        return None
+    return max(planos, key=lambda f: int(f['idArquivo']))['idArquivo']
 
 
 CREDS_FILE = Path("credentials.json")
