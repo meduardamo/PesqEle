@@ -1,0 +1,60 @@
+name: 14 - Planos de Governo
+
+on:
+  schedule:
+    # Mesmo ritmo do DivulgaCand (workflow 10), que é de onde vêm os planos.
+    # Rodamos 20 minutos depois dele para pegar o que ele acabou de registrar.
+    # O script só processa o que está pendente: em hora sem plano novo ele lê a
+    # planilha, não acha nada e sai em segundos, sem gastar chamada de Gemini.
+    - cron: '45 * * * *'
+  workflow_dispatch:
+    inputs:
+      uf:
+        description: 'Restringe a uma UF (vazio = todas)'
+        required: false
+        default: ''
+      forcar:
+        description: 'Reprocessa mesmo quem já está gravado e atualizado'
+        type: boolean
+        required: false
+        default: false
+
+# Duas execuções gravando na mesma planilha se atrapalham. A fila garante uma de
+# cada vez, e a corrente não é cancelada para não jogar fora análise já paga.
+concurrency:
+  group: planos-governo
+  cancel-in-progress: false
+
+jobs:
+  analisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330        # o runner corta em 6h; para antes com folga
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: OCR (planos digitalizados)
+        # Sem tesseract, plano escaneado volta vazio e parece que o candidato
+        # não escreveu nada.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-por
+
+      - run: pip install gspread google-auth google-genai PyMuPDF pillow pytesseract pandas
+
+      - name: Escrever credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+
+      - name: Analisar planos
+        env:
+          PYTHONUNBUFFERED: "1"     # sem isso o log só aparece no fim
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
+        run: |
+          python -m outros.processar_planos \
+            --cargo TODOS \
+            ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }} \
+            ${{ inputs.forcar == true && '--forcar' || '' }}
