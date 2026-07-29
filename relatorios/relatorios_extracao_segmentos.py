@@ -1098,11 +1098,20 @@ def cmd_canonico():
 PRESIDENTE_BR_T1_SLUG = "t1_lula-flavio-sem-bolsonaros"
 
 
-def _link_pollingdata_url(registro: str, cargo: str) -> str:
-    """Página do PollingData por cargo/uf (turno 1), derivada do registro TSE
-    (o prefixo do registro é a UF: 'PI-04468/2026' -> pi)."""
+def _link_pollingdata_url(registro: str, cargo: str, uf_rotulo: str = "") -> str:
+    """Página do PollingData por cargo/uf (turno 1).
+
+    A UF sai da coluna 'UF' da linha, não do prefixo do registro: pesquisa de
+    presidente com recorte estadual é registrada como BR-08086/2026 mas sai
+    publicada na página do estado ('ACRE' -> presidente/ac). Sem a coluna, cai
+    no prefixo do registro ('PI-04468/2026' -> pi)."""
+    from relatorios.relatorios_busca_fontes import MAPA_UF
+    rotulo = str(uf_rotulo).strip().upper()
+    uf = MAPA_UF.get(rotulo, rotulo if len(rotulo) == 2 else "")
     registro = str(registro)
-    uf = registro.split("-")[0].strip().lower() if "-" in registro else ""
+    if not uf:
+        uf = registro.split("-")[0].strip() if "-" in registro else ""
+    uf = uf.lower()
     cargo = str(cargo).strip().lower()
     if not (uf and cargo):
         return ""
@@ -1147,7 +1156,7 @@ def cmd_sync_cadastrado():
         rotulo = _rel_display(chave)
         return header.index(rotulo) if rotulo in header else None
 
-    c_reg, c_cargo = _c("registro"), _c("cargo")
+    c_reg, c_cargo, c_uf = _c("registro"), _c("cargo"), _c("uf")
     c_link, c_voto, c_data = _c("link_pollingdata"), _c("topline_extraido"), _c("topline_data_extracao")
     agora = datetime.now(BRT).strftime("%Y-%m-%d %H:%M")
 
@@ -1157,7 +1166,7 @@ def cmd_sync_cadastrado():
         reg = cel(c_reg).strip()
         cargo = cel(c_cargo).strip().lower()
         if c_link is not None:
-            novo = _link_pollingdata_url(reg, cargo)
+            novo = _link_pollingdata_url(reg, cargo, cel(c_uf))
             if novo and cel(c_link) != novo:
                 reqs.append({"range": rowcol_to_a1(i, c_link + 1), "values": [[novo]]})
                 n_link += 1
