@@ -1092,6 +1092,11 @@ def cmd_canonico():
 
 
 
+# Presidente não tem página '/br/t1' seca no flex: o 1º turno é publicado por
+# cenário, e o vigente é o de Lula x Flávio sem os demais Bolsonaros.
+PRESIDENTE_T1_SLUG = "t1_lula-flavio-sem-bolsonaros"
+
+
 def _link_pollingdata_url(registro: str, cargo: str) -> str:
     """Página do PollingData por cargo/uf (turno 1), derivada do registro TSE
     (o prefixo do registro é a UF: 'PI-04468/2026' -> pi)."""
@@ -1100,7 +1105,8 @@ def _link_pollingdata_url(registro: str, cargo: str) -> str:
     cargo = str(cargo).strip().lower()
     if not (uf and cargo):
         return ""
-    return f"https://flex.pollingdata.com.br/pdvoto/2026/{cargo}/{uf}/t1"
+    turno = PRESIDENTE_T1_SLUG if cargo == "presidente" else "t1"
+    return f"https://flex.pollingdata.com.br/pdvoto/2026/{cargo}/{uf}/{turno}"
 
 
 def cmd_sync_cadastrado():
