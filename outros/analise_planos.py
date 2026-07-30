@@ -114,8 +114,18 @@ TEMAS_EDUCACAO = dict(EIXOS["Educação"])
 GEMINI_MODEL = "gemini-2.5-flash"
 
 
+_CLIENT = None
+
+
 def _gemini_client():
-    # mesma config do gerador de envios: chave por env ou secrets
+    # mesma config do gerador de envios: chave por env ou secrets.
+    # O cliente fica guardado num global de propósito: o `Client` do google-genai
+    # fecha a conexão HTTP no __del__, então um cliente temporário em
+    # `_gemini_client().models.generate_content(...)` é coletado antes da chamada
+    # sair e o erro vira "Cannot send a request, as the client has been closed".
+    global _CLIENT
+    if _CLIENT is not None:
+        return _CLIENT
     from google import genai
     key = os.getenv("GEMINI_API_KEY", "")
     if not key:
@@ -126,7 +136,8 @@ def _gemini_client():
             pass
     if not key:
         raise RuntimeError("Faltou a GEMINI_API_KEY (env var ou secrets).")
-    return genai.Client(api_key=key)
+    _CLIENT = genai.Client(api_key=key)
+    return _CLIENT
 
 
 # extração de texto
