@@ -282,13 +282,15 @@ def salvar_no_sheets(df, aba):
 # Os IDs ficam no código com override por env porque são planilha de trabalho
 # compartilhada, não segredo — e assim o workflow roda sem secret novo.
 
-PAINEL_NOMES_ID = os.getenv("SPREADSHEET_ID_NOMES_COMPETITIVOS",
-                            "1PxKVZeBIyJ5bCKhmyjSvvQNK8I0igGiy5qWxa512Qu8")
+# O `or` (e não o default do getenv) porque secret inexistente no Actions chega
+# como string vazia, não como ausente.
+PAINEL_NOMES_ID = (os.getenv("SPREADSHEET_ID_COMPETITIVOS", "").strip()
+                   or "1PxKVZeBIyJ5bCKhmyjSvvQNK8I0igGiy5qWxa512Qu8")
 PAINEL_NOMES_ABA = "Candidatos Deputados Federais"
 
 # Legislatura atual (57ª), de onde sai quem já é deputado federal hoje.
-DEPUTADOS_ATUAIS_ID = os.getenv("SPREADSHEET_ID_DEPUTADOS_ATUAIS",
-                                "1qvOzDv0TE-TJyEDvGfZVSCMmysJaoJfbBvbwDQCtd4g")
+DEPUTADOS_ATUAIS_ID = (os.getenv("SPREADSHEET_ID_DEPUTADOS_ATUAIS", "").strip()
+                       or "1qvOzDv0TE-TJyEDvGfZVSCMmysJaoJfbBvbwDQCtd4g")
 DEPUTADOS_ATUAIS_ABA = "deputados_completo"
 
 COLUNAS_PAINEL = ["Cargo", "Disputa", "UF", "Partido", "Candidato", "Status",
