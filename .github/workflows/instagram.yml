@@ -15,6 +15,8 @@ on:
         description: "Limite de perfis (apenas no modo --perfis)"
         required: false
         default: ""
+  schedule:
+    - cron: "0 18 * * *"
 
 jobs:
   executar-script:
