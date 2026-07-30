@@ -357,6 +357,30 @@ def _config_gemini():
     return {"thinking_config": {"thinking_budget": GEMINI_THINKING_BUDGET}}
 
 
+# Status da candidatura. Mesma canonicalização do partido e do tipo: o modelo
+# responde em texto livre e escorrega (numa rodada real veio "cobertura general",
+# em espanhol, 6 vezes), o que vira quase-duplicata no filtro do painel.
+STATUS = ("confirmado", "pré-candidato", "em disputa", "renúncia", "desistência",
+          "pesquisa", "cobertura geral", "não relacionado", "indefinido")
+_STATUS_ALIAS = {
+    "cobertura general": "cobertura geral", "cobertura gerall": "cobertura geral",
+    "general coverage": "cobertura geral", "cobertura": "cobertura geral",
+    "pre-candidato": "pré-candidato", "pre candidato": "pré-candidato",
+    "precandidato": "pré-candidato", "pré candidato": "pré-candidato",
+    "nao relacionado": "não relacionado", "não-relacionado": "não relacionado",
+    "nao-relacionado": "não relacionado", "not related": "não relacionado",
+    "renuncia": "renúncia", "desistencia": "desistência",
+}
+
+
+def normalize_status(raw) -> str:
+    v = str(raw or "").strip().lower()
+    if not v or v.upper() in _PARTIDO_VAZIO:
+        return "indefinido"
+    v = _STATUS_ALIAS.get(v, v)
+    return v if v in STATUS else "indefinido"
+
+
 def classificar_com_gemini(titulo, trecho=""):
     """Lê a manchete (e trecho do artigo) e extrai os campos estruturados (JSON) via Gemini."""
     contexto = f"Manchete: {titulo}"
@@ -436,6 +460,7 @@ def classificar_com_gemini(titulo, trecho=""):
             dados[campo] = None
     dados["partido"] = normalize_partido(dados.get("partido"))
     dados["tipo"] = normalize_tipo(dados.get("tipo"))
+    dados["status"] = normalize_status(dados.get("status"))
     # normaliza pra string: bool False vira "" com o _safe() de salvar_no_sheets
     # (False é falsy em Python), o que confundiria "não" com "não preenchido"
     dados["convencao"] = "sim" if dados.get("convencao") is True else "não"
