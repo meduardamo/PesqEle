@@ -279,18 +279,13 @@ def salvar_no_sheets(df, aba):
 # de candidatos a deputado federal saída do DivulgaCand, com marcação de quem
 # está tentando a reeleição.
 #
-# Os IDs ficam no código com override por env porque são planilha de trabalho
-# compartilhada, não segredo — e assim o workflow roda sem secret novo.
-
-# O `or` (e não o default do getenv) porque secret inexistente no Actions chega
-# como string vazia, não como ausente.
-PAINEL_NOMES_ID = (os.getenv("SPREADSHEET_ID_COMPETITIVOS", "").strip()
-                   or "1PxKVZeBIyJ5bCKhmyjSvvQNK8I0igGiy5qWxa512Qu8")
+# Os IDs ficam fixos aqui, sem secret: são planilha de trabalho compartilhada,
+# não segredo, e assim dá pra ler o código e saber onde a rodada escreve.
+PAINEL_NOMES_ID = "1PxKVZeBIyJ5bCKhmyjSvvQNK8I0igGiy5qWxa512Qu8"
 PAINEL_NOMES_ABA = "Candidatos Deputados Federais"
 
 # Legislatura atual (57ª), de onde sai quem já é deputado federal hoje.
-DEPUTADOS_ATUAIS_ID = (os.getenv("SPREADSHEET_ID_DEPUTADOS_ATUAIS", "").strip()
-                       or "1qvOzDv0TE-TJyEDvGfZVSCMmysJaoJfbBvbwDQCtd4g")
+DEPUTADOS_ATUAIS_ID = "1qvOzDv0TE-TJyEDvGfZVSCMmysJaoJfbBvbwDQCtd4g"
 DEPUTADOS_ATUAIS_ABA = "deputados_completo"
 
 COLUNAS_PAINEL = ["Cargo", "Disputa", "UF", "Partido", "Candidato", "Status",
@@ -387,25 +382,64 @@ def deputados_em_exercicio(gc=None):
     return atuais
 
 
-def montar_deputados_federais(df, atuais):
+def _preenchido_a_mao(ws):
+    """O que a equipe já escreveu na aba, por (UF, candidato).
+
+    Status é coluna de trabalho: quem acompanha a disputa é que escreve ali. Como
+    a rodada seguinte reescreve a aba inteira, o que foi digitado tem que voltar
+    junto — e o mesmo vale para qualquer coluna que a equipe acrescente à direita.
+
+    Devolve (colunas extras, {(uf, nome): {coluna: valor}}). Cabeçalho fora do
+    padrão devolve vazio: melhor não adivinhar de qual coluna o dado veio.
+    """
+    valores = ws.get_all_values()
+    if not valores:
+        return [], {}
+    cabecalho = [c.strip() for c in valores[0]]
+    if "UF" not in cabecalho or "Candidato" not in cabecalho:
+        return [], {}
+    i_uf, i_nome = cabecalho.index("UF"), cabecalho.index("Candidato")
+    extras = [c for c in cabecalho if c and c not in COLUNAS_PAINEL]
+    guardadas = {}
+    for linha in valores[1:]:
+        if len(linha) <= max(i_uf, i_nome):
+            continue
+        uf = linha[i_uf].strip().upper()
+        nome = _chave(linha[i_nome])
+        if uf and nome:
+            guardadas[(uf, nome)] = dict(zip(cabecalho, linha))
+    return extras, guardadas
+
+
+def montar_deputados_federais(df, atuais, guardadas=None, extras=()):
     """Uma linha por candidatura a deputado federal, nas colunas da planilha de
-    trabalho. Ordena por UF, partido e nome, que é como a equipe lê a lista."""
+    trabalho. Ordena por UF, partido e nome, que é como a equipe lê a lista.
+
+    Status sai vazio na candidatura nova: é campo de preenchimento da equipe, não
+    da coleta. Candidatura que já estava na aba mantém o que foi escrito lá.
+    """
+    guardadas = guardadas or {}
     dep = df[df["cargo"] == CARGOS[6]] if len(df) else df
     linhas = []
     for _, c in dep.iterrows():
         uf = str(c.get("ue") or "").strip().upper()
+        nome = _nome_publicado(c.get("nome_urna"))
+        anterior = guardadas.get((uf, _chave(nome)), {})
         nomes = {_chave(c.get("nome_urna")), _chave(c.get("nome_completo"))}
         reeleicao = bool(nomes & atuais.get(uf, set()))
-        linhas.append({
+        linha = {
             "Cargo": "Deputado Federal",
             "Disputa": f"Deputado Federal - {uf}",
             "UF": uf,
             "Partido": _partido_publicado(c.get("partido_listagem")),
-            "Candidato": _nome_publicado(c.get("nome_urna")),
-            "Status": str(c.get("situacao") or "").strip(),
+            "Candidato": nome,
+            "Status": anterior.get("Status", ""),
             "Situação Atual": "Reeleição" if reeleicao else "Novo",
-        })
-    saida = pd.DataFrame(linhas, columns=COLUNAS_PAINEL)
+        }
+        for coluna in extras:
+            linha[coluna] = anterior.get(coluna, "")
+        linhas.append(linha)
+    saida = pd.DataFrame(linhas, columns=COLUNAS_PAINEL + list(extras))
     if len(saida):
         saida = saida.sort_values(["UF", "Partido", "Candidato"],
                                   key=lambda s: s.map(_chave))
@@ -415,25 +449,32 @@ def montar_deputados_federais(df, atuais):
 def exportar_deputados_federais(df):
     """Reescreve a aba de deputado federal na planilha de trabalho da equipe.
 
-    Sobrescreve mesmo: a aba é espelho do DivulgaCand, e candidatura indeferida
-    ou substituída tem que sumir daqui igual sumiu de lá.
+    Sobrescreve a lista mesmo: a aba é espelho do DivulgaCand, e candidatura
+    indeferida ou substituída tem que sumir daqui igual sumiu de lá. O que a
+    equipe escreveu volta pela chave UF + candidato.
     """
     gc = gspread.service_account(filename=str(CREDS_FILE))
-    saida = montar_deputados_federais(df, deputados_em_exercicio(gc))
-    if not len(saida):
-        print("nenhum deputado federal registrado ainda; aba mantida como está")
-        return saida
     sh = gc.open_by_key(PAINEL_NOMES_ID)
     try:
         ws = sh.worksheet(PAINEL_NOMES_ABA)
+        extras, guardadas = _preenchido_a_mao(ws)
     except gspread.WorksheetNotFound:
+        ws, extras, guardadas = None, [], {}
+
+    saida = montar_deputados_federais(df, deputados_em_exercicio(gc),
+                                      guardadas, extras)
+    if not len(saida):
+        print("nenhum deputado federal registrado ainda; aba mantida como está")
+        return saida
+    if ws is None:
         ws = sh.add_worksheet(title=PAINEL_NOMES_ABA, rows=len(saida) + 1,
-                              cols=len(COLUNAS_PAINEL))
+                              cols=len(saida.columns))
     ws.clear()
-    ws.update([COLUNAS_PAINEL] + saida.astype(str).values.tolist())
+    ws.update([list(saida.columns)] + saida.astype(str).values.tolist())
     reeleicao = int((saida["Situação Atual"] == "Reeleição").sum())
+    mantidos = int((saida["Status"].astype(str).str.strip() != "").sum())
     print(f"'{PAINEL_NOMES_ABA}': {len(saida)} candidaturas, "
-          f"{reeleicao} tentando reeleição")
+          f"{reeleicao} tentando reeleição, {mantidos} com status preenchido")
     return saida
 
 
