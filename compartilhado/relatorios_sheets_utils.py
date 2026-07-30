@@ -250,6 +250,17 @@ def _row_count_atual(ws):
     return ws.row_count
 
 
+def _col_count_atual(ws):
+    """Colunas da grade direto da API. Mesmo motivo do _row_count_atual: escrever
+    numa coluna além da largura da grade devolve 400 'exceeds grid limits'."""
+    meta = ws.spreadsheet.fetch_sheet_metadata()
+    for sheet in meta.get("sheets", []):
+        props = sheet.get("properties", {})
+        if props.get("sheetId") == ws.id:
+            return props.get("gridProperties", {}).get("columnCount", ws.col_count)
+    return ws.col_count
+
+
 def _encolher_linhas_vazias(ws):
     """Remove somente as linhas vazias que sobram abaixo dos dados.
 

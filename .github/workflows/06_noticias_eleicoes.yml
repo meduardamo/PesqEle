@@ -8,7 +8,8 @@ on:
     # Duas horas antes do horário-alvo, de propósito: cron agendado do Actions
     # é fila de baixa prioridade e não começa na hora marcada. Medido em 12 dias
     # deste workflow: atraso de 25 min no melhor caso, 89 na mediana, 250 no
-    # pior. O scraper ainda leva de 16 a 77 min. A antecipação cobre o caso
+    # pior. O scraper leva ~10 min (era de 16 a 77, antes de coleta e
+    # classificação irem pra threads). A antecipação cobre o caso
     # mediano; no dia de fila cheia continua atrasando, e a solução definitiva
     # é disparar por repository_dispatch a partir de um agendador externo.
     - cron: '15 7 * * *'   # 04:15 BRT, alvo 06:15
@@ -39,6 +40,10 @@ concurrency:
 jobs:
   scraper:
     runs-on: ubuntu-latest
+    # Rodada normal fica em ~10 min. Se passar de 45, alguma coisa saiu do
+    # trilho (foi assim na rodada de 30/07, que reclassificou a planilha inteira
+    # por 4h e morreu sem salvar) e é melhor cortar do que segurar a fila.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout

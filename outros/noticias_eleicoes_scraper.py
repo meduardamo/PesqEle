@@ -9,34 +9,54 @@ Fonte: Google Notícias (RSS). A classificação fica por conta do Gemini (ver T
 import json
 import os
 import re
+import threading
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 import requests
 from googlenewsdecoder import gnewsdecoder
 from newspaper import Article
-from compartilhado.relatorios_sheets_utils import autorizar_com_retry as _autorizar
+from compartilhado.relatorios_sheets_utils import (
+    _col_count_atual, autorizar_com_retry as _autorizar)
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
+# Classificar manchete é tarefa de extração, não de raciocínio: numa rodada real
+# (335 notícias) o modelo gastou 473 mil tokens de pensamento para 21 mil de
+# saída, ou seja, quase todo o custo e boa parte do tempo de resposta foram
+# pensamento. Com orçamento 0 o flash responde direto. Suba pra 512/1024 pelo
+# env se a qualidade da classificação cair; -1 devolve o pensamento dinâmico
+# (comportamento antigo).
+GEMINI_THINKING_BUDGET = int(os.getenv("GEMINI_THINKING_BUDGET", "0"))
+
+# Coleta e classificação são espera de rede, não CPU: rodando uma de cada vez o
+# scraper levava 66 min (9 de coleta + 56 classificando ~10s por notícia).
+# Medido com os links reais da planilha: 8 threads baixam artigo em 0,54s em vez
+# de 3,7s, e 6 buscas em paralelo no RSS do Google não tomam bloqueio.
+WORKERS_RSS = int(os.getenv("NOTICIAS_WORKERS_RSS", "6"))
+WORKERS_CLASSIFICACAO = int(os.getenv("NOTICIAS_WORKERS", "8"))
+
 # Uso acumulado de tokens do Gemini nesta execução (processo novo a cada rodada
 # do workflow, então não precisa resetar entre chamadas).
 USO_TOKENS = {"chamadas": 0, "entrada": 0, "saida": 0, "pensamento": 0}
+_LOCK_USO = threading.Lock()
 
 
 def _registrar_uso(resp):
     meta = getattr(resp, "usage_metadata", None)
     if not meta:
         return
-    USO_TOKENS["chamadas"] += 1
-    USO_TOKENS["entrada"] += getattr(meta, "prompt_token_count", 0) or 0
-    USO_TOKENS["saida"] += getattr(meta, "candidates_token_count", 0) or 0
-    USO_TOKENS["pensamento"] += getattr(meta, "thoughts_token_count", 0) or 0
+    with _LOCK_USO:   # a classificação roda em várias threads
+        USO_TOKENS["chamadas"] += 1
+        USO_TOKENS["entrada"] += getattr(meta, "prompt_token_count", 0) or 0
+        USO_TOKENS["saida"] += getattr(meta, "candidates_token_count", 0) or 0
+        USO_TOKENS["pensamento"] += getattr(meta, "thoughts_token_count", 0) or 0
 
 
 def _custo_estimado(entrada, saida, pensamento):
@@ -84,11 +104,20 @@ _SA_FIELDS = {
 
 
 _CLIENT = None
+_LOCK_CLIENT = threading.Lock()
 
 def _gemini_client():
     global _CLIENT
     if _CLIENT is not None:
         return _CLIENT
+    with _LOCK_CLIENT:   # várias threads pedem o cliente na primeira classificação
+        if _CLIENT is not None:
+            return _CLIENT
+        return _criar_gemini_client()
+
+
+def _criar_gemini_client():
+    global _CLIENT
     from google import genai
     key = os.getenv("GEMINI_API_KEY", "")
     if not key:
@@ -136,13 +165,23 @@ def _formatar_data(pubdate):
     return dt.strftime("%d/%m/%Y %H:%M") if dt else (pubdate or "")
 
 
-def google_news_rss(busca, max_itens=20):
+def google_news_rss(busca, max_itens=20, tentativas=3):
     """Retorna as notícias recentes de uma busca (título, fonte, data, link).
-    Descarta o que for mais antigo que JANELA_DIAS."""
+    Descarta o que for mais antigo que JANELA_DIAS.
+
+    Repete em erro de rede/HTTP: com as buscas em paralelo, uma falha isolada do
+    Google deixaria um estado inteiro sem notícia na rodada."""
     q = urllib.parse.quote(busca)
     url = f"https://news.google.com/rss/search?q={q}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
-    r = requests.get(url, headers=HEADERS, timeout=30)
-    r.raise_for_status()
+    for tentativa in range(1, tentativas + 1):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=30)
+            r.raise_for_status()
+            break
+        except Exception:
+            if tentativa == tentativas:
+                raise
+            time.sleep(2 * tentativa)
     root = ET.fromstring(r.content)
     corte = datetime.now(BRT) - timedelta(days=JANELA_DIAS)
     itens = []
@@ -196,20 +235,36 @@ def gerar_buscas(cargos=('presidente', 'governador', 'senador')):
     return buscas
 
 
-def coletar(cargos=('presidente', 'governador', 'senador'), pausa=1.0):
-    """Roda todas as buscas e junta as notícias, sem repetir título."""
-    vistos, resultado = set(), []
-    for busca in gerar_buscas(cargos):
+def _buscar_em_paralelo(buscas, workers=None):
+    """Roda as buscas em threads e devolve [(busca, itens)] NA ORDEM PEDIDA.
+
+    A ordem importa porque quem chama deduplica por título ficando com a
+    primeira ocorrência: mantendo a ordem das buscas, a notícia fica sempre
+    atribuída à mesma busca, rodada após rodada.
+    """
+    buscas = list(buscas)
+
+    def _uma(busca):
         try:
-            for it in google_news_rss(busca):
-                chave = it['titulo'].strip().lower()
-                if chave and chave not in vistos:
-                    vistos.add(chave)
-                    it['busca'] = busca
-                    resultado.append(it)
+            return google_news_rss(busca)
         except Exception as e:
             print(f"erro em '{busca}': {e}")
-        time.sleep(pausa)
+            return []
+
+    with ThreadPoolExecutor(max_workers=workers or WORKERS_RSS) as ex:
+        return list(zip(buscas, ex.map(_uma, buscas)))
+
+
+def coletar(cargos=('presidente', 'governador', 'senador')):
+    """Roda todas as buscas e junta as notícias, sem repetir título."""
+    vistos, resultado = set(), []
+    for busca, itens in _buscar_em_paralelo(gerar_buscas(cargos)):
+        for it in itens:
+            chave = it['titulo'].strip().lower()
+            if chave and chave not in vistos:
+                vistos.add(chave)
+                it['busca'] = busca
+                resultado.append(it)
     return resultado
 
 
@@ -295,6 +350,13 @@ def normalize_tipo(raw) -> str:
     return v if v in TIPOS else "outro"
 
 
+def _config_gemini():
+    """Orçamento de pensamento do flash. None = deixa o padrão do modelo."""
+    if GEMINI_THINKING_BUDGET < 0:
+        return None
+    return {"thinking_config": {"thinking_budget": GEMINI_THINKING_BUDGET}}
+
+
 def classificar_com_gemini(titulo, trecho=""):
     """Lê a manchete (e trecho do artigo) e extrai os campos estruturados (JSON) via Gemini."""
     contexto = f"Manchete: {titulo}"
@@ -361,7 +423,8 @@ def classificar_com_gemini(titulo, trecho=""):
         "- Responda SOMENTE o objeto JSON, sem texto extra, sem markdown, sem bloco de código\n\n"
         f"{contexto}"
     )
-    resp = _gemini_client().models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    resp = _gemini_client().models.generate_content(
+        model=GEMINI_MODEL, contents=prompt, config=_config_gemini())
     _registrar_uso(resp)
     texto = (getattr(resp, "text", "") or "").strip()
     texto = texto.replace("```json", "").replace("```", "").strip()
@@ -379,22 +442,48 @@ def classificar_com_gemini(titulo, trecho=""):
     return dados
 
 
+def _classificar_uma(n):
+    """Baixa o artigo e classifica uma notícia, no lugar (dict mutado)."""
+    trecho = _extrair_texto_pagina(n.get("link", ""))
+    n["texto_completo"] = trecho
+    n.update(classificar_com_gemini(n["titulo"], trecho))
+    # site regional: a UF é conhecida, preenche se o Gemini não achou
+    if not n.get("uf") and n.get("uf_regional"):
+        n["uf"] = n["uf_regional"]
+    return n
+
+
+def _em_paralelo(itens, tarefa, total_rotulo="classificadas", workers=None,
+                 passo=25):
+    """Roda `tarefa` sobre `itens` em threads, com log de andamento.
+
+    Erro de um item não derruba o lote: baixar artigo e falar com o Gemini falha
+    por motivo isolado (paywall, timeout, cota), e uma rodada tem centenas de
+    itens.
+    """
+    itens = list(itens)
+    total = len(itens)
+    feitos = [0]
+    lock = threading.Lock()
+
+    def _uma(item):
+        try:
+            tarefa(item)
+        except Exception as e:
+            print(f"  erro ao classificar: {e}")
+        with lock:
+            feitos[0] += 1
+            if feitos[0] % passo == 0 or feitos[0] == total:
+                print(f"[{feitos[0]}/{total}] {total_rotulo}...")
+
+    with ThreadPoolExecutor(max_workers=workers or WORKERS_CLASSIFICACAO) as ex:
+        list(ex.map(_uma, itens))
+    return itens
+
+
 def classificar_noticias(noticias):
     """Aplica o Gemini em cada notícia coletada, acrescentando os campos."""
-    total = len(noticias)
-    for i, n in enumerate(noticias, 1):
-        try:
-            trecho = _extrair_texto_pagina(n.get("link", ""))
-            n["texto_completo"] = trecho
-            n.update(classificar_com_gemini(n["titulo"], trecho))
-            # site regional: a UF é conhecida, preenche se o Gemini não achou
-            if not n.get("uf") and n.get("uf_regional"):
-                n["uf"] = n["uf_regional"]
-        except Exception as e:
-            print(f"[{i}/{total}] erro ao classificar: {e}")
-        if i % 10 == 0 or i == total:
-            print(f"[{i}/{total}] classificadas...")
-    return noticias
+    return _em_paralelo(noticias, _classificar_uma)
 
 
 COLUNAS_PLANILHA = [
@@ -437,6 +526,11 @@ def _garantir_colunas(aba):
     A gravação é toda por nome de coluna (`headers` da planilha viva), então uma
     coluna nova no código sem coluna na planilha é ignorada em silêncio: o campo
     é classificado, custa Gemini e não chega em lugar nenhum.
+
+    A grade cresce antes da escrita: escrever em coluna fora do tamanho da
+    planilha devolve 400 ("exceeds grid limits"), e foi o que derrubou a rodada
+    de 30/07 quando a coluna 'tipo' entrou no código — a aba tinha exatamente 15
+    colunas ocupadas.
     """
     from gspread.utils import rowcol_to_a1
     headers = aba.row_values(1)
@@ -446,7 +540,11 @@ def _garantir_colunas(aba):
     if not faltando:
         return
     inicio = len(headers) + 1
-    faixa = f"{rowcol_to_a1(1, inicio)}:{rowcol_to_a1(1, inicio + len(faltando) - 1)}"
+    fim = inicio + len(faltando) - 1
+    largura = _col_count_atual(aba)
+    if fim > largura:
+        aba.add_cols(fim - largura)
+    faixa = f"{rowcol_to_a1(1, inicio)}:{rowcol_to_a1(1, fim)}"
     aba.update(range_name=faixa, values=[faltando])
     print(f"Coluna(s) acrescentada(s) no cabeçalho: {', '.join(faltando)}")
 
@@ -478,39 +576,52 @@ def carregar_sites_regionais():
     return sites
 
 
-def coletar_regionais(sites, pausa=1.0):
+def coletar_regionais(sites):
     """Busca no Google Notícias restrito a cada domínio (site:), tagueando a UF."""
+    pedidos = [(f"site:{dom} {termos}", dom, uf)
+               for dom, uf in sites for termos in BLOCOS]
+    origem = {busca: (dom, uf) for busca, dom, uf in pedidos}
+
     vistos, resultado = set(), []
-    for dom, uf in sites:
-        for termos in BLOCOS:
-            busca = f"site:{dom} {termos}"
-            try:
-                for it in google_news_rss(busca):
-                    chave = it['titulo'].strip().lower()
-                    if chave and chave not in vistos:
-                        vistos.add(chave)
-                        it['busca'] = f"regional:{dom}"
-                        it['uf_regional'] = uf
-                        resultado.append(it)
-            except Exception as e:
-                print(f"erro em '{dom}': {e}")
-            time.sleep(pausa)
+    for busca, itens in _buscar_em_paralelo([p[0] for p in pedidos]):
+        dom, uf = origem[busca]
+        for it in itens:
+            chave = it['titulo'].strip().lower()
+            if chave and chave not in vistos:
+                vistos.add(chave)
+                it['busca'] = f"regional:{dom}"
+                it['uf_regional'] = uf
+                resultado.append(it)
     return resultado
 
 
-def carregar_titulos_existentes():
-    """Retorna o conjunto de títulos já salvos na aba do Sheets."""
-    try:
-        aba = _sheets_aba()
-        headers = aba.row_values(1)
-        if "titulo" not in headers:
-            return set()
-        col = headers.index("titulo") + 1
-        valores = aba.col_values(col)[1:]
-        return {v.strip().lower() for v in valores if v.strip()}
-    except Exception as e:
-        print(f"Aviso: não foi possível carregar títulos existentes: {e}")
-        return set()
+def carregar_titulos_existentes(tentativas=3):
+    """Retorna o conjunto de títulos já salvos na aba do Sheets.
+
+    Levanta erro em vez de devolver conjunto vazio: sem os títulos, TODA notícia
+    coletada vira notícia nova, e a rodada reclassifica a planilha inteira. Em
+    30/07 isso aconteceu por um 400 do Sheets engolido aqui — 1369 notícias
+    reclassificadas do zero, 3h25 de runner e o dinheiro de Gemini jogados fora
+    (a rodada ainda morreu antes de salvar). Falhar rápido é mais barato.
+    """
+    erro = None
+    for tentativa in range(1, tentativas + 1):
+        try:
+            aba = _sheets_aba()
+            headers = aba.row_values(1)
+            if "titulo" not in headers:
+                raise RuntimeError("a aba não tem a coluna 'titulo'")
+            col = headers.index("titulo") + 1
+            valores = aba.col_values(col)[1:]
+            return {v.strip().lower() for v in valores if v.strip()}
+        except Exception as e:
+            erro = e
+            print(f"Tentativa {tentativa} de ler os títulos existentes falhou: {e}")
+            if tentativa < tentativas:
+                time.sleep(5 * tentativa)
+    raise RuntimeError(
+        "Não deu pra ler os títulos já salvos, então não dá pra saber o que é "
+        f"notícia nova. Rodada abortada antes de gastar Gemini. Causa: {erro}")
 
 
 def _safe(v):
@@ -533,16 +644,31 @@ def reclassificar_pendentes(aba):
     pelo timeout do runner antes de terminar. Sem salvar incrementalmente,
     isso jogava fora todo o progresso já feito, porque a lista de updates só
     ia pro Sheets no final do loop inteiro.
+
+    Cada lote é classificado em paralelo (mesmo pool da coleta) e só então
+    gravado, para o progresso continuar sendo salvo de LOTE em LOTE.
     """
     from gspread.utils import rowcol_to_a1
-    vals = aba.get_all_values()
-    if len(vals) < 2:
-        return
-    headers = vals[0]
+    headers = aba.row_values(1)
     if "titulo" not in headers or "status" not in headers:
         return
-    i_titulo, i_status = headers.index("titulo"), headers.index("status")
-    i_link = headers.index("link") if "link" in headers else None
+
+    def _letra(coluna):
+        return rowcol_to_a1(1, headers.index(coluna) + 1).rstrip("1")
+
+    # Só as três colunas que interessam, em vez de get_all_values(): a aba tem
+    # mais de 11 mil linhas e uma delas é o texto completo do artigo, ou seja,
+    # dezenas de MB baixados a cada rodada só pra achar as linhas sem status.
+    lidas = ("titulo", "status", "link")
+    faixas = [f"{_letra(c)}2:{_letra(c)}" for c in lidas if c in headers]
+    blocos = aba.batch_get(faixas)
+    coluna_de = dict(zip([c for c in lidas if c in headers], blocos))
+
+    def _valor(coluna, i):
+        bloco = coluna_de.get(coluna) or []
+        linha = bloco[i] if i < len(bloco) else []
+        return (linha[0] if linha else "").strip()
+
     # "resumo" fica de fora: não é gerado aqui, é o alerta que alguém gerou e
     # decidiu salvar no painel. Reclassificar não pode sobrescrever isso.
     cols = [c for c in ("candidato", "cargo", "uf", "partido", "status", "convencao",
@@ -551,39 +677,35 @@ def reclassificar_pendentes(aba):
     # célula por célula, não um range candidato→confiança: se as colunas novas
     # forem adicionadas fora da ordem (ex.: no fim da planilha, depois de titulo/
     # fonte/data/link/busca), um range contíguo escreveria por cima dessas colunas.
-    col_letra = {c: rowcol_to_a1(1, headers.index(c) + 1).rstrip("1") for c in cols}
+    col_letra = {c: _letra(c) for c in cols}
 
+    total_linhas = max((len(b) for b in blocos), default=0)
     pendentes = [
-        (r, row[i_titulo], row[i_link] if (i_link is not None and i_link < len(row)) else "")
-        for r, row in enumerate(vals[1:], start=2)
-        if (row[i_titulo] if i_titulo < len(row) else "")
-        and not (row[i_status] if i_status < len(row) else "").strip()
+        {"linha": i + 2, "titulo": _valor("titulo", i), "link": _valor("link", i)}
+        for i in range(total_linhas)
+        if _valor("titulo", i) and not _valor("status", i)
     ]
     if not pendentes:
         return
     print(f"{len(pendentes)} linhas pendentes de reclassificação.")
 
-    updates, linhas_no_lote, total = [], 0, 0
-    for i, (r, titulo, link) in enumerate(pendentes, 1):
-        try:
-            trecho = _extrair_texto_pagina(link)
-            cl = classificar_com_gemini(titulo, trecho)
-            cl["texto_completo"] = trecho
-        except Exception as e:
-            print(f"  erro ao reclassificar linha {r}: {e}")
-            continue
-        for c in cols:
-            updates.append({"range": f"{col_letra[c]}{r}",
-                            "values": [[_safe(cl.get(c))]]})
-        linhas_no_lote += 1
-        if linhas_no_lote >= LOTE_RECLASSIFICACAO:
+    def _reclassificar(p):
+        trecho = _extrair_texto_pagina(p["link"])
+        p["classificacao"] = dict(classificar_com_gemini(p["titulo"], trecho),
+                                  texto_completo=trecho)
+
+    total = 0
+    for inicio in range(0, len(pendentes), LOTE_RECLASSIFICACAO):
+        lote = pendentes[inicio:inicio + LOTE_RECLASSIFICACAO]
+        _em_paralelo(lote, _reclassificar, total_rotulo="reclassificadas",
+                     passo=len(lote))
+        updates = [{"range": f"{col_letra[c]}{p['linha']}",
+                    "values": [[_safe(p["classificacao"].get(c))]]}
+                   for p in lote if p.get("classificacao") for c in cols]
+        if updates:
             aba.batch_update(updates, value_input_option="USER_ENTERED")
-            total += linhas_no_lote
-            updates, linhas_no_lote = [], 0
-            print(f"[{i}/{len(pendentes)}] reclassificadas... ({total} salvas)")
-    if updates:
-        aba.batch_update(updates, value_input_option="USER_ENTERED")
-        total += linhas_no_lote
+            total += sum(1 for p in lote if p.get("classificacao"))
+            print(f"[{inicio + len(lote)}/{len(pendentes)}] ({total} salvas)")
     print(f"{total} linhas reclassificadas.")
 
 
