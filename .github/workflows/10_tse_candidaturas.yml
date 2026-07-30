@@ -27,5 +27,10 @@ jobs:
       - run: python -m outros.tse_candidaturas
         env:
           SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
-          # A planilha de trabalho da equipe ("Eleições 2026 - Nomes competitivos")
-          # e a da legislatura atual têm ID fixo em outros/tse_candidaturas.py.
+          # Planilha de trabalho da equipe ("Eleições 2026 - Nomes competitivos"),
+          # onde a aba de candidatos a deputado federal é reescrita a cada rodada,
+          # e a da legislatura atual (deputados_completo_assPEC), de onde sai a
+          # marcação de reeleição. Faltando qualquer um dos dois, a exportação
+          # avisa no log e a coleta segue normal.
+          SPREADSHEET_ID_COMPETITIVOS: ${{ secrets.SPREADSHEET_ID_COMPETITIVOS }}
+          SPREADSHEET_ID_DEPUTADOS_ATUAIS: ${{ secrets.SPREADSHEET_ID_DEPUTADOS_ATUAIS }}

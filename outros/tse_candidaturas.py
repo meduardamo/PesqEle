@@ -279,13 +279,14 @@ def salvar_no_sheets(df, aba):
 # de candidatos a deputado federal saída do DivulgaCand, com marcação de quem
 # está tentando a reeleição.
 #
-# Os IDs ficam fixos aqui, sem secret: são planilha de trabalho compartilhada,
-# não segredo, e assim dá pra ler o código e saber onde a rodada escreve.
-PAINEL_NOMES_ID = "1PxKVZeBIyJ5bCKhmyjSvvQNK8I0igGiy5qWxa512Qu8"
+# Os dois IDs vêm de secret, como o resto das planilhas do repo. Secret que não
+# existe chega como string vazia no Actions, e é isso que o .strip() abaixo trata:
+# sem ID a exportação avisa e sai, sem derrubar a coleta.
+PAINEL_NOMES_ID = os.getenv("SPREADSHEET_ID_COMPETITIVOS", "").strip()
 PAINEL_NOMES_ABA = "Candidatos Deputados Federais"
 
 # Legislatura atual (57ª), de onde sai quem já é deputado federal hoje.
-DEPUTADOS_ATUAIS_ID = "1qvOzDv0TE-TJyEDvGfZVSCMmysJaoJfbBvbwDQCtd4g"
+DEPUTADOS_ATUAIS_ID = os.getenv("SPREADSHEET_ID_DEPUTADOS_ATUAIS", "").strip()
 DEPUTADOS_ATUAIS_ABA = "deputados_completo"
 
 COLUNAS_PAINEL = ["Cargo", "Disputa", "UF", "Partido", "Candidato", "Status",
@@ -453,6 +454,14 @@ def exportar_deputados_federais(df):
     indeferida ou substituída tem que sumir daqui igual sumiu de lá. O que a
     equipe escreveu volta pela chave UF + candidato.
     """
+    faltando = [nome for nome, valor in
+                (("SPREADSHEET_ID_COMPETITIVOS", PAINEL_NOMES_ID),
+                 ("SPREADSHEET_ID_DEPUTADOS_ATUAIS", DEPUTADOS_ATUAIS_ID))
+                if not valor]
+    if faltando:
+        print(f"aba de deputado federal pulada: falta {', '.join(faltando)}")
+        return pd.DataFrame(columns=COLUNAS_PAINEL)
+
     gc = gspread.service_account(filename=str(CREDS_FILE))
     sh = gc.open_by_key(PAINEL_NOMES_ID)
     try:
