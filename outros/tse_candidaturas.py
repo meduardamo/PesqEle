@@ -12,7 +12,9 @@ Autenticação pelo arquivo credentials.json (service account).
 
 import io
 import os
+import re
 import time
+import unicodedata
 import zipfile
 from pathlib import Path
 
@@ -271,11 +273,180 @@ def salvar_no_sheets(df, aba):
     print(f"Sheets atualizado: aba '{aba}' ({len(df)} linhas)")
 
 
+# ── Aba de deputado federal na planilha "Eleições 2026 - Nomes competitivos" ──
+# Planilha de trabalho da equipe (não é a de coleta): a mesma que já tem as abas
+# de governador/senador e de senadores com mandato até 2031. Aqui entra a lista
+# de candidatos a deputado federal saída do DivulgaCand, com marcação de quem
+# está tentando a reeleição.
+#
+# Os IDs ficam no código com override por env porque são planilha de trabalho
+# compartilhada, não segredo — e assim o workflow roda sem secret novo.
+
+PAINEL_NOMES_ID = os.getenv("SPREADSHEET_ID_NOMES_COMPETITIVOS",
+                            "1PxKVZeBIyJ5bCKhmyjSvvQNK8I0igGiy5qWxa512Qu8")
+PAINEL_NOMES_ABA = "Candidatos Deputados Federais"
+
+# Legislatura atual (57ª), de onde sai quem já é deputado federal hoje.
+DEPUTADOS_ATUAIS_ID = os.getenv("SPREADSHEET_ID_DEPUTADOS_ATUAIS",
+                                "1qvOzDv0TE-TJyEDvGfZVSCMmysJaoJfbBvbwDQCtd4g")
+DEPUTADOS_ATUAIS_ABA = "deputados_completo"
+
+COLUNAS_PAINEL = ["Cargo", "Disputa", "UF", "Partido", "Candidato", "Status",
+                  "Situação Atual"]
+
+# Partido como a casa publica: por extenso quando é nome, sigla quando é sigla.
+# Mesma regra do gerador-de-envios (alerta_pesquisa_core.rotulo_partido_alerta) e
+# da aba de governador/senador desta planilha, que já traz "Republicanos".
+PARTIDO_PUBLICADO = {
+    "agir": "Agir", "avante": "Avante",
+    "cid": "Cidadania", "cidadania": "Cidadania",
+    "dem": "Democrata", "democratas": "Democrata",
+    "missao": "Missão",
+    "mob": "Mobiliza", "mobiliza": "Mobiliza",
+    "novo": "Novo",
+    "pode": "Podemos", "podemos": "Podemos",
+    "rede": "Rede",
+    "rep": "Republicanos", "republicanos": "Republicanos",
+    "sd": "Solidariedade", "solidariedade": "Solidariedade",
+    "uniao": "União", "uniao brasil": "União",
+    "progressistas": "PP", "psol": "PSOL",
+    # A API escreve PCDOB; a grafia do partido tem caixa própria.
+    "pcdob": "PCdoB", "pc do b": "PCdoB",
+}
+
+# Título de urna abreviado, também como no gerador-de-envios.
+TITULO_URNA = {
+    "professor": "Prof.", "prof": "Prof.",
+    "professora": "Profa.", "profa": "Profa.",
+    "doutor": "Dr.", "dr": "Dr.",
+    "doutora": "Dra.", "dra": "Dra.",
+    "delegado": "Del.", "del": "Del.",
+    "delegada": "Dela.", "dela": "Dela.",
+    "coronel": "Cel.", "cel": "Cel.", "coronela": "Cel.",
+}
+
+PARTICULAS = {"de", "da", "do", "das", "dos", "e"}
+
+
+def _chave(texto):
+    """'PROFESSOR ÁLVARO' -> 'professor alvaro'. Sem acento e sem caixa, que é
+    como dá pra cruzar nome do TSE com nome parlamentar da Câmara."""
+    txt = unicodedata.normalize("NFKD", str(texto or ""))
+    txt = "".join(c for c in txt if not unicodedata.combining(c)).lower()
+    return re.sub(r"[^a-z0-9]+", " ", txt).strip()
+
+
+def _partido_publicado(sigla):
+    bruto = str(sigla or "").strip()
+    return PARTIDO_PUBLICADO.get(_chave(bruto), bruto.upper())
+
+
+def _nome_publicado(nome):
+    """'PROFESSOR ÁLVARO DOMINGUES' -> 'Prof. Álvaro Domingues'.
+
+    O nome de urna vem em caixa alta na API. Palavra entre parênteses fica como
+    está: é apelido em sigla ('PAULO CÉSAR (PC)'), que Title Case estragaria.
+    """
+    texto = re.sub(r"\s+", " ", str(nome or "")).strip()
+    if not texto:
+        return ""
+    palavras = []
+    for i, palavra in enumerate(texto.split(" ")):
+        if palavra.startswith("(") and palavra.endswith(")"):
+            palavras.append(palavra)
+            continue
+        if i > 0 and palavra.lower() in PARTICULAS:
+            palavras.append(palavra.lower())
+            continue
+        partes = re.split(r"([-'])", palavra)
+        palavras.append("".join(
+            (p[:1].upper() + p[1:].lower()) if p and p not in ("-", "'") else p
+            for p in partes))
+    if len(palavras) > 1:
+        abreviado = TITULO_URNA.get(_chave(palavras[0]))
+        if abreviado:
+            palavras[0] = abreviado
+    return " ".join(palavras)
+
+
+def deputados_em_exercicio(gc=None):
+    """{UF: {nome normalizado}} da legislatura atual, pra dizer quem está
+    tentando a reeleição. Casa por UF junto com o nome: homônimo entre estados
+    diferentes é comum o bastante pra não confiar só no nome."""
+    gc = gc or gspread.service_account(filename=str(CREDS_FILE))
+    linhas = (gc.open_by_key(DEPUTADOS_ATUAIS_ID)
+                .worksheet(DEPUTADOS_ATUAIS_ABA).get_all_records())
+    atuais = {}
+    for linha in linhas:
+        nome = _chave(linha.get("nome"))
+        uf = str(linha.get("siglaUf") or "").strip().upper()
+        if nome and uf:
+            atuais.setdefault(uf, set()).add(nome)
+    return atuais
+
+
+def montar_deputados_federais(df, atuais):
+    """Uma linha por candidatura a deputado federal, nas colunas da planilha de
+    trabalho. Ordena por UF, partido e nome, que é como a equipe lê a lista."""
+    dep = df[df["cargo"] == CARGOS[6]] if len(df) else df
+    linhas = []
+    for _, c in dep.iterrows():
+        uf = str(c.get("ue") or "").strip().upper()
+        nomes = {_chave(c.get("nome_urna")), _chave(c.get("nome_completo"))}
+        reeleicao = bool(nomes & atuais.get(uf, set()))
+        linhas.append({
+            "Cargo": "Deputado Federal",
+            "Disputa": f"Deputado Federal - {uf}",
+            "UF": uf,
+            "Partido": _partido_publicado(c.get("partido_listagem")),
+            "Candidato": _nome_publicado(c.get("nome_urna")),
+            "Status": str(c.get("situacao") or "").strip(),
+            "Situação Atual": "Reeleição" if reeleicao else "Novo",
+        })
+    saida = pd.DataFrame(linhas, columns=COLUNAS_PAINEL)
+    if len(saida):
+        saida = saida.sort_values(["UF", "Partido", "Candidato"],
+                                  key=lambda s: s.map(_chave))
+    return saida
+
+
+def exportar_deputados_federais(df):
+    """Reescreve a aba de deputado federal na planilha de trabalho da equipe.
+
+    Sobrescreve mesmo: a aba é espelho do DivulgaCand, e candidatura indeferida
+    ou substituída tem que sumir daqui igual sumiu de lá.
+    """
+    gc = gspread.service_account(filename=str(CREDS_FILE))
+    saida = montar_deputados_federais(df, deputados_em_exercicio(gc))
+    if not len(saida):
+        print("nenhum deputado federal registrado ainda; aba mantida como está")
+        return saida
+    sh = gc.open_by_key(PAINEL_NOMES_ID)
+    try:
+        ws = sh.worksheet(PAINEL_NOMES_ABA)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title=PAINEL_NOMES_ABA, rows=len(saida) + 1,
+                              cols=len(COLUNAS_PAINEL))
+    ws.clear()
+    ws.update([COLUNAS_PAINEL] + saida.astype(str).values.tolist())
+    reeleicao = int((saida["Situação Atual"] == "Reeleição").sum())
+    print(f"'{PAINEL_NOMES_ABA}': {len(saida)} candidaturas, "
+          f"{reeleicao} tentando reeleição")
+    return saida
+
+
 if __name__ == '__main__':
     df = extrair_candidaturas()
     print(f"candidaturas: {len(df)} linha(s)")
     if len(df):
         salvar_no_sheets(df, "candidaturas_divulgacand")
+        # Espelho da lista de deputado federal na planilha de trabalho da
+        # equipe, com a marcação de reeleição. Falha aqui não pode derrubar a
+        # coleta, que é o que alimenta todo o resto.
+        try:
+            exportar_deputados_federais(df)
+        except Exception as e:
+            print(f"aba de deputado federal não atualizada: {str(e)[:120]}")
 
     chapas = extrair_chapas()
     print(f"chapas: {len(chapas)} linha(s)")
