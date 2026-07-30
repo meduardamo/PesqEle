@@ -161,23 +161,38 @@ def google_news_rss(busca, max_itens=20):
     return itens
 
 
-# Um bloco OR só: termos de candidatura (convenção etc.) + pesquisa de intenção de
-# voto (frases genéricas e nomes de institutos, o sinal mais forte). Assim mantém
-# uma query por cargo/UF em vez de dobrar. O Gemini separa depois pelo status.
+# Bloco 1: termos de candidatura (convenção etc.) + pesquisa de intenção de voto
+# (frases genéricas e nomes de institutos, o sinal mais forte).
 TERMOS = ('(convenção OR pré-candidato OR "coordenador de campanha" '
           'OR "lançamento de candidatura" '
           'OR "pesquisa eleitoral" OR "intenção de voto" OR "pesquisa de opinião" '
           'OR Datafolha OR Quaest OR Ipec OR AtlasIntel OR "Paraná Pesquisas" '
           'OR "Real Time Big Data")')
 
+# Bloco 2: o que acontece na campanha depois que a candidatura está de pé —
+# agenda, debate, mudança de aliança, declaração de apoio e educação (para pegar
+# crítica sobre política pública de educação). Fica numa busca separada em vez de
+# entrar no bloco 1: o RSS do Google devolve no máximo ~20 itens por busca, então
+# um OR gigante faria os termos novos disputarem espaço com convenção/pesquisa e
+# ninguém apareceria direito. O Gemini separa depois pelo campo tipo.
+TERMOS_CAMPANHA = ('("agenda de campanha" OR comício OR caravana '
+                   'OR debate OR sabatina '
+                   'OR coligação OR aliança OR federação OR palanque '
+                   'OR "muda de partido" OR "troca de partido" '
+                   'OR "declara apoio" OR "declaração de apoio" OR "anuncia apoio" '
+                   'OR educação)')
+
+BLOCOS = (TERMOS, TERMOS_CAMPANHA)
+
 
 def gerar_buscas(cargos=('presidente', 'governador', 'senador')):
     buscas = []
-    for cargo in cargos:
-        if cargo == 'presidente':            # presidente é nacional, sem UF
-            buscas.append(f"eleições 2026 presidente {TERMOS}")
-        else:
-            buscas += [f"eleições 2026 {cargo} {uf} {TERMOS}" for uf in UFS]
+    for termos in BLOCOS:
+        for cargo in cargos:
+            if cargo == 'presidente':        # presidente é nacional, sem UF
+                buscas.append(f"eleições 2026 presidente {termos}")
+            else:
+                buscas += [f"eleições 2026 {cargo} {uf} {termos}" for uf in UFS]
     return buscas
 
 
@@ -252,6 +267,34 @@ def normalize_partido(raw) -> str:
     return _PARTIDO_ALIAS.get(key, key)
 
 
+# Assunto da notícia, independente do status da candidatura. O Gemini responde em
+# texto livre, então acento, caixa e variação de escrita são canonicalizados aqui
+# para o filtro do painel não virar uma lista de quase-duplicatas (foi o que
+# aconteceu com o campo partido).
+TIPOS = ("agenda", "pesquisa", "debate", "aliança", "apoio", "crítica-educação", "outro")
+_TIPO_ALIAS = {
+    "alianca": "aliança", "aliancas": "aliança", "alianças": "aliança",
+    "coligacao": "aliança", "coligação": "aliança", "federacao": "aliança",
+    "federação": "aliança",
+    "apoios": "apoio", "declaracao de apoio": "apoio", "declaração de apoio": "apoio",
+    "critica-educacao": "crítica-educação", "critica educacao": "crítica-educação",
+    "crítica educação": "crítica-educação", "critica-educação": "crítica-educação",
+    "crítica-educacao": "crítica-educação", "educacao": "crítica-educação",
+    "educação": "crítica-educação",
+    "debates": "debate", "sabatina": "debate",
+    "agendas": "agenda", "agenda de campanha": "agenda",
+    "pesquisas": "pesquisa", "pesquisa eleitoral": "pesquisa",
+}
+
+
+def normalize_tipo(raw) -> str:
+    v = str(raw or "").strip().lower()
+    if not v or v in _PARTIDO_VAZIO or v.upper() in _PARTIDO_VAZIO:
+        return "outro"
+    v = _TIPO_ALIAS.get(v, v)
+    return v if v in TIPOS else "outro"
+
+
 def classificar_com_gemini(titulo, trecho=""):
     """Lê a manchete (e trecho do artigo) e extrai os campos estruturados (JSON) via Gemini."""
     contexto = f"Manchete: {titulo}"
@@ -269,6 +312,7 @@ def classificar_com_gemini(titulo, trecho=""):
         '  "status": "confirmado | pré-candidato | em disputa | renúncia | desistência | pesquisa | cobertura geral | não relacionado | indefinido",\n'
         '  "convencao": true ou false — true SOMENTE se a notícia trata diretamente de uma convenção partidária '
         "(data, realização, resultado ou decisão tomada em convenção). Independente do status da candidatura.\n"
+        '  "tipo": "agenda | pesquisa | debate | aliança | apoio | crítica-educação | outro",\n'
         '  "confianca": "alto | médio | baixo"\n'
         "}\n\n"
         "Regras de preenchimento:\n"
@@ -291,6 +335,23 @@ def classificar_com_gemini(titulo, trecho=""):
         "- convencao é independente de status: uma notícia pode ser status='confirmado' e convencao=true "
         "(candidatura saiu de uma convenção) ou status='cobertura geral' e convencao=true (cobertura do evento "
         "em si, sem falar do status de ninguém)\n"
+        "- tipo diz do que a notícia TRATA e é independente de status e de convencao (ex.: status='confirmado' "
+        "e tipo='apoio'). Escolha um só, o mais central à manchete:\n"
+        "  - tipo='agenda': compromisso de campanha do candidato (comício, caravana, visita, viagem, evento, "
+        "encontro com eleitor ou categoria), incluindo o anúncio da agenda e a cobertura do que aconteceu nela\n"
+        "  - tipo='pesquisa': resultado ou divulgação de pesquisa eleitoral de intenção de voto\n"
+        "  - tipo='debate': debate ou sabatina entre candidatos, tanto o anúncio (data, emissora, confirmação de "
+        "participação ou ausência) quanto a repercussão depois de realizado\n"
+        "  - tipo='aliança': composição partidária mudando (coligação, federação, palanque, partido trocando de "
+        "lado, racha, rompimento, negociação de chapa, definição de vice)\n"
+        "  - tipo='apoio': uma pessoa, partido, entidade ou grupo declara apoio ou endossa publicamente uma "
+        "candidatura, sem que isso seja um acordo entre partidos (aí é 'aliança')\n"
+        "  - tipo='crítica-educação': crítica, ataque, acusação ou cobrança dirigida a um candidato, gestão ou "
+        "governo CUJO OBJETO é política pública de educação (escola, professor, creche, ensino médio, "
+        "alfabetização, merenda, piso do magistério, tempo integral, universidade, gestão da rede de ensino). "
+        "Crítica sobre qualquer outro assunto (saúde, segurança, corrupção, economia) NÃO é 'crítica-educação': "
+        "use 'outro'\n"
+        "  - tipo='outro': não se encaixa em nenhum dos anteriores\n"
         "- confianca='alto': candidato, cargo e UF estão todos explícitos no texto\n"
         "- confianca='médio': algum campo foi inferido com boa certeza pelo contexto\n"
         "- confianca='baixo': muita ambiguidade ou faltam dois ou mais campos principais\n"
@@ -309,6 +370,7 @@ def classificar_com_gemini(titulo, trecho=""):
         if isinstance(valor, str) and valor.strip().lower() in ("null", "none", "n/a"):
             dados[campo] = None
     dados["partido"] = normalize_partido(dados.get("partido"))
+    dados["tipo"] = normalize_tipo(dados.get("tipo"))
     # normaliza pra string: bool False vira "" com o _safe() de salvar_no_sheets
     # (False é falsy em Python), o que confundiria "não" com "não preenchido"
     dados["convencao"] = "sim" if dados.get("convencao") is True else "não"
@@ -334,8 +396,8 @@ def classificar_noticias(noticias):
 
 
 COLUNAS_PLANILHA = [
-    "candidato", "cargo", "uf", "partido", "status", "convencao", "resumo", "confianca",
-    "titulo", "fonte", "data", "link", "busca", "texto_completo",
+    "candidato", "cargo", "uf", "partido", "status", "convencao", "tipo", "resumo",
+    "confianca", "titulo", "fonte", "data", "link", "busca", "texto_completo",
 ]
 
 
@@ -356,12 +418,35 @@ def _sheets_aba():
     import gspread
     sh = _gc().open_by_key(SHEET_ID)
     try:
-        return sh.worksheet(SHEET_ABA)
+        aba = sh.worksheet(SHEET_ABA)
     except gspread.exceptions.WorksheetNotFound:
         print(f"Aba '{SHEET_ABA}' não encontrada — criando com cabeçalho...")
         aba = sh.add_worksheet(title=SHEET_ABA, rows=5000, cols=len(COLUNAS_PLANILHA))
         aba.append_row(COLUNAS_PLANILHA)
         return aba
+    _garantir_colunas(aba)
+    return aba
+
+
+def _garantir_colunas(aba):
+    """Acrescenta no fim do cabeçalho as colunas que o código já grava e a
+    planilha ainda não tem.
+
+    A gravação é toda por nome de coluna (`headers` da planilha viva), então uma
+    coluna nova no código sem coluna na planilha é ignorada em silêncio: o campo
+    é classificado, custa Gemini e não chega em lugar nenhum.
+    """
+    from gspread.utils import rowcol_to_a1
+    headers = aba.row_values(1)
+    if not headers:
+        return
+    faltando = [c for c in COLUNAS_PLANILHA if c not in headers]
+    if not faltando:
+        return
+    inicio = len(headers) + 1
+    faixa = f"{rowcol_to_a1(1, inicio)}:{rowcol_to_a1(1, inicio + len(faltando) - 1)}"
+    aba.update(range_name=faixa, values=[faltando])
+    print(f"Coluna(s) acrescentada(s) no cabeçalho: {', '.join(faltando)}")
 
 
 def carregar_sites_regionais():
@@ -395,18 +480,19 @@ def coletar_regionais(sites, pausa=1.0):
     """Busca no Google Notícias restrito a cada domínio (site:), tagueando a UF."""
     vistos, resultado = set(), []
     for dom, uf in sites:
-        busca = f"site:{dom} {TERMOS}"
-        try:
-            for it in google_news_rss(busca):
-                chave = it['titulo'].strip().lower()
-                if chave and chave not in vistos:
-                    vistos.add(chave)
-                    it['busca'] = f"regional:{dom}"
-                    it['uf_regional'] = uf
-                    resultado.append(it)
-        except Exception as e:
-            print(f"erro em '{dom}': {e}")
-        time.sleep(pausa)
+        for termos in BLOCOS:
+            busca = f"site:{dom} {termos}"
+            try:
+                for it in google_news_rss(busca):
+                    chave = it['titulo'].strip().lower()
+                    if chave and chave not in vistos:
+                        vistos.add(chave)
+                        it['busca'] = f"regional:{dom}"
+                        it['uf_regional'] = uf
+                        resultado.append(it)
+            except Exception as e:
+                print(f"erro em '{dom}': {e}")
+            time.sleep(pausa)
     return resultado
 
 
@@ -446,6 +532,7 @@ def reclassificar_pendentes(aba):
     isso jogava fora todo o progresso já feito, porque a lista de updates só
     ia pro Sheets no final do loop inteiro.
     """
+    from gspread.utils import rowcol_to_a1
     vals = aba.get_all_values()
     if len(vals) < 2:
         return
@@ -457,12 +544,12 @@ def reclassificar_pendentes(aba):
     # "resumo" fica de fora: não é gerado aqui, é o alerta que alguém gerou e
     # decidiu salvar no painel. Reclassificar não pode sobrescrever isso.
     cols = [c for c in ("candidato", "cargo", "uf", "partido", "status", "convencao",
-                        "confianca", "texto_completo")
+                        "tipo", "confianca", "texto_completo")
             if c in headers]
     # célula por célula, não um range candidato→confiança: se as colunas novas
     # forem adicionadas fora da ordem (ex.: no fim da planilha, depois de titulo/
     # fonte/data/link/busca), um range contíguo escreveria por cima dessas colunas.
-    col_letra = {c: chr(65 + headers.index(c)) for c in cols}
+    col_letra = {c: rowcol_to_a1(1, headers.index(c) + 1).rstrip("1") for c in cols}
 
     pendentes = [
         (r, row[i_titulo], row[i_link] if (i_link is not None and i_link < len(row)) else "")
