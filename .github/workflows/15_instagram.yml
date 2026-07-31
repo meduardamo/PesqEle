@@ -15,22 +15,24 @@ on:
         description: "Limite de perfis (apenas no modo --perfis)"
         required: false
         default: ""
-  # Disparo externo, em horario exato. O cron agendado do Actions entra numa fila
-  # de baixa prioridade e atrasa de 25 a 250 min (medido em 12 dias no workflow
-  # 06). O cron-job.org chama POST /repos/meduardamo/eixo-eleicoes/dispatches com
-  # {"event_type": "coletar-instagram"} e o run comeca em segundos.
-  # Sem client_payload: a rodada externa cai no modo --perfis, que e o mesmo do
-  # cron.
+  # Unico gatilho automatico: cron-job.org chama POST
+  # /repos/meduardamo/eixo-eleicoes/dispatches com
+  # {"event_type": "coletar-instagram"} todo dia as 15:00 (America/Recife) e o
+  # run comeca em segundos, contra 25 a 250 min de atraso do cron agendado do
+  # Actions (medido em 12 dias no workflow 06).
+  # Sem client_payload: a rodada externa cai no modo --perfis.
+  #
+  # Sem cron de rede de seguranca, de proposito (decisao dela, 31/07/2026): cada
+  # rodada chama a Apify para os 79 perfis antes de deduplicar, entao uma rodada
+  # de reserva custaria a coleta em dobro todo dia. Se o disparo externo falhar,
+  # o aviso vem do "execution of the cronjob fails" do cron-job.org e a rodada
+  # se refaz no workflow_dispatch.
   repository_dispatch:
     types: [coletar-instagram]
 
-  schedule:
-    # Rede de seguranca, caso o disparo externo falhe. 18:00 UTC = 15:00 BRT.
-    - cron: "0 18 * * *"
-
-# Uma rodada por vez. Com cron de seguranca mais disparo externo, duas rodadas
-# podem se sobrepor; as duas leem os posts ja processados antes de qualquer uma
-# gravar e a deduplicacao por ID de post nao protege contra execucao simultanea.
+# Uma rodada por vez. Disparo externo e rodada manual podem se sobrepor; as duas
+# leem os posts ja processados antes de qualquer uma gravar e a deduplicacao por
+# ID de post nao protege contra execucao simultanea.
 concurrency:
   group: instagram-coleta
   cancel-in-progress: false
