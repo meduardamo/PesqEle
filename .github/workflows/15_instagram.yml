@@ -95,8 +95,17 @@ jobs:
             ARGS+=("$LINK")
             [ -n "$DATA_MINIMA" ] && ARGS+=("$DATA_MINIMA")
           else
-            ARGS+=(--perfis)
-            [ -n "$DATA_MINIMA" ] && ARGS+=("$DATA_MINIMA")
+            # Sem data no modo --perfis o script chama input() e morre com
+            # EOFError, porque o runner nao tem terminal. O disparo do
+            # cron-job.org nao manda payload, entao a data precisa de um padrao
+            # aqui: janela de 2 dias, que cobre a rodada que falhou no dia
+            # anterior. Post ja gravado e pulado pelo ID, entao a janela maior
+            # nao duplica linha.
+            if [ -z "$DATA_MINIMA" ]; then
+              DATA_MINIMA="$(date -u -d '2 days ago' +%F)"
+              echo "Sem data informada, usando janela padrao a partir de $DATA_MINIMA."
+            fi
+            ARGS+=(--perfis "$DATA_MINIMA")
             [ -n "$LIMITE_PERFIS" ] && ARGS+=("$LIMITE_PERFIS")
           fi
 
