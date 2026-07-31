@@ -74,4 +74,4 @@ jobs:
             [ -n "$LIMITE_PERFIS" ] && ARGS+=("$LIMITE_PERFIS")
           fi
 
-          python instagram.py "${ARGS[@]}"
+          python outros/instagram.py "${ARGS[@]}"
