@@ -41,14 +41,21 @@ jobs:
 
       - name: Preparar credenciais Google
         env:
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           if [ -z "$GOOGLE_CREDENTIALS_JSON" ]; then
-            echo "Secret GOOGLE_CREDENTIALS_JSON não configurado no repositório."
+            echo "Secret GOOGLE_APPLICATION_CREDENTIALS_JSON não configurado no repositório."
             exit 1
           fi
           printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
-          python -c "import json; json.load(open('credentials.json', encoding='utf-8')); print('credentials.json válido')"
+          python -c "
+          import json, os
+          d = json.load(open('credentials.json', encoding='utf-8'))
+          d['GEMINI_API_KEY'] = os.environ['GEMINI_API_KEY']
+          json.dump(d, open('credentials.json', 'w', encoding='utf-8'))
+          print('credentials.json válido')
+          "
 
       - name: Executar script
         env:
