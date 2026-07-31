@@ -41,11 +41,11 @@ jobs:
 
       - name: Preparar credenciais Google
         env:
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           if [ -z "$GOOGLE_CREDENTIALS_JSON" ]; then
-            echo "Secret GOOGLE_APPLICATION_CREDENTIALS_JSON não configurado no repositório."
+            echo "Secret GOOGLE_CREDENTIALS_JSON não configurado no repositório."
             exit 1
           fi
           printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
