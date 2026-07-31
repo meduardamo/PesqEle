@@ -15,8 +15,25 @@ on:
         description: "Limite de perfis (apenas no modo --perfis)"
         required: false
         default: ""
+  # Disparo externo, em horario exato. O cron agendado do Actions entra numa fila
+  # de baixa prioridade e atrasa de 25 a 250 min (medido em 12 dias no workflow
+  # 06). O cron-job.org chama POST /repos/meduardamo/eixo-eleicoes/dispatches com
+  # {"event_type": "coletar-instagram"} e o run comeca em segundos.
+  # Sem client_payload: a rodada externa cai no modo --perfis, que e o mesmo do
+  # cron.
+  repository_dispatch:
+    types: [coletar-instagram]
+
   schedule:
+    # Rede de seguranca, caso o disparo externo falhe. 18:00 UTC = 15:00 BRT.
     - cron: "0 18 * * *"
+
+# Uma rodada por vez. Com cron de seguranca mais disparo externo, duas rodadas
+# podem se sobrepor; as duas leem os posts ja processados antes de qualquer uma
+# gravar e a deduplicacao por ID de post nao protege contra execucao simultanea.
+concurrency:
+  group: instagram-coleta
+  cancel-in-progress: false
 
 jobs:
   executar-script:
