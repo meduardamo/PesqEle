@@ -65,6 +65,13 @@ CABECALHO_SHEETS = [
 
 ATOR_INSTAGRAM_PERFIS_LOWCOST = os.getenv("ATOR_INSTAGRAM_PERFIS_LOWCOST", "sones/instagram-posts-scraper-lowcost")
 POSTS_POR_PERFIL_LOWCOST = int(os.getenv("POSTS_POR_PERFIL_LOWCOST", "12"))
+# Fração de perfis que pode falhar na coleta antes da rodada inteira ser considerada
+# quebrada (e sair com código != 0, para o Actions marcar vermelho).
+LIMIAR_FALHA_PERFIS = float(os.getenv("LIMIAR_FALHA_PERFIS", "0.2"))
+# A partir de quantos perfis "nenhum deles devolveu post" deixa de ser um dia parado
+# e passa a ser bloqueio do Instagram. Em 31/07/2026 os 79 runs terminaram SUCCEEDED
+# com "access denied" em 76 perfis, então o status do run sozinho não pega esse caso.
+MINIMO_PERFIS_PARA_EXIGIR_POSTS = int(os.getenv("MINIMO_PERFIS_PARA_EXIGIR_POSTS", "10"))
 SPREADSHEET_ID_PERFIS = os.getenv("SPREADSHEET_ID_PERFIS", "1piO-m19orW1i-Z-6rNeWdXnEAWqw5wneiDpdHZqOa6Y")
 ABA_PERFIS = os.getenv("ABA_PERFIS", "Instagram")
 COLUNA_PERFIS = os.getenv("COLUNA_PERFIS", "B")
@@ -299,6 +306,23 @@ def eh_link_de_perfil(url: str) -> bool:
     return not any(segmento in url for segmento in ("/p/", "/reel/", "/tv/"))
 
 
+def dataset_id_do_run(run, contexto: str) -> str:
+    """Devolve o dataset do run do Apify, levantando erro se ele não terminou em SUCCEEDED.
+
+    O ApifyClient não levanta exceção quando o ator termina em FAILED ou ABORTED:
+    devolve o run normalmente e o dataset vem vazio, o que o resto do fluxo lê como
+    "nenhum post no período". Foi assim que a rodada de 02/08/2026 falhou nos 79
+    perfis (proxy do Apify indisponível), gravou zero post e mesmo assim terminou
+    verde no Actions.
+    """
+    status = (getattr(run, "status", None) or (run.get("status") if isinstance(run, dict) else None) or "").upper()
+    run_id = getattr(run, "id", None) or (run.get("id") if isinstance(run, dict) else None) or "?"
+    if status != "SUCCEEDED":
+        raise RuntimeError(f"Run do Apify para {contexto} terminou como {status or 'STATUS DESCONHECIDO'} (runId {run_id}).")
+
+    return getattr(run, "default_dataset_id", None) or run["defaultDatasetId"]
+
+
 def coletar_itens(client: ApifyClient, urls: list[str], resultados_limit: int = 1, apenas_apos: str | None = None) -> list[dict]:
     """Roda o ator do Apify para um ou mais links (post ou perfil) e retorna os itens do dataset."""
     run_input = {
@@ -312,7 +336,7 @@ def coletar_itens(client: ApifyClient, urls: list[str], resultados_limit: int = 
 
     run = client.actor("apify/instagram-scraper").call(run_input=run_input)
 
-    dataset_id = getattr(run, "default_dataset_id", None) or run["defaultDatasetId"]
+    dataset_id = dataset_id_do_run(run, ", ".join(urls))
     itens = client.dataset(dataset_id).list_items().items
     if not itens:
         raise RuntimeError("Nenhum item retornado pelo Apify. Confira se o link é de um perfil/post público.")
@@ -410,7 +434,7 @@ def coletar_itens_perfil_lowcost(
         run_input["newerThan"] = apenas_apos
 
     run = client.actor(ATOR_INSTAGRAM_PERFIS_LOWCOST).call(run_input=run_input)
-    dataset_id = getattr(run, "default_dataset_id", None) or run["defaultDatasetId"]
+    dataset_id = dataset_id_do_run(run, f"@{username}")
     itens_brutos = client.dataset(dataset_id).list_items().items
 
     return [normalizar_item_lowcost(item) for item in itens_brutos]
@@ -542,6 +566,8 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
     print(f"{len(ids_processados)} post(s) já processado(s) anteriormente (serão pulados).")
 
     total_novos = 0
+    perfis_com_erro: list[str] = []
+    perfis_com_post = 0
     for i, perfil in enumerate(perfis, start=1):
         apenas_apos_perfil = max(data_minima, ultima_data_por_perfil.get(perfil["nome"], data_minima))
         print(f"\n=== [{i}/{len(perfis)}] {perfil['nome']} ({perfil['url']}) — buscando a partir de {apenas_apos_perfil} ===")
@@ -550,8 +576,11 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
             itens = filtrar_por_data(itens, apenas_apos_perfil)
         except Exception as erro:
             print(f"Aviso: falha ao coletar posts de {perfil['nome']}: {erro}")
+            perfis_com_erro.append(perfil["nome"])
             continue
 
+        if itens:
+            perfis_com_post += 1
         novos = [item for item in itens if (item.get("shortCode") or str(item.get("id", ""))) not in ids_processados]
         print(f"{len(itens)} post(s) no período, {len(novos)} novo(s).")
 
@@ -570,6 +599,21 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
     if total_novos:
         ordenar_por_data(aba_resultados)
     print(f"\nAutomação concluída. {total_novos} post(s) novo(s) processado(s).")
+    print(f"{len(perfis)} perfil(is) percorrido(s), {len(perfis_com_erro)} com falha na coleta, {perfis_com_post} com post no período.")
+
+    # A partir daqui é só diagnóstico da rodada: os posts que deram certo já foram
+    # gravados. O erro serve para o Actions marcar vermelho em vez de esconder uma
+    # coleta vazia atrás de "0 post(s) no período".
+    if perfis_com_erro:
+        print("Perfis com falha: " + ", ".join(perfis_com_erro))
+    if len(perfis_com_erro) > len(perfis) * LIMIAR_FALHA_PERFIS:
+        raise RuntimeError(
+            f"Coleta falhou em {len(perfis_com_erro)} de {len(perfis)} perfis, acima do limiar de {LIMIAR_FALHA_PERFIS:.0%}."
+        )
+    if len(perfis) >= MINIMO_PERFIS_PARA_EXIGIR_POSTS and perfis_com_post == 0:
+        raise RuntimeError(
+            f"Nenhum dos {len(perfis)} perfis devolveu post no período. Provável bloqueio do Instagram ou proxy do Apify fora do ar."
+        )
 
 
 def baixar_midia(item: dict, pasta: str = "download"):
