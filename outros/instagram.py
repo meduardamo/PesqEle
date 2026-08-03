@@ -71,6 +71,11 @@ POSTS_POR_PERFIL_LOWCOST = int(os.getenv("POSTS_POR_PERFIL_LOWCOST", "12"))
 # desta conta chama BUYPROXIES94952 (5 IPs, EUA); SHADER, o nome usado como padrão em
 # exemplo do Apify, não existe aqui. Vazio devolve a escolha para o ator.
 GRUPO_PROXY_APIFY = os.getenv("GRUPO_PROXY_APIFY", "BUYPROXIES94952")
+# Versao fixa do ator. O autor publicou a 1.5.5 em 02/08/2026 as 17:25 UTC, 35 min
+# antes da rodada daquele dia, e ela estoura no _checkAccess do proxy antes de
+# buscar qualquer post, mesmo com o grupo passado explicitamente. A 1.5.3 e a
+# ultima versao que coletou (01/08). Vazio volta a seguir a tag "latest".
+BUILD_ATOR_LOWCOST = os.getenv("BUILD_ATOR_LOWCOST", "1.5.3")
 # Fração de perfis que pode falhar na coleta antes da rodada inteira ser considerada
 # quebrada (e sair com código != 0, para o Actions marcar vermelho).
 LIMIAR_FALHA_PERFIS = float(os.getenv("LIMIAR_FALHA_PERFIS", "0.2"))
@@ -441,7 +446,8 @@ def coletar_itens_perfil_lowcost(
     if GRUPO_PROXY_APIFY:
         run_input["proxy"] = {"useApifyProxy": True, "apifyProxyGroups": [GRUPO_PROXY_APIFY]}
 
-    run = client.actor(ATOR_INSTAGRAM_PERFIS_LOWCOST).call(run_input=run_input)
+    opcoes_run = {"build": BUILD_ATOR_LOWCOST} if BUILD_ATOR_LOWCOST else {}
+    run = client.actor(ATOR_INSTAGRAM_PERFIS_LOWCOST).call(run_input=run_input, **opcoes_run)
     dataset_id = dataset_id_do_run(run, f"@{username}")
     itens_brutos = client.dataset(dataset_id).list_items().items
 
