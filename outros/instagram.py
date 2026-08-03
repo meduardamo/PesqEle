@@ -65,6 +65,12 @@ CABECALHO_SHEETS = [
 
 ATOR_INSTAGRAM_PERFIS_LOWCOST = os.getenv("ATOR_INSTAGRAM_PERFIS_LOWCOST", "sones/instagram-posts-scraper-lowcost")
 POSTS_POR_PERFIL_LOWCOST = int(os.getenv("POSTS_POR_PERFIL_LOWCOST", "12"))
+# Grupo de proxy do Apify passado explicitamente ao ator. Sem isso o ator escolhe
+# sozinho: o build de 02/08/2026 pediu o grupo residencial, avisou que caiu para
+# datacenter e mesmo assim estourou no _checkAccess nos 79 perfis. O grupo datacenter
+# desta conta chama BUYPROXIES94952 (5 IPs, EUA); SHADER, o nome usado como padrão em
+# exemplo do Apify, não existe aqui. Vazio devolve a escolha para o ator.
+GRUPO_PROXY_APIFY = os.getenv("GRUPO_PROXY_APIFY", "BUYPROXIES94952")
 # Fração de perfis que pode falhar na coleta antes da rodada inteira ser considerada
 # quebrada (e sair com código != 0, para o Actions marcar vermelho).
 LIMIAR_FALHA_PERFIS = float(os.getenv("LIMIAR_FALHA_PERFIS", "0.2"))
@@ -432,6 +438,8 @@ def coletar_itens_perfil_lowcost(
     }
     if apenas_apos:
         run_input["newerThan"] = apenas_apos
+    if GRUPO_PROXY_APIFY:
+        run_input["proxy"] = {"useApifyProxy": True, "apifyProxyGroups": [GRUPO_PROXY_APIFY]}
 
     run = client.actor(ATOR_INSTAGRAM_PERFIS_LOWCOST).call(run_input=run_input)
     dataset_id = dataset_id_do_run(run, f"@{username}")
