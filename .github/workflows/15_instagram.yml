@@ -15,6 +15,10 @@ on:
         description: "Limite de perfis (apenas no modo --perfis)"
         required: false
         default: ""
+      pular_perfis:
+        description: "Pula os N primeiros perfis, para rodar backfill em lotes (apenas no modo --perfis)"
+        required: false
+        default: ""
   # Unico gatilho automatico: cron-job.org chama POST
   # /repos/meduardamo/eixo-eleicoes/dispatches com
   # {"event_type": "coletar-instagram"} todo dia as 15:00 (America/Recife) e o
@@ -87,6 +91,7 @@ jobs:
           LINK: ${{ inputs.link }}
           DATA_MINIMA: ${{ inputs.data_minima }}
           LIMITE_PERFIS: ${{ inputs.limite_perfis }}
+          PULAR_PERFIS: ${{ inputs.pular_perfis }}
         run: |
           if [ -z "$APIFY_TOKEN" ]; then
             echo "Secret APIFY_TOKEN não configurado no repositório."
@@ -109,7 +114,13 @@ jobs:
               echo "Sem data informada, usando janela padrao a partir de $DATA_MINIMA."
             fi
             ARGS+=(--perfis "$DATA_MINIMA")
-            [ -n "$LIMITE_PERFIS" ] && ARGS+=("$LIMITE_PERFIS")
+            # O script le limite e pular por posicao, entao pular so chega se o
+            # limite vier antes. Limite 0 e o mesmo que "sem limite".
+            if [ -n "$PULAR_PERFIS" ]; then
+              ARGS+=("${LIMITE_PERFIS:-0}" "$PULAR_PERFIS")
+            elif [ -n "$LIMITE_PERFIS" ]; then
+              ARGS+=("$LIMITE_PERFIS")
+            fi
           fi
 
           python outros/instagram.py "${ARGS[@]}"

@@ -766,7 +766,8 @@ def main_perfis():
         return
 
     limite_perfis = int(sys.argv[3]) if len(sys.argv) > 3 else None
-    rodar_automacao_perfis(data_minima=data_minima, limite_perfis=limite_perfis)
+    pular_perfis = int(sys.argv[4]) if len(sys.argv) > 4 else 0
+    rodar_automacao_perfis(data_minima=data_minima, limite_perfis=limite_perfis, pular_perfis=pular_perfis)
 
 
 if __name__ == "__main__":
