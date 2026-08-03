@@ -178,7 +178,15 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
     if chars < LIMIAR_CHARS:
         return [], None, f"extração pobre ({chars} caracteres)"
 
-    classif = classificar_plano(texto)       # levanta RespostaIlegivel
+    try:
+        classif = classificar_plano(texto)   # levanta RespostaIlegivel
+    except RespostaIlegivel as e:
+        # A resposta do modelo não é determinística: o plano do Lucien Rezende
+        # voltou ilegível em 03/08/2026 numa reanálise que já tinha dado certo
+        # antes. Uma segunda tentativa usa o mesmo texto, sem novo download.
+        print(f"(resposta ilegível, tentando de novo: {e})", end=" ", flush=True)
+        time.sleep(3)
+        classif = classificar_plano(texto)
     coe = avaliar_coerencia(texto)
 
     comum = {"ano": ano, "sq_candidato": str(r["SQ_CANDIDATO"]),
