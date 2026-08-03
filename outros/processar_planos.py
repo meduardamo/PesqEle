@@ -45,8 +45,8 @@ from analise_planos import (  # noqa: E402
 ANALISE_ABA = "analise_planos"
 COERENCIA_ABA = "coerencia_planos"
 LIMIAR_CHARS = 1500
-VERSAO_ANALISE = "1"
-VERSAO_COERENCIA = "1"
+VERSAO_ANALISE = "2"
+VERSAO_COERENCIA = "2"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",

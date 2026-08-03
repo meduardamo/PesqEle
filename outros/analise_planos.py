@@ -30,6 +30,38 @@ COR = {
     "cinza":   "#E1E1E1",
 }
 
+# Restrições de linguagem coladas em todo prompt que gera prosa (justificativa de
+# coerência, síntese comparativa). É a "versão cotidiano" de Sampaio (2026),
+# "Prompts para a IA não lavar seu texto", que a Eduarda usa nos textos dela.
+# Sem isso o modelo devolve o vocabulário do próprio enunciado: as 16
+# justificativas gravadas em 03/08/2026 começavam todas com "O plano", 14 delas
+# seguiam o mesmo molde de elogio seguido de "Contudo" mais lacuna, e sete usavam
+# "apresenta"/"possui" no lugar de "tem".
+RESTRICOES_LINGUAGEM = (
+    "RESTRIÇÕES DE LINGUAGEM (obrigatórias):\n"
+    "- Proibido travessão (—), ponto e vírgula (;) e dois pontos (:) fora de lista formal.\n"
+    "- Proibidos adjetivos vagos ou promocionais: abrangente, crucial, essencial, "
+    "estratégico, fundamental, robusto, significativo, notável, sólido, claro, "
+    "consistente, inovador, multifacetado.\n"
+    "- Proibidas cópulas infladas. Escreva 'tem', 'é', 'traz', 'cita'. Nunca "
+    "'apresenta', 'possui', 'oferece', 'serve como', 'destaca-se como'.\n"
+    "- Proibidos verbos inflados: destacar, ressaltar, enfatizar, evidenciar, "
+    "promover, refletir, contribuir para, aprimorar.\n"
+    "- Proibido começar frase com conectivo opinativo: além disso, contudo, "
+    "portanto, no entanto, assim, na verdade, notavelmente.\n"
+    "- Proibido gerúndio conclusivo vago no fim da frase ('garantindo que', "
+    "'resultando em', 'refletindo a importância').\n"
+    "- Proibido paralelismo negativo ('não apenas X, mas também Y') e regra dos "
+    "três decorativa (três adjetivos ou três itens só para parecer completo).\n"
+    "- Proibida editorialização: 'vale destacar', 'é importante notar', "
+    "'cabe ressaltar'.\n"
+    "- Proibida metáfora morta: cenário, panorama, ótica, lente, chave, âmbito, "
+    "marco, mosaico, esfera, horizonte.\n"
+    "- Máximo de 25 palavras por frase. Frases declarativas, sujeito, verbo, objeto.\n"
+    "- Dado concreto no lugar de adjetivo. Nome de programa, número, prazo, página.\n"
+    "- Se a frase serve para qualquer outro plano sem mudar nada, reescreva."
+)
+
 # Escala de maturidade (ordem importa)
 NIVEIS = ["Não menciona", "Menciona vagamente", "Propõe ação", "Define meta"]
 COR_NIVEL = {
@@ -380,9 +412,22 @@ def extrair_plano_diagnostico(url: str, usar_ocr: bool = True) -> dict:
     return saida
 
 
-def _limpa(t: str, n: int = 240) -> str:
+def _limpa(t: str, n: int = 400) -> str:
+    """Normaliza espaços e corta em `n` caracteres, sem partir palavra.
+
+    O corte antigo era em 240 e caía no meio da palavra: 143 dos 346 trechos
+    gravados em 03/08/2026 terminavam assim ('Reduzir a distorção idade-s…').
+    Agora o corte recua até o fim da última frase, ou até o último espaço.
+    """
     t = re.sub(r"\s+", " ", t or "").strip()
-    return (t[:n] + "…") if len(t) > n else t
+    if len(t) <= n:
+        return t
+    pedaco = t[:n]
+    fim_frase = max(pedaco.rfind(". "), pedaco.rfind("! "), pedaco.rfind("? "))
+    if fim_frase >= n * 0.6:
+        return pedaco[:fim_frase + 1]
+    fim_palavra = pedaco.rfind(" ")
+    return (pedaco[:fim_palavra] if fim_palavra > 0 else pedaco).rstrip(" ,;") + "…"
 
 
 # classificação por maturidade (Gemini)
@@ -545,11 +590,20 @@ def avaliar_coerencia(texto: str, temas: dict = TEMAS) -> dict:
         "Um plano que cobre bem UM eixo e ignora os outros não passa de 3.\n\n"
         "Responda APENAS um objeto JSON com:\n"
         "  'score': número inteiro de 1 a 5\n"
-        "  'justificativa': frase curta e factual (máximo 2 linhas) que sustente o score. "
-        "Cite o que existe ou falta: quais eixos e temas têm proposta concreta, quais "
-        "programas nomeados aparecem, se há ligação explícita entre eles. Sem adjetivos de valor "
-        "('clara', 'robusta', 'razoável', 'ambiciosa') e sem juízo qualitativo; só os fatos "
-        "observados no texto.\n\n"
+        "  'justificativa': 2 a 4 frases factuais que sustentem o score, com no "
+        "máximo 500 caracteres no total.\n\n"
+        "COMO ESCREVER A JUSTIFICATIVA:\n"
+        "- Comece pelo dado, nunca pela palavra 'O plano'. Abra com o nome de um "
+        "programa, uma meta ou um eixo concreto do texto.\n"
+        "- Não repita as palavras da escala acima ('integrada', 'articulada', "
+        "'parcial', 'isoladas', 'coerente'). Descreva o que o plano faz, não em "
+        "que degrau ele caiu.\n"
+        "- Não use o molde 'o plano faz X, contudo falta Y'. Se um eixo não tem "
+        "proposta, diga em frase própria qual eixo e o que falta nele.\n"
+        "- Nomeie programas, metas, números e prazos que estão no texto. Uma "
+        "justificativa sem nenhum nome próprio de programa ou número não serve.\n"
+        "- Nada de juízo de valor. Só o que está escrito no plano.\n\n"
+        f"{RESTRICOES_LINGUAGEM}\n\n"
         f"PLANO DE GOVERNO:\n{texto[:60000]}"
     )
     resp = _gemini_client().models.generate_content(
@@ -562,7 +616,9 @@ def avaliar_coerencia(texto: str, temas: dict = TEMAS) -> dict:
     score = int(data.get("score", 1))
     if score not in range(1, 6):
         score = 1
-    return {"score": score, "justificativa": _limpa(data.get("justificativa", ""), n=400)}
+    # 600 e não 400: no limite antigo, 4 das 16 justificativas gravadas em
+    # 03/08/2026 terminavam cortadas no meio da palavra.
+    return {"score": score, "justificativa": _limpa(data.get("justificativa", ""), n=600)}
 
 
 def sintetizar_comparacao(candidatos_info: list, tema: str) -> str:
@@ -583,7 +639,8 @@ def sintetizar_comparacao(candidatos_info: list, tema: str) -> str:
         "- Diferenças e semelhanças entre as abordagens\n"
         "- Quem tem a proposta mais estruturada e por quê\n\n"
         "Seja direto e técnico. Use prosa corrida, sem listas ou marcadores. "
-        "Não se apresente nem mencione seu papel — vá direto ao conteúdo."
+        "Não se apresente nem mencione seu papel, vá direto ao conteúdo.\n\n"
+        f"{RESTRICOES_LINGUAGEM}"
     )
     resp = _gemini_client().models.generate_content(
         model=GEMINI_MODEL,
