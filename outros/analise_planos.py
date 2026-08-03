@@ -458,15 +458,47 @@ def _achatar_por_tema(data: dict, temas: dict) -> dict:
     esperados = {_chave(t) for t in temas}
     achatado = {}
 
+    ALIAS_NIVEL = ("nivel", "nível", "classificacao", "classificação")
+
+    def tem_nivel(v: dict) -> bool:
+        return any(k in v for k in ALIAS_NIVEL)
+
+    def normaliza(v: dict) -> dict:
+        """Garante a chave 'nivel'. Aceitar 'nível' aqui e não normalizar faria o
+        item ser reconhecido e, logo depois, lido como 'Não menciona'."""
+        if "nivel" not in v:
+            for k in ALIAS_NIVEL:
+                if k in v:
+                    v["nivel"] = v[k]
+                    break
+        return v
+
     def visita(no):
+        # Lista de objetos ([{'tema': 'Alfabetização', 'nivel': ...}, ...]) é a
+        # terceira forma que o modelo já devolveu. Sem tratar aqui, a resposta
+        # inteira era descartada como ilegível, que foi o que aconteceu com o
+        # plano do Lucien Rezende em 03/08/2026.
+        if isinstance(no, list):
+            for item in no:
+                visita(item)
+            return
         if not isinstance(no, dict):
             return
+        # Item que carrega o nome do tema num campo, em vez de ser a chave.
+        for campo in ("tema", "nome", "titulo", "título"):
+            rotulo = no.get(campo)
+            if isinstance(rotulo, str) and _chave(rotulo) in esperados and tem_nivel(no):
+                achatado.setdefault(_chave(rotulo), normaliza(no))
+                return
         for k, v in no.items():
+            if isinstance(v, list):
+                visita(v)
+                continue
             if not isinstance(v, dict):
                 continue
             ck = _chave(k)
-            if ck in esperados and "nivel" in v:
-                achatado.setdefault(ck, v)
+            if ck in esperados and tem_nivel(v):
+                achatado.setdefault(ck, normaliza(v))
             else:
                 visita(v)          # provavelmente um eixo: desce mais um nível
 
@@ -557,9 +589,18 @@ def classificar_plano(texto: str, temas: dict = TEMAS) -> dict:
         # Devolver 26 "Não menciona" aqui seria indistinguível de um plano que
         # realmente não fala de nada, e foi assim que a análise do Marcio Bittar
         # (AC 2022) ficou gravada como vazia. Melhor falhar e tentar de novo.
+        # A forma que veio entra na mensagem: sem isso, cada ocorrência exige
+        # reproduzir a chamada à mão para descobrir o que o modelo devolveu.
+        bruto = json.loads(raw)
+        if isinstance(bruto, dict):
+            forma = f"objeto com as chaves {list(bruto)[:5]}"
+        elif isinstance(bruto, list):
+            forma = f"lista de {len(bruto)} itens, primeiro {str(bruto[:1])[:120]}"
+        else:
+            forma = f"{type(bruto).__name__}"
         raise RespostaIlegivel(
             "O modelo respondeu num formato não reconhecido: nenhum dos "
-            f"{len(temas)} temas foi encontrado na resposta."
+            f"{len(temas)} temas foi encontrado na resposta. Veio {forma}."
         )
     return out
 
