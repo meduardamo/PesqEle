@@ -1,0 +1,56 @@
+name: 16 - Diagnóstico de acesso ao TSE
+
+# Descartável, roda só na mão. Existe porque em 03/08/2026 o workflow 14 disse
+# "plano fora do ar" para os 16 planos enquanto os mesmos links respondiam 200
+# fora do Actions, e o log não dizia se era bloqueio de IP, timeout, IPv6 ou TLS.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnosticar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Onde este runner está
+        run: |
+          echo "IP de saída e geolocalização:"
+          curl -s --max-time 20 https://ipinfo.io/json || echo "(ipinfo não respondeu)"
+
+      - name: DNS do DivulgaCand
+        run: |
+          getent ahosts divulgacandcontas.tse.jus.br || echo "(sem resolução)"
+
+      - name: Baixar um plano, com detalhe
+        run: |
+          URL=https://divulgacandcontas.tse.jus.br/divulga/rest/arquivo/doc/200016848548
+          for MODO in "" "-4" "-6"; do
+            echo "----- curl $MODO"
+            curl -sS $MODO -o /tmp/plano.pdf -D /tmp/head.txt \
+                 -A "Mozilla/5.0" --max-time 90 \
+                 -w 'http=%{http_code} bytes=%{size_download} dns=%{time_namelookup}s conexao=%{time_connect}s tls=%{time_appconnect}s total=%{time_total}s\n' \
+                 "$URL" || echo "curl saiu com erro $?"
+            head -20 /tmp/head.txt || true
+          done
+
+      - name: Mesmo pedido pelo requests, igual ao script
+        run: |
+          python -c "
+          import requests, traceback
+          url='https://divulgacandcontas.tse.jus.br/divulga/rest/arquivo/doc/200016848548'
+          try:
+              r = requests.get(url, headers={'User-Agent':'Mozilla/5.0'}, timeout=90)
+              print('HTTP', r.status_code, '| bytes', len(r.content))
+              print('headers:', dict(r.headers))
+              print('inicio do corpo:', r.content[:120])
+          except Exception:
+              traceback.print_exc()
+          "
+
+      - name: Alternativa, portal de dados abertos
+        run: |
+          echo "O host do dados abertos é outro e pode não estar no mesmo bloqueio."
+          curl -sS -o /dev/null -I --max-time 60 \
+               -w 'cdn.tse.jus.br http=%{http_code} total=%{time_total}s\n' \
+               https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand/consulta_cand_2026.zip \
+            || echo "cdn falhou"
