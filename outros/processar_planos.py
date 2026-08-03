@@ -58,6 +58,11 @@ COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link"
 ANO = "2026"
 ABA_BASE = "base_dadosabertos"
 LOTE = 5           # candidatos entre uma gravação e outra
+# Segundos entre um candidato e outro. Até 02/08/2026 a fila tinha 1 candidato por
+# rodada e a pausa não fazia falta. Quando a versão subiu para 2 e os 16 entraram
+# de uma vez, o DivulgaCand recusou tudo. Pedir 16 PDFs em sequência é um padrão
+# de acesso diferente do que vinha sendo feito.
+PAUSA_ENTRE_PLANOS = int(os.getenv("PAUSA_ENTRE_PLANOS", "5"))
 ESCOPOS = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
@@ -295,6 +300,7 @@ def main() -> int:
         if feitos % LOTE == 0:
             descarrega()
             print(f"    ... {feitos} gravados ({time.time() - inicio:.0f}s)")
+        time.sleep(PAUSA_ENTRE_PLANOS)
 
     descarrega()
 
@@ -325,6 +331,14 @@ def main() -> int:
         print(f"{len(ilegiveis)} não puderam ser lidos: {', '.join(ilegiveis[:8])}")
     if erros:
         print(f"{len(erros)} com erro: {'; '.join(erros[:5])}")
+
+    # Rodada que tinha fila e não gravou nada precisa sair vermelha. Antes ela
+    # terminava em 0 e o Actions marcava sucesso, do mesmo jeito que quando não
+    # havia nada a fazer. Foi assim que a recusa do DivulgaCand em 01/08/2026
+    # passou despercebida.
+    if feitos == 0 and fila:
+        print("Nenhum plano da fila foi processado. Saindo com erro.")
+        return 1
     return 0
 
 
