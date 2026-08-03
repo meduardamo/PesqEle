@@ -27,6 +27,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -50,9 +51,9 @@ VERSAO_COERENCIA = "2"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
-        "programa_nome", "chars", "versao"]
+        "programa_nome", "chars", "versao", "analisado_em"]
 COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
-            "score_coerencia", "justificativa_coerencia", "chars", "versao"]
+            "score_coerencia", "justificativa_coerencia", "chars", "versao", "analisado_em"]
 
 # Só 2026. A aba planos_2022 continua na planilha, mas saiu do fluxo.
 ANO = "2026"
@@ -189,9 +190,13 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
         classif = classificar_plano(texto)
     coe = avaliar_coerencia(texto)
 
+    # Data em que esta análise foi feita. Sem ela, olhando a planilha ou o painel
+    # não dá para saber se o que está lá é de hoje ou de duas semanas atrás.
+    agora = datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y %H:%M")
     comum = {"ano": ano, "sq_candidato": str(r["SQ_CANDIDATO"]),
              "candidato": r["NM_URNA_CANDIDATO"], "partido": r["SG_PARTIDO"],
-             "uf": r["SG_UF"], "cargo": r["DS_CARGO"], "link": link, "chars": chars}
+             "uf": r["SG_UF"], "cargo": r["DS_CARGO"], "link": link, "chars": chars,
+             "analisado_em": agora}
 
     linhas = [dict(comum, tema=tema, versao=VERSAO_ANALISE,
                    nivel=res["nivel"], trecho=res["trecho"],
