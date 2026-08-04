@@ -75,6 +75,13 @@ COR_NIVEL = {
     "Define meta":        COR["azul"],
 }
 
+# Nomes antigos de tema. O nome do tema é a chave que indexa a análise salva, então
+# renomear sem tradução jogaria fora o que já foi processado. "Ensino Médio Integral"
+# virou "Tempo Integral" em 04/08/2026: dos 13 trechos que o tema tinha capturado,
+# 11 falavam de tempo integral sem dizer a etapa, e o nome prometia um recorte que a
+# análise não fazia.
+TEMAS_LEGADO = {"Ensino Médio Integral": "Tempo Integral"}
+
 # Nomes antigos da escala, usados em análises salvas antes da renomeação.
 # Traduzido na leitura para que dados ainda não reprocessados continuem funcionando.
 NIVEIS_LEGADO = {
@@ -96,7 +103,7 @@ NIVEIS_LEGADO = {
 EIXOS = {
     "Educação": {
         "Alfabetização": "alfabetização de crianças na idade certa (PNAIC, PNA, Compromisso Nacional Criança Alfabetizada ou equivalente)",
-        "Ensino Médio Integral": "ensino médio integral ou em tempo integral",
+        "Tempo Integral": "educação em tempo integral e jornada escolar ampliada, em qualquer etapa da educação básica (o estado costuma concentrar no ensino médio)",
         "Educação Profissional": "educação profissional e técnica (EPT, SENAI, SENAC, institutos federais, cursos técnicos)",
         "Primeira Infância": "creches, pré-escola, educação infantil, primeira infância (0–5 anos)",
         "Fundamental": "ensino fundamental anos iniciais (2º ao 5º ano) e anos finais (6º ao 9º ano) — exclui alfabetização do 1º ano, que é tema próprio",
