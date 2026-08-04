@@ -115,6 +115,29 @@ _CHAVE_POR_PREFIXO = (
     ("tema", "temas"),
 )
 
+def obter_nome_mes_portugues(data: datetime | None = None) -> str:
+    """Retorna o nome do mês atual em português, em minúsculas."""
+    referencia = data or datetime.now()
+    nomes = {
+        "January": "janeiro",
+        "February": "fevereiro",
+        "March": "março",
+        "April": "abril",
+        "May": "maio",
+        "June": "junho",
+        "July": "julho",
+        "August": "agosto",
+        "September": "setembro",
+        "October": "outubro",
+        "November": "novembro",
+        "December": "dezembro",
+    }
+    return nomes.get(referencia.strftime("%B"), referencia.strftime("%B")).lower()
+
+
+def obter_nome_aba_mensal() -> str:
+    """Retorna o nome da aba para o mês atual, como 'agosto' ou 'setembro'."""
+    return obter_nome_mes_portugues()
 
 def dividir_resultado(resultado: str) -> dict:
     """Separa o texto gerado pelo Gemini nas seções transcrição/resumos/temas."""
