@@ -292,7 +292,12 @@ def _abrir_pdf(data: bytes):
     return doc
 
 
-def _extrair_doc(doc, usar_ocr: bool, min_chars: int) -> str:
+def _extrair_paginas(doc, usar_ocr: bool, min_chars: int) -> list[str]:
+    """Texto de cada página, na ordem do documento.
+
+    A classificação usa tudo junto, mas guardar a divisão por página é o que
+    permite dizer depois em que página do PDF está o trecho citado.
+    """
     partes, ocradas = [], 0
     for page in doc:
         raw = _texto_da_pagina(page)
@@ -305,7 +310,11 @@ def _extrair_doc(doc, usar_ocr: bool, min_chars: int) -> str:
             if len(ocr.strip()) > len(raw.strip()):
                 raw = ocr
         partes.append(raw)
-    return " ".join(partes)
+    return partes
+
+
+def _extrair_doc(doc, usar_ocr: bool, min_chars: int) -> str:
+    return " ".join(_extrair_paginas(doc, usar_ocr, min_chars))
 
 
 def extrair_texto(pdf_path: str | Path, usar_ocr: bool = True,
@@ -357,6 +366,59 @@ def baixar_plano(url: str) -> bytes:
     raise PlanoIndisponivel(
         f"DivulgaCand não respondeu após {BAIXAR_TENTATIVAS} tentativas ({ultimo}). "
         "Costuma ser queda passageira; tente de novo em alguns minutos.")
+
+
+def extrair_paginas_url(url: str, usar_ocr: bool = True) -> list[str]:
+    """Baixa o PDF do link e devolve o texto de cada página, na ordem."""
+    doc = _abrir_pdf(baixar_plano(url))
+    try:
+        return _extrair_paginas(doc, usar_ocr, 200)
+    finally:
+        doc.close()
+
+
+# ─── Em que página está o trecho ──────────────────────────────────────────────
+# O painel guarda a frase que justifica cada classificação. Saber a página em
+# que ela aparece é o que transforma "confie na análise" em "confira você
+# mesmo": sem isso, conferir significa abrir um PDF de 90 páginas e procurar à
+# mão. A conta é feita aqui, uma vez, e vai gravada na planilha — não faz
+# sentido cada pessoa que abre o painel baixar o plano de novo.
+_JANELA_TRECHO = 6      # palavras por janela na busca aproximada
+_MIN_ESCORE = 0.25      # abaixo disso o trecho não está no PDF em forma literal
+
+
+def _norm_busca(t: str) -> str:
+    """Texto comparável: sem acento, sem caixa e sem pontuação. A quebra de
+    linha do PDF vira espaço, senão nenhuma frase de duas linhas casa."""
+    t = unicodedata.normalize("NFD", str(t or "").lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+def paginas_do_trecho(paginas_norm: list[str], trecho: str,
+                      limite: int = 3) -> list[int]:
+    """Páginas (1-based) em que o trecho aparece.
+
+    Primeiro tenta a frase inteira. Como o modelo às vezes resume em vez de
+    citar, o segundo passo conta quantas janelas de seis palavras do trecho
+    estão na página e fica com a melhor. Lista vazia significa que a frase não
+    está literalmente no PDF.
+    """
+    alvo = _norm_busca(trecho)
+    palavras = alvo.split()
+    if len(palavras) < 4:
+        return []
+    exatas = [i + 1 for i, t in enumerate(paginas_norm) if t and alvo in t]
+    if exatas:
+        return exatas[:limite]
+    janelas = [" ".join(palavras[i:i + _JANELA_TRECHO])
+               for i in range(max(1, len(palavras) - _JANELA_TRECHO + 1))]
+    escores = [(sum(1 for j in janelas if j in t) / len(janelas)) if t else 0.0
+               for t in paginas_norm]
+    melhor = max(escores) if escores else 0.0
+    if melhor < _MIN_ESCORE:
+        return []
+    return [i + 1 for i, s in enumerate(escores) if s >= melhor * 0.9][:limite]
 
 
 def extrair_texto_url(url: str, usar_ocr: bool = True) -> str:

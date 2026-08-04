@@ -35,7 +35,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from analise_planos import (  # noqa: E402
     PlanoIndisponivel, RespostaIlegivel,
-    avaliar_coerencia, classificar_plano, extrair_texto_url,
+    _norm_busca, avaliar_coerencia, classificar_plano, extrair_paginas_url,
+    paginas_do_trecho,
 )
 
 # Convenções deste repo: credenciais em credentials.json (escrito pelo
@@ -51,7 +52,7 @@ VERSAO_COERENCIA = "2"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
-        "programa_nome", "chars", "versao", "analisado_em"]
+        "programa_nome", "pagina", "chars", "versao", "analisado_em"]
 COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
             "score_coerencia", "justificativa_coerencia", "chars", "versao", "analisado_em"]
 
@@ -174,7 +175,11 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
     Devolve (linhas de análise, linha de coerência, motivo de pulo).
     """
     link = str(r["LINK_PLANO"])
-    texto = extrair_texto_url(link)          # levanta PlanoIndisponivel se cair
+    # Extrai página a página: o mesmo texto alimenta a classificação (tudo
+    # junto) e o cálculo de em que página está cada trecho citado.
+    paginas = extrair_paginas_url(link)      # levanta PlanoIndisponivel se cair
+    texto = " ".join(paginas)
+    paginas_norm = [_norm_busca(p) for p in paginas]
     chars = len((texto or "").strip())
     if chars < LIMIAR_CHARS:
         return [], None, f"extração pobre ({chars} caracteres)"
@@ -203,12 +208,69 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
                    responsavel=res.get("responsavel", ""),
                    prazo=res.get("prazo", ""),
                    publico_alvo=res.get("publico_alvo", ""),
-                   programa_nome=res.get("programa_nome", ""))
+                   programa_nome=res.get("programa_nome", ""),
+                   # Vazio quando o modelo resumiu em vez de citar: aí a frase
+                   # não está literal no PDF e não há página para apontar.
+                   pagina=", ".join(
+                       str(n) for n in paginas_do_trecho(paginas_norm,
+                                                         res["trecho"])))
               for tema, res in classif.items()]
     linha_coe = dict(comum, versao=VERSAO_COERENCIA,
                      score_coerencia=coe["score"],
                      justificativa_coerencia=coe["justificativa"])
     return linhas, linha_coe, ""
+
+
+def preencher_paginas(sh, uf: str = "", limite: int = 0) -> int:
+    """Preenche a coluna `pagina` das análises já gravadas, sem chamar o modelo.
+
+    A coluna nasceu depois das primeiras análises. Reanalisar tudo só para ela
+    custaria uma rodada inteira de Gemini à toa: aqui o plano é baixado, o
+    trecho de cada tema é casado com a página e só essa célula é escrita.
+    """
+    salvas = ler_aba(sh, ANALISE_ABA)
+    if salvas.empty:
+        print("Nada gravado ainda.")
+        return 0
+    if "pagina" not in salvas.columns:
+        salvas["pagina"] = ""
+    alvo = salvas[(salvas["pagina"].astype(str).str.strip() == "")
+                  & (salvas["trecho"].astype(str).str.strip() != "")]
+    if uf:
+        alvo = alvo[alvo["uf"].astype(str).str.upper() == uf.upper()]
+    sqs = list(dict.fromkeys(alvo["sq_candidato"].astype(str)))
+    if limite:
+        sqs = sqs[:limite]
+    print(f"{len(alvo)} linhas sem página, em {len(sqs)} planos")
+    if not sqs:
+        return 0
+
+    for n, sq in enumerate(sqs, 1):
+        linhas = salvas[salvas["sq_candidato"].astype(str) == sq]
+        link = str(linhas.iloc[0].get("link", "") or "")
+        nome = str(linhas.iloc[0].get("candidato", ""))
+        print(f"[{n}/{len(sqs)}] {linhas.iloc[0].get('uf','')} · {nome}...",
+              end=" ", flush=True)
+        if not link.startswith("http"):
+            print("sem link")
+            continue
+        try:
+            paginas_norm = [_norm_busca(x) for x in extrair_paginas_url(link)]
+        except Exception as e:
+            print(f"não abriu ({e})")
+            continue
+        achou = 0
+        for i, r in linhas.iterrows():
+            if str(r.get("pagina", "") or "").strip():
+                continue
+            pgs = paginas_do_trecho(paginas_norm, str(r.get("trecho", "")))
+            salvas.at[i, "pagina"] = ", ".join(str(x) for x in pgs)
+            achou += 1 if pgs else 0
+        print(f"{achou} de {len(linhas)} trechos localizados")
+
+    reescrever(sh, ANALISE_ABA, COLS, salvas)
+    print("Coluna `pagina` gravada.")
+    return 0
 
 
 def main() -> int:
@@ -225,15 +287,21 @@ def main() -> int:
                                      os.getenv("COLETA_SHEET_ID", "")),
                    help="ID da planilha (ou env SPREADSHEET_ID_TSE)")
     p.add_argument("--credenciais", default="", help="caminho do credentials.json")
+    p.add_argument("--so-paginas", action="store_true",
+                   help="só preenche a coluna `pagina` do que já está gravado, "
+                        "sem chamar o modelo")
     args = p.parse_args()
 
     if not args.planilha:
         raise SystemExit("Informe --planilha ou defina SPREADSHEET_ID_TSE.")
-    if not os.getenv("GEMINI_API_KEY", "").strip():
+    if not args.so_paginas and not os.getenv("GEMINI_API_KEY", "").strip():
         raise SystemExit("Defina GEMINI_API_KEY: é ela que roda a análise.")
 
     gc = cliente(args.credenciais)
     sh = gc.open_by_key(args.planilha)
+
+    if args.so_paginas:
+        return preencher_paginas(sh, args.uf, args.limite)
 
     base = ler_aba(sh, ABA_BASE)
     if base.empty or "LINK_PLANO" not in base.columns:
