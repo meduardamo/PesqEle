@@ -157,6 +157,7 @@ EIXOS = {
         "Pessoa com Deficiência": "acessibilidade, direitos e serviços para pessoas com deficiência",
         "Juventude e Pessoa Idosa": "políticas para a juventude e para a pessoa idosa, primeiro emprego, centro de convivência, cuidado",
         "Povos Indígenas e Quilombolas": "povos indígenas, comunidades quilombolas, povos e comunidades tradicionais, território e políticas específicas",
+        "População LGBTQIA+": "políticas para a população LGBTQIA+, enfrentamento à LGBTfobia, nome social, acolhimento e serviços específicos",
     },
     "Cultura, esporte e turismo": {
         "Cultura": "cultura, patrimônio, economia criativa, fomento e editais, equipamentos culturais",
