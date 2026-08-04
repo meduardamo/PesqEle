@@ -409,16 +409,28 @@ def paginas_do_trecho(paginas_norm: list[str], trecho: str,
     ela não existe assim em lugar nenhum do PDF. Por isso cada pedaço é
     procurado por conta própria e as páginas se somam.
     """
-    pedacos = [p for p in re.split(r"\[\s*[.…]{1,3}\s*\]|\.{3,}|…", str(trecho or ""))
-               if len(_norm_busca(p).split()) >= 4]
-    if not pedacos:
+    pedacos = [_norm_busca(p) for p in
+               re.split(r"\[\s*[.…]{1,3}\s*\]|\.{3,}|…", str(trecho or ""))]
+    pedacos = [p for p in pedacos if p]
+    longos = [p for p in pedacos if len(p.split()) >= 4]
+    if longos:
+        achadas: list[int] = []
+        for pedaco in longos:
+            for n in _paginas_de_um_pedaco(paginas_norm, pedaco, limite):
+                if n not in achadas:
+                    achadas.append(n)
+        return sorted(achadas)[:limite]
+
+    # Nenhum pedaço tem quatro palavras. Acontece quando o modelo corta o meio
+    # de uma lista: "Investiremos em... saneamento" vira "investiremos em" e
+    # "saneamento", curtos demais para localizar sozinhos. Juntos, na MESMA
+    # página, são sinal forte. Se muitas páginas têm os dois, o trecho não
+    # distingue nada e é melhor não apontar nenhuma.
+    if sum(len(p.split()) for p in pedacos) < 3 or len(pedacos) < 2:
         return []
-    achadas: list[int] = []
-    for pedaco in pedacos:
-        for n in _paginas_de_um_pedaco(paginas_norm, pedaco, limite):
-            if n not in achadas:
-                achadas.append(n)
-    return sorted(achadas)[:limite]
+    juntas = [i + 1 for i, pag in enumerate(paginas_norm)
+              if pag and all(p in pag for p in pedacos)]
+    return juntas if len(juntas) <= limite else []
 
 
 def _paginas_de_um_pedaco(paginas_norm: list[str], trecho: str,
