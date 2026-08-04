@@ -103,31 +103,38 @@ NIVEIS_LEGADO = {
 EIXOS = {
     "Educação": {
         "Alfabetização": "alfabetização de crianças na idade certa (PNAIC, PNA, Compromisso Nacional Criança Alfabetizada ou equivalente)",
-        "Tempo Integral": "educação em tempo integral e jornada escolar ampliada, em qualquer etapa da educação básica (o estado costuma concentrar no ensino médio)",
-        "Educação Profissional": "educação profissional e técnica (EPT, SENAI, SENAC, institutos federais, cursos técnicos)",
         "Primeira Infância": "creches, pré-escola, educação infantil, primeira infância (0–5 anos)",
         "Fundamental": "ensino fundamental anos iniciais (2º ao 5º ano) e anos finais (6º ao 9º ano) — exclui alfabetização do 1º ano, que é tema próprio",
+        "Ensino Médio": "ensino médio regular da rede estadual: matrícula, evasão, novo ensino médio, currículo e resultado de aprendizagem — o tempo integral é tema próprio",
+        "Tempo Integral": "educação em tempo integral e jornada escolar ampliada, em qualquer etapa da educação básica",
+        "Educação Profissional": "educação profissional e técnica (EPT, SENAI, SENAC, institutos federais, cursos técnicos)",
+        "Valorização Docente": "carreira, salário, piso, concurso, formação continuada e condições de trabalho de professores e demais profissionais da educação",
+        "Educação Inclusiva e EJA": "educação especial e inclusiva, estudante com deficiência, educação de jovens e adultos, educação no campo, indígena e quilombola",
         "Tecnologia na Educação": "tecnologia, conectividade, inclusão digital e uso de IA nas escolas",
     },
     "Saúde": {
         "Atenção Primária": "atenção primária, saúde da família, UBS, agentes comunitários de saúde",
         "Média e Alta Complexidade": "hospitais, leitos, UTI, cirurgias eletivas, filas e regulação de vagas",
+        "Urgência e Emergência": "SAMU, UPA, pronto-socorro, pronto atendimento, regulação de urgência e transporte sanitário",
         "Saúde Mental": "saúde mental, CAPS, dependência química, prevenção ao suicídio",
     },
     "Segurança pública": {
         "Policiamento e Efetivo": "efetivo policial, salário, equipamento, presença ostensiva, videomonitoramento",
         "Enfrentamento ao Crime Organizado": "facções, tráfico, inteligência policial, fronteiras",
         "Violência contra a Mulher": "violência doméstica, Lei Maria da Penha, delegacia da mulher, casa da mulher brasileira",
+        "Sistema Prisional e Socioeducativo": "presídios, vagas prisionais, ressocialização, egresso e sistema socioeducativo de adolescentes",
     },
     "Economia e emprego": {
         "Geração de Emprego": "geração de emprego e renda, qualificação profissional para o trabalho, intermediação de mão de obra",
         "Ambiente de Negócios": "atração de investimento, desburocratização, incentivo fiscal, apoio a micro e pequena empresa",
         "Agropecuária": "agricultura, pecuária, agronegócio, agricultura familiar, crédito rural",
+        "Ciência, Tecnologia e Inovação": "pesquisa científica, fundação de amparo à pesquisa, universidade estadual e ensino superior, parque tecnológico, startups",
     },
     "Meio ambiente e clima": {
         "Desmatamento e Conservação": "desmatamento, unidades de conservação, fiscalização ambiental, queimadas",
         "Saneamento e Recursos Hídricos": "água, esgoto, resíduos sólidos, bacias hidrográficas, seca",
         "Transição Energética": "energia renovável, solar, eólica, crédito de carbono, economia verde",
+        "Defesa Civil e Desastres": "defesa civil, enchente, seca, deslizamento, prevenção e resposta a desastres, adaptação climática",
     },
     "Assistência social e pobreza": {
         "Transferência de Renda": "programas de transferência de renda, complemento ao Bolsa Família, benefício estadual",
@@ -139,9 +146,22 @@ EIXOS = {
         "Mobilidade Urbana": "transporte público, tarifa, metrô, BRT, ciclovia",
     },
     "Gestão pública e transparência": {
-        "Eficiência e Gasto Público": "reforma administrativa, corte de gasto, teto de despesa, concurso, servidor",
+        "Eficiência e Gasto Público": "reforma administrativa, corte de gasto, teto de despesa, equilíbrio fiscal",
         "Transparência e Combate à Corrupção": "transparência, controle interno, dados abertos, combate à corrupção",
         "Governo Digital": "digitalização de serviços, atendimento ao cidadão, governo eletrônico",
+        "Servidores e Municípios": "servidor público estadual, carreira e concurso, e a relação do estado com os municípios (consórcio, repasse, apoio técnico)",
+    },
+    "Direitos humanos e igualdade": {
+        "Igualdade Racial": "promoção da igualdade racial, população negra, racismo, cotas e ações afirmativas",
+        "Mulheres": "políticas para mulheres além do enfrentamento à violência, que é tema próprio: autonomia econômica, cuidado, saúde da mulher",
+        "Pessoa com Deficiência": "acessibilidade, direitos e serviços para pessoas com deficiência",
+        "Juventude e Pessoa Idosa": "políticas para a juventude e para a pessoa idosa, primeiro emprego, centro de convivência, cuidado",
+        "Povos Indígenas e Quilombolas": "povos indígenas, comunidades quilombolas, povos e comunidades tradicionais, território e políticas específicas",
+    },
+    "Cultura, esporte e turismo": {
+        "Cultura": "cultura, patrimônio, economia criativa, fomento e editais, equipamentos culturais",
+        "Esporte e Lazer": "esporte, esporte escolar, lazer, equipamentos esportivos e grandes eventos",
+        "Turismo": "turismo, atrativos, promoção e infraestrutura turística",
     },
 }
 
