@@ -403,6 +403,28 @@ def paginas_do_trecho(paginas_norm: list[str], trecho: str,
                       limite: int = 3) -> list[int]:
     """Páginas (1-based) em que o trecho aparece.
 
+    O trecho gravado costuma ser uma citação com corte: o modelo junta partes
+    distantes do plano com "[…]" ou reticências, e a extração ainda trunca em
+    240 caracteres. Procurar a frase inteira nesse caso nunca acha nada, porque
+    ela não existe assim em lugar nenhum do PDF. Por isso cada pedaço é
+    procurado por conta própria e as páginas se somam.
+    """
+    pedacos = [p for p in re.split(r"\[\s*[.…]{1,3}\s*\]|\.{3,}|…", str(trecho or ""))
+               if len(_norm_busca(p).split()) >= 4]
+    if not pedacos:
+        return []
+    achadas: list[int] = []
+    for pedaco in pedacos:
+        for n in _paginas_de_um_pedaco(paginas_norm, pedaco, limite):
+            if n not in achadas:
+                achadas.append(n)
+    return sorted(achadas)[:limite]
+
+
+def _paginas_de_um_pedaco(paginas_norm: list[str], trecho: str,
+                          limite: int = 3) -> list[int]:
+    """Um pedaço contínuo de citação.
+
     Primeiro tenta a frase inteira. Como o modelo às vezes resume em vez de
     citar, o segundo passo conta quantas janelas de seis palavras do trecho
     estão na página e fica com a melhor. Lista vazia significa que a frase não
