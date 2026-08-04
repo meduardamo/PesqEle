@@ -22,11 +22,12 @@ import pandas as pd
 
 # Paleta Eixo
 COR = {
-    "azul":    "#192D4E",
+    # Paleta oficial Eixo (Manual de Identidade Visual, "Cores para gráficos").
+    "azul":    "#192D4E",   # marinho
     "vinho":   "#962E4D",
     "amarelo": "#E8A600",
-    "amarelo_claro": "#F0D46C",
-    "vermelho": "#B84349",
+    "azul_claro":  "#BAC8DD",
+    "azul_medio":  "#6091D8",
     "cinza":   "#E1E1E1",
 }
 
@@ -64,10 +65,13 @@ RESTRICOES_LINGUAGEM = (
 
 # Escala de maturidade (ordem importa)
 NIVEIS = ["Não menciona", "Menciona vagamente", "Propõe ação", "Define meta"]
+# A escala é ORDINAL: 0, 1, 2 e 3 pontos. Rampa sequencial de um tom só, do
+# claro ao escuro, no azul da marca — mais escuro = mais maduro. Mantido igual
+# ao painel, que é quem exibe. Ver o comentário longo lá.
 COR_NIVEL = {
-    "Não menciona":       COR["vermelho"],
-    "Menciona vagamente": COR["amarelo"],
-    "Propõe ação":        COR["amarelo_claro"],
+    "Não menciona":       "#E3E8F0",
+    "Menciona vagamente": "#9DB4D3",
+    "Propõe ação":        "#3F6FB5",
     "Define meta":        COR["azul"],
 }
 
