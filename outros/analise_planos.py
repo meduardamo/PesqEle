@@ -449,8 +449,14 @@ def _paginas_de_um_pedaco(paginas_norm: list[str], trecho: str,
     exatas = [i + 1 for i, t in enumerate(paginas_norm) if t and alvo in t]
     if exatas:
         return exatas[:limite]
-    janelas = [" ".join(palavras[i:i + _JANELA_TRECHO])
-               for i in range(max(1, len(palavras) - _JANELA_TRECHO + 1))]
+    # Janela menor em trecho curto. Com janela fixa de seis, uma citação de
+    # quatro palavras vira uma janela só, que precisa bater inteira: "preservar
+    # sua riqueza ambiental" não achava a página onde está escrito "preserve
+    # sua riqueza ambiental", porque o modelo trocou a conjugação do verbo.
+    # Com janelas de três, "sua riqueza ambiental" casa e a página aparece.
+    _jan = min(_JANELA_TRECHO, max(3, len(palavras) - 1))
+    janelas = [" ".join(palavras[i:i + _jan])
+               for i in range(max(1, len(palavras) - _jan + 1))]
     escores = [(sum(1 for j in janelas if j in t) / len(janelas)) if t else 0.0
                for t in paginas_norm]
     melhor = max(escores) if escores else 0.0
