@@ -37,6 +37,10 @@ SUBTEXTO = (118, 118, 114)
 TINTA = (17, 17, 17)
 
 SEM_CARGO = "Cargo não informado"
+# Faixa dos grandes números no topo do PDF, em mm.
+ALTURA_FAIXA = 18
+ALTURA_NUMERO = 6
+ALTURA_ROTULO = 4
 # Em palavras, não em caracteres: desde 05/08/2026 o clipping sai antes da
 # análise do Gemini e cai na legenda crua do post, que às vezes é enorme.
 LIMITE_RESUMO_PALAVRAS = 60
@@ -265,21 +269,24 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
     pdf.set_fill_color(*GELO)
     pdf.set_draw_color(*BORDA)
     y0 = pdf.get_y()
-    pdf.rect(16, y0, largura, 18, style="DF")
+    pdf.rect(16, y0, largura, ALTURA_FAIXA, style="DF")
     caixas = [(_n(num["posts"]), "posts"), (_n(num["candidatos"]), "candidatos"),
               (_n(num["ufs"]), "UFs"), (_n(num["curtidas"]), "curtidas"),
               (_n(num["comentarios"]), "comentários")]
     passo = largura / len(caixas)
+    # Sobra dividida em duas, em vez de um recuo fixo no topo: com 3 fixos o
+    # número e o rótulo ficavam 2mm acima do centro da faixa.
+    topo = y0 + (ALTURA_FAIXA - ALTURA_NUMERO - ALTURA_ROTULO) / 2
     for i, (valor, rotulo) in enumerate(caixas):
-        pdf.set_xy(16 + i * passo, y0 + 3)
+        pdf.set_xy(16 + i * passo, topo)
         pdf.set_font("Helvetica", "B", 13)
         pdf.set_text_color(*MARINHO)
-        pdf.cell(passo, 6, _latin1(valor), align="C", new_x="LEFT", new_y="NEXT")
+        pdf.cell(passo, ALTURA_NUMERO, _latin1(valor), align="C", new_x="LEFT", new_y="NEXT")
         pdf.set_x(16 + i * passo)
         pdf.set_font("Helvetica", "", 7)
         pdf.set_text_color(*SUBTEXTO)
-        pdf.cell(passo, 4, _latin1(rotulo.upper()), align="C")
-    pdf.set_y(y0 + 22)
+        pdf.cell(passo, ALTURA_ROTULO, _latin1(rotulo.upper()), align="C")
+    pdf.set_y(y0 + ALTURA_FAIXA + 4)
 
     agrupado = _por_uf_candidato(posts)
     # Estados em ordem alfabética e, depois deles, os blocos que não são UF
