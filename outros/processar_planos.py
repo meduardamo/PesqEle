@@ -50,7 +50,11 @@ LIMIAR_CHARS = 1500
 # Subiu em 04/08/2026 com a taxonomia nova: 10 eixos e 43 temas, contra 8 e 26.
 # A coerência sobe junto porque o prompt dela lista os eixos e temas, e julgar
 # "articulação entre eixos" com dez eixos não é a mesma pergunta que com oito.
-VERSAO_ANALISE = "3"
+# Subiu de novo em 05/08/2026: a descrição de "Saúde Mental" passou a citar
+# álcool e outras drogas, ludopatia, apostas de quota fixa (bets) e imposto
+# seletivo. Sem reprocessar, os planos já lidos não conhecem essas palavras. A
+# coerência fica em 3: o prompt dela lista eixos e temas, que não mudaram.
+VERSAO_ANALISE = "4"
 VERSAO_COERENCIA = "3"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
