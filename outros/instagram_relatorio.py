@@ -37,7 +37,10 @@ SUBTEXTO = (118, 118, 114)
 TINTA = (17, 17, 17)
 
 SEM_CARGO = "Cargo não informado"
-LIMITE_RESUMO = 320
+# Em palavras, não em caracteres: desde 05/08/2026 o clipping sai antes da
+# análise do Gemini e cai na legenda crua do post, que às vezes é enorme.
+LIMITE_RESUMO_PALAVRAS = 60
+LIMITE_TEMAS_PALAVRAS = 20
 
 
 def _limpo(texto) -> str:
@@ -79,16 +82,17 @@ def _latin1(texto: str) -> str:
     return "".join(saida)
 
 
-def _corte(texto: str, limite: int = LIMITE_RESUMO) -> str:
-    """Corta no fim da última frase que couber, e não no meio da palavra."""
+def _corte(texto: str, limite: int = LIMITE_RESUMO_PALAVRAS) -> str:
+    """Corta em `limite` palavras, fechando no fim da última frase que couber."""
     t = _limpo(texto)
-    if len(t) <= limite:
+    palavras = t.split()
+    if len(palavras) <= limite:
         return t
-    pedaco = t[:limite]
+    pedaco = " ".join(palavras[:limite])
     fim = max(pedaco.rfind(". "), pedaco.rfind("! "), pedaco.rfind("? "))
-    if fim > limite * 0.5:
+    if fim > len(pedaco) * 0.5:
         return pedaco[:fim + 1]
-    return pedaco.rsplit(" ", 1)[0] + "..."
+    return pedaco + "..."
 
 
 def _inteiro(valor) -> int:
@@ -204,7 +208,7 @@ def montar_posts(salvos: list[dict], perfis: dict[str, dict]) -> list[dict]:
             "comentarios": _inteiro(s.get("comentarios")),
             "resumo": _corte(s.get("resumo_conteudo") or s.get("resumo_legenda") or
                              s.get("legenda") or ""),
-            "temas": _corte(s.get("temas", ""), 140),
+            "temas": _corte(s.get("temas", ""), LIMITE_TEMAS_PALAVRAS),
             "link": s.get("link", ""),
         })
     return posts

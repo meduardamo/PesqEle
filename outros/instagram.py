@@ -14,6 +14,18 @@ Fluxo:
    e grava os resultados na aba "Resultados" da planilha de mídia/resultados
    (SPREADSHEET_ID) — não na planilha de perfis.
 
+A rodada diária é dividida em duas fases, desde 05/08/2026:
+
+    --perfis   coleta na Apify, grava as linhas e manda o clipping por e-mail.
+               Não chama o Gemini, então termina em cerca de 12 min.
+    --analise  preenche as colunas do Gemini nas linhas que estão em branco,
+               em paralelo. O que não terminar continua pendente para a rodada
+               seguinte, porque o estado mora na própria planilha.
+
+Elas rodam em workflows separados (15 - Instagram Coleta e 16 - Instagram
+Análise). Juntas numa execução só, a análise post a post estourava o timeout e
+levava o e-mail junto.
+
 Antes de rodar:
     pip install apify-client google-genai gspread google-auth google-api-python-client requests
 
@@ -26,14 +38,19 @@ Uso:
 
     python instagram.py --perfis [data_minima] [limite_de_perfis]
     Ex.: python instagram.py --perfis 2026-07-13
+
+    python instagram.py --analise [limite_de_posts]
+    python instagram.py --relatorio [YYYY-MM-DD]
 """
 
 import json
 import os
+import random
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit, urlunsplit
 
 import gspread
@@ -113,7 +130,41 @@ CABECALHO_RESULTADOS_PERFIS = [
     "Resumo do conteúdo",
     "Resumo da legenda",
     "Temas",
+    # A fase 2 baixa a mídia depois, em outra execução, e o link do post não
+    # serve para isso: o mp4/jpg está numa URL assinada do CDN do Instagram que
+    # só vem no retorno da Apify. Por isso ela é gravada aqui na coleta.
+    "URL da mídia",
 ]
+
+# Colunas que a fase 1 deixa em branco e a fase 2 preenche. Contíguas de
+# propósito: cada linha vira um único range no batch_update.
+COLUNAS_GEMINI = ("Transcrição", "Resumo do conteúdo", "Resumo da legenda", "Temas")
+# Coluna que decide se a linha está pendente de análise.
+COLUNA_PENDENTE = "Resumo do conteúdo"
+
+# A fase 2 é espera de rede quase pura (download da mídia, upload para o Gemini,
+# polling do PROCESSING, geração). Em série deu 21s por post e 190 min na rodada
+# de 05/08/2026, que estourou o timeout com 74 dos 79 perfis feitos.
+THREADS_ANALISE = int(os.getenv("THREADS_ANALISE", "8"))
+# Quantos posts analisados antes de gravar na planilha. O gspread não é
+# thread-safe, então quem escreve é sempre a thread principal, em lote.
+LOTE_ESCRITA_ANALISE = int(os.getenv("LOTE_ESCRITA_ANALISE", "20"))
+# 503 UNAVAILABLE ("modelo sobrecarregado") derrubou 6 posts na rodada de
+# 05/08/2026, sem nenhuma nova tentativa. São transitórios.
+TENTATIVAS_GEMINI = int(os.getenv("TENTATIVAS_GEMINI", "4"))
+# A URL do CDN do Instagram expira. Passado esse prazo a linha para de ser
+# tentada de novo a cada rodada e fica marcada como não analisada.
+DIAS_PARA_DESISTIR_DA_MIDIA = int(os.getenv("DIAS_PARA_DESISTIR_DA_MIDIA", "3"))
+MARCA_MIDIA_EXPIRADA = "(mídia expirada, não analisado)"
+# Vídeo na resolução padrão custa 258 tokens por frame a 1 FPS; na baixa, 66.
+# Como vídeo é quase toda a conta de entrada, ligar isso corta o custo da rodada
+# para cerca de um terço. O áudio (32 tokens/s) não muda, então a transcrição
+# continua igual; o que piora é o detalhe visual do frame.
+RESOLUCAO_MIDIA_BAIXA = os.getenv("RESOLUCAO_MIDIA_BAIXA", "").strip().lower() in ("1", "true", "sim")
+# Tarifas do gemini-2.5-flash (ai.google.dev/gemini-api/docs/pricing, 05/08/2026),
+# por 1M de tokens. Servem só para a estimativa impressa no fim da rodada.
+PRECO_ENTRADA_POR_MILHAO = float(os.getenv("PRECO_ENTRADA_POR_MILHAO", "0.30"))
+PRECO_SAIDA_POR_MILHAO = float(os.getenv("PRECO_SAIDA_POR_MILHAO", "2.50"))
 
 _PADRAO_SECOES = re.compile(
     r"[#\s*]*\d+\.[ \t*]*(Transcri[cç][aã]o|Resumo\s+do\s+conte[uú]do|Resumo\s+da\s+legenda|Temas?)[ \t*:]*[^\n]*\n",
@@ -288,6 +339,40 @@ def obter_aba(sh: gspread.Spreadsheet, nome_aba: str, cabecalho: list[str]) -> g
     if not aba.row_values(1):
         aba.append_row(cabecalho, value_input_option="RAW")
     return aba
+
+
+def garantir_colunas(aba: gspread.Worksheet, cabecalho: list[str]) -> None:
+    """Acrescenta ao fim do cabeçalho as colunas novas que a aba ainda não tem.
+
+    A aba de resultados já existe com o cabeçalho antigo, e "URL da mídia"
+    entrou depois. Só acrescenta no fim: toda leitura por índice continua
+    valendo, e nada é reordenado nem apagado.
+
+    Chamada só na aba de resultados, nunca dentro de `obter_aba`: a aba
+    "Instagram" da mesma planilha é a lista de perfis, e completar cabeçalho
+    nela escreveria colunas em cima da planilha de acompanhamento.
+    """
+    atual = aba.row_values(1)
+    faltando = [c for c in cabecalho if c not in atual]
+    if not faltando:
+        return
+
+    if aba.col_count < len(atual) + len(faltando):
+        aba.add_cols(len(atual) + len(faltando) - aba.col_count)
+    inicio = _letra_coluna(len(atual))
+    fim = _letra_coluna(len(atual) + len(faltando) - 1)
+    aba.update(range_name=f"{inicio}1:{fim}1", values=[faltando], value_input_option="RAW")
+    print(f"Coluna(s) acrescentada(s) na aba '{aba.title}': {', '.join(faltando)}.")
+
+
+def _letra_coluna(indice: int) -> str:
+    """Índice de coluna base 0 para letra do A1 ('O' para 14, 'AA' para 26)."""
+    letra = ""
+    indice += 1
+    while indice:
+        indice, resto = divmod(indice - 1, 26)
+        letra = chr(65 + resto) + letra
+    return letra
 
 
 def ordenar_por_data(aba: gspread.Worksheet) -> None:
@@ -576,13 +661,17 @@ def obter_ultima_data_por_perfil(aba: gspread.Worksheet) -> dict[str, str]:
     return ultima_data
 
 
-def salvar_resultado_perfil(aba: gspread.Worksheet, perfil: str, item: dict, eh_video: bool, resultado: str) -> dict:
-    """Adiciona uma linha de resultado (com ID do post e nome do pré-candidato) na aba de resultados.
+def montar_linha_perfil(perfil: str, item: dict) -> tuple[list, dict]:
+    """Monta a linha da aba de resultados a partir do que a Apify devolveu.
 
-    Devolve o post em dicionário para o relatório do fim da rodada montar o
-    clipping sem reler a planilha.
+    As quatro colunas do Gemini saem em branco: quem as preenche é a fase 2
+    (`rodar_analise_pendentes`). A fase 1 grava e manda o clipping sem esperar
+    pela análise, que é o que estourava o tempo da rodada.
+
+    Devolve também o post em dicionário, para o relatório do fim da rodada
+    montar o clipping sem reler a planilha.
     """
-    secoes = dividir_resultado(resultado)
+    eh_video = bool(item.get("videoUrl"))
     linha = [
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         perfil,
@@ -594,13 +683,13 @@ def salvar_resultado_perfil(aba: gspread.Worksheet, perfil: str, item: dict, eh_
         item.get("likesCount", "") if item.get("likesCount") is not None else "",
         item.get("commentsCount", "") if item.get("commentsCount") is not None else "",
         item.get("caption", "") or "",
-        secoes["transcricao"],
-        secoes["resumo_conteudo"],
-        secoes["resumo_legenda"],
-        secoes["temas"],
+        "",  # Transcrição
+        "",  # Resumo do conteúdo
+        "",  # Resumo da legenda
+        "",  # Temas
+        item.get("videoUrl") or item.get("displayUrl") or "",
     ]
-    aba.append_row(linha, value_input_option="RAW")
-    return {
+    return linha, {
         "candidato": perfil,
         "link": linha[3],
         "usuario": linha[4],
@@ -609,29 +698,35 @@ def salvar_resultado_perfil(aba: gspread.Worksheet, perfil: str, item: dict, eh_
         "curtidas": linha[7],
         "comentarios": linha[8],
         "legenda": linha[9],
-        "resumo_conteudo": secoes["resumo_conteudo"],
-        "resumo_legenda": secoes["resumo_legenda"],
-        "temas": secoes["temas"],
+        "resumo_conteudo": "",
+        "resumo_legenda": "",
+        "temas": "",
     }
 
 
 def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, pular_perfis: int = 0) -> None:
-    """Etapa 5: roda o fluxo completo para cada perfil da planilha de acompanhamento.
+    """Fase 1: coleta os posts de cada perfil da planilha, grava e manda o clipping.
+
+    Não passa pelo Gemini. A análise é a fase 2 (`rodar_analise_pendentes`), que
+    lê as linhas com "Resumo do conteúdo" em branco. Separar as duas resolve o
+    que quebrou em 05/08/2026: a rodada estourou o timeout de 200 min no post
+    a post do Gemini, parou no perfil 74 de 79 e o e-mail nunca saiu. Aqui o
+    clipping vai embora em cerca de 12 min, e o que a fase 2 não terminar fica
+    pendente para a próxima, sem `pular_perfis` na mão.
 
     `pular_perfis` pula os N primeiros perfis da lista, para rodar em lotes
     (ex.: pular_perfis=20, limite_perfis=20 processa os perfis 21 a 40).
     """
     apify_token = carregar_apify_token()
-    gemini_api_key = carregar_gemini_api_key()
     if not apify_token:
         raise RuntimeError("Token do Apify não encontrado. Defina APIFY_TOKEN ou adicione APIFY_TOKEN em credentials.json.")
 
     client = ApifyClient(apify_token)
-    gem = genai.Client(api_key=gemini_api_key)
 
     gc = gs_client_from_file()
     sh_resultados = gc.open_by_key(SPREADSHEET_ID)
     aba_resultados = obter_aba(sh_resultados, ABA_RESULTADOS_PERFIS, CABECALHO_RESULTADOS_PERFIS)
+    garantir_colunas(aba_resultados, CABECALHO_RESULTADOS_PERFIS)
     ids_processados = obter_ids_processados(aba_resultados)
     ultima_data_por_perfil = obter_ultima_data_por_perfil(aba_resultados)
 
@@ -668,19 +763,19 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
         novos = [item for item in itens if (item.get("shortCode") or str(item.get("id", ""))) not in ids_processados]
         print(f"{len(itens)} post(s) no período, {len(novos)} novo(s).")
 
+        # Uma escrita por perfil, não uma por post: são 543 chamadas a menos na
+        # API do Sheets num dia como o de 05/08/2026.
+        linhas = []
         for item in novos:
             post_id = item.get("shortCode") or str(item.get("id", ""))
-            try:
-                eh_video, caminho, legenda = baixar_midia(item, pasta=os.path.join("download", post_id or "midia"))
-                resultado = analisar_com_gemini(gem, eh_video, caminho, legenda)
-                salvos_na_rodada.append(
-                    salvar_resultado_perfil(aba_resultados, perfil["nome"], item,
-                                            eh_video, resultado))
-                ids_processados.add(post_id)
-                total_novos += 1
-                print(f"Post {post_id} processado e salvo.")
-            except Exception as erro:
-                print(f"Aviso: falha ao processar o post {post_id} de {perfil['nome']}: {erro}")
+            linha, salvo = montar_linha_perfil(perfil["nome"], item)
+            linhas.append(linha)
+            salvos_na_rodada.append(salvo)
+            ids_processados.add(post_id)
+        if linhas:
+            aba_resultados.append_rows(linhas, value_input_option="RAW")
+            total_novos += len(linhas)
+            print(f"{len(linhas)} linha(s) gravada(s) para {perfil['nome']}.")
 
     if total_novos:
         ordenar_por_data(aba_resultados)
@@ -692,7 +787,7 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
     enviar_relatorio(salvos_na_rodada, gc, SPREADSHEET_ID_PERFIS, ABA_PERFIS,
                      SPREADSHEET_ID)
 
-    print(f"\nAutomação concluída. {total_novos} post(s) novo(s) processado(s).")
+    print(f"\nColeta concluída. {total_novos} post(s) novo(s) gravado(s), aguardando a fase 2 (--analise).")
     print(f"{len(perfis)} perfil(is) percorrido(s), {len(perfis_com_erro)} com falha na coleta, {perfis_com_post} com post no período.")
 
     # A partir daqui é só diagnóstico da rodada: os posts que deram certo já foram
@@ -708,6 +803,182 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
         raise RuntimeError(
             f"Nenhum dos {len(perfis)} perfis devolveu post no período. Provável bloqueio do Instagram ou proxy do Apify fora do ar."
         )
+
+
+def linhas_pendentes(aba: gspread.Worksheet) -> list[dict]:
+    """Linhas já coletadas que ainda não passaram pelo Gemini.
+
+    Pendente é ter "Resumo do conteúdo" em branco. O estado mora na planilha,
+    então a fase 2 pode morrer no meio e a rodada seguinte continua de onde
+    parou, sem guardar nada entre execuções.
+    """
+    valores = aba.get_all_values()
+    if len(valores) < 2:
+        return []
+    cabecalho = valores[0]
+    faltando = [c for c in (COLUNA_PENDENTE, "ID do post", "URL da mídia", "Tipo", "Legenda") if c not in cabecalho]
+    if faltando:
+        print(f"Aviso: a aba '{aba.title}' não tem a(s) coluna(s) {', '.join(faltando)}; nada a analisar.")
+        return []
+
+    idx = {nome: cabecalho.index(nome) for nome in cabecalho}
+
+    def celula(linha: list[str], nome: str) -> str:
+        i = idx[nome]
+        return linha[i].strip() if i < len(linha) else ""
+
+    pendentes = []
+    for numero, linha in enumerate(valores[1:], start=2):
+        if celula(linha, COLUNA_PENDENTE):
+            continue
+        midia = celula(linha, "URL da mídia")
+        post_id = celula(linha, "ID do post")
+        if not midia or not post_id:
+            continue
+        pendentes.append({
+            "linha": numero,
+            "id": post_id,
+            "midia": midia,
+            "eh_video": celula(linha, "Tipo") == "Vídeo",
+            "legenda": celula(linha, "Legenda"),
+            "publicado": celula(linha, "Data de publicação")[:10],
+            "candidato": celula(linha, "Candidato") if "Candidato" in idx else "",
+        })
+    return pendentes
+
+
+def _analisar_pendente(gem: genai.Client, pendente: dict) -> dict:
+    """Baixa a mídia e roda o Gemini para uma linha. Roda dentro das threads.
+
+    Nada de gspread aqui: o cliente não é thread-safe, então a gravação fica
+    toda na thread principal.
+    """
+    pasta = os.path.join("download", pendente["id"])
+    os.makedirs(pasta, exist_ok=True)
+    extensao = "mp4" if pendente["eh_video"] else "jpg"
+    caminho = os.path.join(pasta, f"{pendente['id']}.{extensao}")
+
+    baixar_url(pendente["midia"], caminho)
+    texto, uso = analisar_com_gemini(gem, pendente["eh_video"], caminho, pendente["legenda"])
+    try:
+        os.remove(caminho)
+    except OSError:
+        pass
+    return {"secoes": dividir_resultado(texto), "uso": uso}
+
+
+def _mapa_id_para_linha(aba: gspread.Worksheet) -> dict[str, int]:
+    """ID do post para número da linha, lido na hora de gravar.
+
+    A fase 1 roda `ordenar_por_data`, que reescreve a aba inteira. Guardar o
+    número da linha lido no começo da fase 2 e escrever nele depois gravaria a
+    análise na linha de outro post.
+    """
+    cabecalho = aba.row_values(1)
+    coluna = aba.col_values(cabecalho.index("ID do post") + 1)
+    return {valor: numero for numero, valor in enumerate(coluna[1:], start=2) if valor}
+
+
+def gravar_analises(aba: gspread.Worksheet, prontos: list[tuple[dict, dict]]) -> None:
+    """Escreve as quatro colunas do Gemini de uma vez, um range por post."""
+    if not prontos:
+        return
+    cabecalho = aba.row_values(1)
+    primeira = _letra_coluna(cabecalho.index(COLUNAS_GEMINI[0]))
+    ultima = _letra_coluna(cabecalho.index(COLUNAS_GEMINI[-1]))
+    por_id = _mapa_id_para_linha(aba)
+
+    blocos = []
+    for pendente, secoes in prontos:
+        numero = por_id.get(pendente["id"])
+        if not numero:
+            print(f"Aviso: post {pendente['id']} sumiu da planilha antes da gravação, pulando.")
+            continue
+        blocos.append({
+            "range": f"{primeira}{numero}:{ultima}{numero}",
+            "values": [[secoes["transcricao"], secoes["resumo_conteudo"],
+                        secoes["resumo_legenda"], secoes["temas"]]],
+        })
+    if blocos:
+        aba.batch_update(blocos, value_input_option="RAW")
+        print(f"{len(blocos)} análise(s) gravada(s) na planilha.")
+
+
+def rodar_analise_pendentes(limite: int | None = None) -> None:
+    """Fase 2: roda o Gemini nas linhas que a coleta deixou em branco.
+
+    Em paralelo porque o trabalho é espera de rede: download da mídia, upload
+    para o Gemini e geração. Em série foram 21s por post.
+    """
+    gemini_api_key = carregar_gemini_api_key()
+    gem = genai.Client(api_key=gemini_api_key)
+
+    gc = gs_client_from_file()
+    aba = obter_aba(gc.open_by_key(SPREADSHEET_ID), ABA_RESULTADOS_PERFIS, CABECALHO_RESULTADOS_PERFIS)
+    garantir_colunas(aba, CABECALHO_RESULTADOS_PERFIS)
+
+    pendentes = linhas_pendentes(aba)
+    print(f"{len(pendentes)} post(s) pendente(s) de análise.")
+
+    # Passado o prazo, a URL do CDN não volta a funcionar. Marcar tira a linha
+    # da fila: sem isso toda rodada gastaria download e tempo no mesmo post
+    # morto, para sempre.
+    corte = (datetime.now() - timedelta(days=DIAS_PARA_DESISTIR_DA_MIDIA)).strftime("%Y-%m-%d")
+    velhas = [p for p in pendentes if p["publicado"] and p["publicado"] < corte]
+    pendentes = [p for p in pendentes if p not in velhas]
+    if limite:
+        pendentes = pendentes[:limite]
+    if not pendentes and not velhas:
+        return
+
+    prontos: list[tuple[dict, dict]] = []
+    total_entrada = total_saida = 0
+    falhas = expiradas = 0
+
+    def descarregar():
+        nonlocal prontos
+        gravar_analises(aba, prontos)
+        prontos = []
+
+    with ThreadPoolExecutor(max_workers=THREADS_ANALISE) as executor:
+        tarefas = {executor.submit(_analisar_pendente, gem, p): p for p in pendentes}
+        for i, tarefa in enumerate(as_completed(tarefas), start=1):
+            pendente = tarefas[tarefa]
+            try:
+                resultado = tarefa.result()
+            except MidiaExpirada as erro:
+                expiradas += 1
+                print(f"[{i}/{len(pendentes)}] {pendente['id']}: mídia indisponível ({erro}), fica pendente.")
+                continue
+            except Exception as erro:
+                falhas += 1
+                print(f"[{i}/{len(pendentes)}] {pendente['id']}: falhou ({str(erro)[:160]}), fica pendente.")
+                continue
+
+            prontos.append((pendente, resultado["secoes"]))
+            total_entrada += resultado["uso"]["entrada"]
+            total_saida += resultado["uso"]["saida"]
+            print(f"[{i}/{len(pendentes)}] {pendente['id']} ({pendente['candidato']}) analisado.")
+            if len(prontos) >= LOTE_ESCRITA_ANALISE:
+                descarregar()
+
+    descarregar()
+
+    if velhas:
+        gravar_analises(aba, [
+            (p, {"transcricao": "", "resumo_conteudo": MARCA_MIDIA_EXPIRADA,
+                 "resumo_legenda": "", "temas": ""})
+            for p in velhas
+        ])
+        print(f"{len(velhas)} post(s) com mais de {DIAS_PARA_DESISTIR_DA_MIDIA} dias marcado(s) como não analisado(s).")
+
+    custo = (total_entrada / 1_000_000 * PRECO_ENTRADA_POR_MILHAO
+             + total_saida / 1_000_000 * PRECO_SAIDA_POR_MILHAO)
+    print(f"\nAnálise concluída. {len(pendentes) - falhas - expiradas} post(s) analisado(s), "
+          f"{falhas} com falha, {expiradas} sem mídia disponível.")
+    print(f"Tokens: {total_entrada:,} de entrada, {total_saida:,} de saída. "
+          f"Custo estimado: US$ {custo:.2f}"
+          f"{' (resolução baixa)' if RESOLUCAO_MIDIA_BAIXA else ''}.")
 
 
 def baixar_midia(item: dict, pasta: str = "download"):
@@ -729,13 +1000,28 @@ def baixar_midia(item: dict, pasta: str = "download"):
     if not origem:
         raise RuntimeError("Não encontrei nem videoUrl nem displayUrl no item retornado.")
 
-    resposta = requests.get(origem)
+    baixar_url(origem, caminho)
+    print("Mídia salva em:", caminho, "| é vídeo?", eh_video)
+    return eh_video, caminho, legenda
+
+
+class MidiaExpirada(RuntimeError):
+    """A URL do CDN do Instagram não vale mais.
+
+    Elas são assinadas e caducam. A fase 2 roda depois da coleta, então isso
+    aparece quando uma linha fica pendente por dias, e não é erro para tentar
+    de novo na mesma rodada.
+    """
+
+
+def baixar_url(origem: str, caminho: str) -> None:
+    """Baixa a mídia, traduzindo 403/404/410 do CDN em MidiaExpirada."""
+    resposta = requests.get(origem, timeout=120)
+    if resposta.status_code in (403, 404, 410):
+        raise MidiaExpirada(f"CDN devolveu {resposta.status_code}")
     resposta.raise_for_status()
     with open(caminho, "wb") as f:
         f.write(resposta.content)
-
-    print("Mídia salva em:", caminho, "| é vídeo?", eh_video)
-    return eh_video, caminho, legenda
 
 
 def montar_prompt(legenda: str) -> str:
@@ -751,29 +1037,72 @@ Legenda:
 """
 
 
-def analisar_com_gemini(gem: genai.Client, eh_video: bool, caminho: str, legenda: str) -> str:
+def _e_transitorio(erro: Exception) -> bool:
+    """503 (modelo sobrecarregado), 429 (cota) e 500 voltam a funcionar sozinhos."""
+    texto = str(erro)
+    return any(marca in texto for marca in ("429", "500", "503", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "INTERNAL"))
+
+
+def com_retry(funcao, contexto: str = "", tentativas: int = TENTATIVAS_GEMINI):
+    """Repete a chamada em erro transitório, com espera crescente e sorteada.
+
+    Sem isso, os 6 posts que pegaram 503 em 05/08/2026 sumiram da rodada.
+    """
+    for tentativa in range(1, tentativas + 1):
+        try:
+            return funcao()
+        except MidiaExpirada:
+            raise
+        except Exception as erro:
+            if tentativa == tentativas or not _e_transitorio(erro):
+                raise
+            espera = 2 ** tentativa + random.uniform(0, 1)
+            print(f"Aviso: {contexto} falhou ({str(erro)[:120]}), tentando de novo em {espera:.0f}s ({tentativa}/{tentativas - 1}).")
+            time.sleep(espera)
+
+
+def analisar_com_gemini(gem: genai.Client, eh_video: bool, caminho: str, legenda: str) -> tuple[str, dict]:
+    """Devolve o texto da análise e o uso de tokens da chamada.
+
+    O uso vem junto para a rodada fechar com o custo estimado no log, em vez de
+    ele só aparecer na fatura.
+    """
     prompt = montar_prompt(legenda)
+    config = None
+    if RESOLUCAO_MIDIA_BAIXA:
+        config = types.GenerateContentConfig(media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW)
 
     if eh_video:
-        arquivo = gem.files.upload(file=caminho)
+        arquivo = com_retry(lambda: gem.files.upload(file=caminho), f"upload de {os.path.basename(caminho)}")
+        # O polling era de 5 em 5s, e o piso valia para todo vídeo. 2s dá o
+        # mesmo resultado e devolve alguns segundos por post.
         while arquivo.state.name == "PROCESSING":
-            time.sleep(5)
+            time.sleep(2)
             arquivo = gem.files.get(name=arquivo.name)
+        if arquivo.state.name == "FAILED":
+            raise RuntimeError(f"O Gemini não conseguiu processar o vídeo {os.path.basename(caminho)}.")
         conteudo = [arquivo, prompt]
     else:
         with open(caminho, "rb") as f:
             dados = f.read()
         conteudo = [types.Part.from_bytes(data=dados, mime_type="image/jpeg"), prompt]
 
-    resp = gem.models.generate_content(model="gemini-2.5-flash", contents=conteudo)
-    return resp.text
+    resp = com_retry(
+        lambda: gem.models.generate_content(model="gemini-2.5-flash", contents=conteudo, config=config),
+        f"análise de {os.path.basename(caminho)}",
+    )
+    uso = resp.usage_metadata
+    return resp.text, {
+        "entrada": getattr(uso, "prompt_token_count", 0) or 0,
+        "saida": getattr(uso, "candidates_token_count", 0) or 0,
+    }
 
 
 def processar_item(gem: genai.Client, item: dict, pasta: str) -> None:
     """Baixa a mídia de um item, analisa com o Gemini, imprime e salva na planilha."""
     link = item.get("url") or item.get("inputUrl") or ""
     eh_video, caminho, legenda = baixar_midia(item, pasta=pasta)
-    resultado = analisar_com_gemini(gem, eh_video, caminho, legenda)
+    resultado, _uso = analisar_com_gemini(gem, eh_video, caminho, legenda)
 
     print(f"\n=== Resultado ({link}) ===\n")
     print(resultado)
@@ -864,9 +1193,21 @@ def main_relatorio():
     enviar_relatorio(salvos, gc, SPREADSHEET_ID_PERFIS, ABA_PERFIS, SPREADSHEET_ID)
 
 
+def main_analise():
+    """Fase 2, sozinha: `python outros/instagram.py --analise [limite]`.
+
+    O limite serve para rodar um lote pequeno, por exemplo para comparar o
+    resultado com RESOLUCAO_MIDIA_BAIXA ligada antes de mudar todo mundo.
+    """
+    limite = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].strip() else None
+    rodar_analise_pendentes(limite=limite)
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--perfis":
         main_perfis()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--analise":
+        main_analise()
     elif len(sys.argv) > 1 and sys.argv[1] == "--relatorio":
         main_relatorio()
     else:

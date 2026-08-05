@@ -49,10 +49,11 @@ concurrency:
 jobs:
   executar-script:
     runs-on: ubuntu-latest
-    # 30 min nao cobria a rodada: em 01/08/2026, com backlog de 9 a 12 posts por
-    # perfil, deu tempo de processar 10 dos 79 perfis antes do corte (cerca de 20s
-    # por post entre download da midia e Gemini). O teto do runner gratuito e 6h.
-    timeout-minutes: 200
+    # Desde 05/08/2026 este workflow so coleta e manda o clipping; o Gemini saiu
+    # daqui para o 16 - Instagram Analise. A rodada de 05/08 gastou 11 min na
+    # Apify e 189 min no post a post do Gemini, estourou o teto de 200 min no
+    # perfil 74 de 79 e o e-mail nem chegou a sair. So a coleta cabe em ~15 min.
+    timeout-minutes: 60
     env:
       TZ: America/Sao_Paulo
 
