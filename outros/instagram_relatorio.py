@@ -120,6 +120,23 @@ def _data_curta(iso: str) -> str:
 
 # ─── Dados dos perfis ─────────────────────────────────────────────────────────
 
+def _grupo(estado: str) -> str:
+    """Sigla da UF, ou o nome do bloco quando a coluna Estado não traz uma UF.
+
+    A planilha agrupa os presidenciáveis num bloco "PRESIDENCIÁVEIS", na mesma
+    coluna dos estados. Lido como UF, ele entrava na contagem de UFs e o painel
+    dizia 17 estados onde havia 16.
+    """
+    v = str(estado or "").strip()
+    if len(v) == 2 and v.isalpha():
+        return v.upper()
+    return v.capitalize()
+
+
+def eh_uf(grupo: str) -> bool:
+    return len(grupo) == 2 and grupo.isalpha()
+
+
 def dados_dos_perfis(gc, spreadsheet_id: str, aba: str) -> dict[str, dict]:
     """Estado, cargo e partido de cada pré-candidato, lidos por nome de coluna.
 
@@ -161,7 +178,7 @@ def dados_dos_perfis(gc, spreadsheet_id: str, aba: str) -> dict[str, dict]:
         # A coluna Estado é preenchida só na primeira linha de cada UF, como
         # cabeçalho visual do bloco. Lida ao pé da letra, ela deixa sem UF todo
         # perfil que não é o primeiro do estado: eram 577 de 930 posts no teste.
-        uf = _cel(linha, i_uf).upper()
+        uf = _grupo(_cel(linha, i_uf))
         if uf:
             uf_corrente = uf
         if nome:
@@ -198,7 +215,8 @@ def numeros(posts: list[dict]) -> dict:
     return {
         "posts": len(posts),
         "candidatos": len({p["candidato"] for p in posts}),
-        "ufs": len({p["uf"] for p in posts}),
+        # Só sigla de estado: o bloco dos presidenciáveis é grupo, não UF.
+        "ufs": len({p["uf"] for p in posts if eh_uf(p["uf"])}),
         "curtidas": sum(p["curtidas"] for p in posts),
         "comentarios": sum(p["comentarios"] for p in posts),
         "por_uf": Counter(p["uf"] for p in posts),
@@ -260,7 +278,10 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
     pdf.set_y(y0 + 22)
 
     agrupado = _por_uf_candidato(posts)
-    ufs = sorted(agrupado)
+    # Estados em ordem alfabética e, depois deles, os blocos que não são UF
+    # (hoje só "Presidenciáveis"): a disputa nacional fecha o clipping, em vez
+    # de cair entre Pernambuco e Piauí.
+    ufs = sorted(agrupado, key=lambda g: (not eh_uf(g), g))
 
     # ── Sumário ───────────────────────────────────────────────────────────────
     # Uma grade de UFs clicáveis: com 12 páginas e 16 estados, achar o seu
@@ -432,6 +453,41 @@ def enviar(assunto: str, html: str, pdf: bytes, nome_pdf: str) -> None:
             print(f"Relatório do Instagram enviado para {dest}")
         except Exception as erro:
             print(f"Relatório do Instagram: falha para {dest}: {erro}")
+
+
+def posts_gravados_no_dia(gc, spreadsheet_id: str, aba: str, dia: str) -> list[dict]:
+    """Relê da aba de resultados o que foi gravado num dia.
+
+    Serve para refazer ou reenviar o relatório sem chamar a Apify de novo, que
+    é a parte cara da rodada. O filtro é pela coluna Data/Hora, o carimbo de
+    gravação, e não pela data de publicação: o clipping é do que entrou hoje.
+    """
+    valores = gc.open_by_key(spreadsheet_id).worksheet(aba).get_all_values()
+    if len(valores) < 2:
+        return []
+    cab = valores[0]
+
+    def _i(*nomes):
+        for nome in nomes:
+            if nome in cab:
+                return cab.index(nome)
+        return -1
+
+    i_quando, i_cand = _i("Data/Hora"), _i("Candidato", "Pré-candidato")
+    if i_quando < 0 or i_cand < 0:
+        return []
+    campos = {"link": _i("Link"), "usuario": _i("Usuário"), "tipo": _i("Tipo"),
+              "publicado": _i("Data de publicação"), "curtidas": _i("Curtidas"),
+              "comentarios": _i("Comentários"), "legenda": _i("Legenda"),
+              "resumo_conteudo": _i("Resumo do conteúdo"),
+              "resumo_legenda": _i("Resumo da legenda"), "temas": _i("Temas")}
+
+    def _cel(linha, i):
+        return linha[i] if 0 <= i < len(linha) else ""
+
+    return [dict({"candidato": _cel(l, i_cand)},
+                 **{k: _cel(l, i) for k, i in campos.items()})
+            for l in valores[1:] if _cel(l, i_quando)[:10] == dia]
 
 
 def enviar_relatorio(salvos: list[dict], gc, spreadsheet_id_perfis: str,

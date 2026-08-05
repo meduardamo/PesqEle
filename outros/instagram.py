@@ -48,9 +48,9 @@ from googleapiclient.discovery import build as build_google_service
 # sys.path, e o uso local é `python -m outros.instagram`. Os dois caminhos de
 # import precisam funcionar.
 try:
-    from outros.instagram_relatorio import enviar_relatorio
+    from outros.instagram_relatorio import enviar_relatorio, posts_gravados_no_dia
 except ImportError:
-    from instagram_relatorio import enviar_relatorio
+    from instagram_relatorio import enviar_relatorio, posts_gravados_no_dia
 
 
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1piO-m19orW1i-Z-6rNeWdXnEAWqw5wneiDpdHZqOa6Y")
@@ -850,8 +850,24 @@ def main_perfis():
     rodar_automacao_perfis(data_minima=data_minima, limite_perfis=limite_perfis, pular_perfis=pular_perfis)
 
 
+def main_relatorio():
+    """Só o relatório, a partir do que já está gravado na aba de resultados.
+
+    `python outros/instagram.py --relatorio [YYYY-MM-DD]`. Existe porque a
+    coleta é a parte cara (a Apify cobra pelos 79 perfis) e refazer ou reenviar
+    o clipping não precisa dela. Sem data, é o que foi gravado hoje.
+    """
+    dia = sys.argv[2].strip() if len(sys.argv) > 2 else datetime.now().strftime("%Y-%m-%d")
+    gc = gs_client_from_file()
+    salvos = posts_gravados_no_dia(gc, SPREADSHEET_ID, ABA_RESULTADOS_PERFIS, dia)
+    print(f"{len(salvos)} post(s) gravado(s) em {dia}.")
+    enviar_relatorio(salvos, gc, SPREADSHEET_ID_PERFIS, ABA_PERFIS, SPREADSHEET_ID)
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--perfis":
         main_perfis()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--relatorio":
+        main_relatorio()
     else:
         main()
