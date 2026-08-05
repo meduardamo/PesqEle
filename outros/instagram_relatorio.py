@@ -296,15 +296,24 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
     por_linha = 6
     larg_item = largura / por_linha
     pdf.set_font("Helvetica", "", 9)
-    for i, uf in enumerate(ufs):
-        total_uf = sum(len(v) for v in agrupado[uf].values())
-        pdf.set_text_color(*MARINHO)
-        pdf.cell(larg_item, 6, _latin1(f"{uf} · {total_uf}"), link=links[uf],
+    pdf.set_text_color(*MARINHO)
+
+    def _conta(g):
+        return sum(len(v) for v in agrupado[g].values())
+
+    siglas = [g for g in ufs if eh_uf(g)]
+    for i, uf in enumerate(siglas):
+        pdf.cell(larg_item, 6, _latin1(f"{uf} · {_conta(uf)}"), link=links[uf],
                  new_x="RIGHT", new_y="TOP")
         if (i + 1) % por_linha == 0:
             pdf.ln(6)
-    if len(ufs) % por_linha:
+    if len(siglas) % por_linha:
         pdf.ln(6)
+    # Nome de grupo não cabe numa célula de sigla: "Presidenciáveis · 12" passa
+    # da largura e escreve por cima do vizinho. Cada um fica na sua linha.
+    for g in [g for g in ufs if not eh_uf(g)]:
+        pdf.cell(0, 6, _latin1(f"{g} · {_conta(g)}"), link=links[g],
+                 new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     for uf in ufs:
