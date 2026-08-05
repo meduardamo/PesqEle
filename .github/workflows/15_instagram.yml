@@ -88,6 +88,14 @@ jobs:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           SPREADSHEET_ID: ${{ secrets.SHEET_ID_INSTAGRAM }}
           SPREADSHEET_ID_PERFIS: ${{ secrets.SHEET_ID_INSTAGRAM_PERFIS }}
+          # Relatorio do fim da rodada: e-mail com os numeros por UF e por cargo
+          # e o clipping em PDF anexado. Mesmo remetente do alerta de pesquisas
+          # (workflow 02). Sem DESTINATARIOS_INSTAGRAM cai em DESTINATARIOS; sem
+          # nenhum dos dois o script avisa no log e nao envia.
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          EMAIL: ${{ secrets.EMAIL }}
+          DESTINATARIOS_INSTAGRAM: ${{ secrets.DESTINATARIOS_INSTAGRAM }}
+          DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
           LINK: ${{ inputs.link }}
           DATA_MINIMA: ${{ inputs.data_minima }}
           LIMITE_PERFIS: ${{ inputs.limite_perfis }}

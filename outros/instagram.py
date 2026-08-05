@@ -44,6 +44,14 @@ from google.genai import types
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build as build_google_service
 
+# O workflow chama `python outros/instagram.py`, que põe outros/ na frente do
+# sys.path, e o uso local é `python -m outros.instagram`. Os dois caminhos de
+# import precisam funcionar.
+try:
+    from outros.instagram_relatorio import enviar_relatorio
+except ImportError:
+    from instagram_relatorio import enviar_relatorio
+
 
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1piO-m19orW1i-Z-6rNeWdXnEAWqw5wneiDpdHZqOa6Y")
 NOME_ABA_SHEETS = os.getenv("NOME_ABA_SHEETS", "Instagram")
@@ -550,8 +558,12 @@ def obter_ultima_data_por_perfil(aba: gspread.Worksheet) -> dict[str, str]:
     return ultima_data
 
 
-def salvar_resultado_perfil(aba: gspread.Worksheet, perfil: str, item: dict, eh_video: bool, resultado: str) -> None:
-    """Adiciona uma linha de resultado (com ID do post e nome do pré-candidato) na aba de resultados."""
+def salvar_resultado_perfil(aba: gspread.Worksheet, perfil: str, item: dict, eh_video: bool, resultado: str) -> dict:
+    """Adiciona uma linha de resultado (com ID do post e nome do pré-candidato) na aba de resultados.
+
+    Devolve o post em dicionário para o relatório do fim da rodada montar o
+    clipping sem reler a planilha.
+    """
     secoes = dividir_resultado(resultado)
     linha = [
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -570,6 +582,19 @@ def salvar_resultado_perfil(aba: gspread.Worksheet, perfil: str, item: dict, eh_
         secoes["temas"],
     ]
     aba.append_row(linha, value_input_option="RAW")
+    return {
+        "candidato": perfil,
+        "link": linha[3],
+        "usuario": linha[4],
+        "tipo": linha[5],
+        "publicado": linha[6],
+        "curtidas": linha[7],
+        "comentarios": linha[8],
+        "legenda": linha[9],
+        "resumo_conteudo": secoes["resumo_conteudo"],
+        "resumo_legenda": secoes["resumo_legenda"],
+        "temas": secoes["temas"],
+    }
 
 
 def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, pular_perfis: int = 0) -> None:
@@ -605,6 +630,10 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
     total_novos = 0
     perfis_com_erro: list[str] = []
     perfis_com_post = 0
+    # O que a rodada gravou, para o relatório do fim. Guardado aqui em vez de
+    # relido da planilha: reler traria também o que outra rodada gravou no mesmo
+    # dia, e o clipping deixaria de ser o desta execução.
+    salvos_na_rodada: list[dict] = []
     for i, perfil in enumerate(perfis, start=1):
         apenas_apos_perfil = max(data_minima, ultima_data_por_perfil.get(perfil["nome"], data_minima))
         print(f"\n=== [{i}/{len(perfis)}] {perfil['nome']} ({perfil['url']}) — buscando a partir de {apenas_apos_perfil} ===")
@@ -626,7 +655,9 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
             try:
                 eh_video, caminho, legenda = baixar_midia(item, pasta=os.path.join("download", post_id or "midia"))
                 resultado = analisar_com_gemini(gem, eh_video, caminho, legenda)
-                salvar_resultado_perfil(aba_resultados, perfil["nome"], item, eh_video, resultado)
+                salvos_na_rodada.append(
+                    salvar_resultado_perfil(aba_resultados, perfil["nome"], item,
+                                            eh_video, resultado))
                 ids_processados.add(post_id)
                 total_novos += 1
                 print(f"Post {post_id} processado e salvo.")
@@ -635,6 +666,14 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
 
     if total_novos:
         ordenar_por_data(aba_resultados)
+
+    # Relatório da rodada: e-mail com os números por UF e por cargo e o clipping
+    # em PDF anexado. Vem antes do diagnóstico de falha de propósito: mesmo numa
+    # rodada que vai terminar em erro por perfil bloqueado, o que foi coletado
+    # já rende clipping, e é ele que substitui o envio manual no canal.
+    enviar_relatorio(salvos_na_rodada, gc, SPREADSHEET_ID_PERFIS, ABA_PERFIS,
+                     SPREADSHEET_ID)
+
     print(f"\nAutomação concluída. {total_novos} post(s) novo(s) processado(s).")
     print(f"{len(perfis)} perfil(is) percorrido(s), {len(perfis_com_erro)} com falha na coleta, {perfis_com_post} com post no período.")
 

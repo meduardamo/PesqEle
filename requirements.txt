@@ -18,3 +18,5 @@ newspaper3k==0.2.8
 lxml[html_clean]==5.2.2
 googlenewsdecoder
 apify-client>=1.7.0
+# clipping em PDF do relatorio do Instagram (outros/instagram_relatorio.py)
+fpdf2>=2.7
