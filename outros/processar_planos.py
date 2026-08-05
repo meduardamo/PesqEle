@@ -47,8 +47,11 @@ from analise_planos import (  # noqa: E402
 ANALISE_ABA = "analise_planos"
 COERENCIA_ABA = "coerencia_planos"
 LIMIAR_CHARS = 1500
-VERSAO_ANALISE = "2"
-VERSAO_COERENCIA = "2"
+# Subiu em 04/08/2026 com a taxonomia nova: 10 eixos e 43 temas, contra 8 e 26.
+# A coerência sobe junto porque o prompt dela lista os eixos e temas, e julgar
+# "articulação entre eixos" com dez eixos não é a mesma pergunta que com oito.
+VERSAO_ANALISE = "3"
+VERSAO_COERENCIA = "3"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
