@@ -95,9 +95,12 @@ SPREADSHEET_ID_PERFIS = os.getenv("SPREADSHEET_ID_PERFIS", "1piO-m19orW1i-Z-6rNe
 ABA_PERFIS = os.getenv("ABA_PERFIS", "Instagram")
 COLUNA_PERFIS = os.getenv("COLUNA_PERFIS", "B")
 ABA_RESULTADOS_PERFIS = os.getenv("ABA_RESULTADOS_PERFIS", "Resultados")
+# "Candidato" desde 05/08/2026: com o registro no TSE feito, pré-candidato
+# deixou de ser o termo certo. A leitura aceita os dois nomes (COLUNA_CANDIDATO)
+# para não depender de a planilha estar renomeada.
 CABECALHO_RESULTADOS_PERFIS = [
     "Data/Hora",
-    "Pré-candidato",
+    "Candidato",
     "ID do post",
     "Link",
     "Usuário",
@@ -528,8 +531,23 @@ def obter_ids_processados(aba: gspread.Worksheet) -> set[str]:
     return {linha[idx] for linha in valores[1:] if idx < len(linha) and linha[idx]}
 
 
+COLUNA_CANDIDATO = ("Candidato", "Pré-candidato")
+
+
+def _idx_candidato(cabecalho: list[str]) -> int:
+    """Posição da coluna do candidato, com o nome antigo aceito.
+
+    A aba foi renomeada de "Pré-candidato" para "Candidato"; abas de meses
+    anteriores continuam com o nome antigo.
+    """
+    for nome in COLUNA_CANDIDATO:
+        if nome in cabecalho:
+            return cabecalho.index(nome)
+    return -1
+
+
 def obter_ultima_data_por_perfil(aba: gspread.Worksheet) -> dict[str, str]:
-    """Retorna, por 'Pré-candidato', a data (YYYY-MM-DD) do post mais recente já salvo.
+    """Retorna, por candidato, a data (YYYY-MM-DD) do post mais recente já salvo.
 
     Usado para avançar o onlyPostsNewerThan/newerThan por perfil a cada execução,
     para que o Apify nem chegue a buscar (e cobrar) de novo posts que já estão
@@ -540,9 +558,9 @@ def obter_ultima_data_por_perfil(aba: gspread.Worksheet) -> dict[str, str]:
     if len(valores) < 2:
         return {}
     cabecalho = valores[0]
-    if "Pré-candidato" not in cabecalho or "Data de publicação" not in cabecalho:
+    idx_perfil = _idx_candidato(cabecalho)
+    if idx_perfil < 0 or "Data de publicação" not in cabecalho:
         return {}
-    idx_perfil = cabecalho.index("Pré-candidato")
     idx_data = cabecalho.index("Data de publicação")
 
     ultima_data: dict[str, str] = {}

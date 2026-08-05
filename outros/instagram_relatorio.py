@@ -235,7 +235,7 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
     pdf.cell(0, 9, _latin1("Clipping do Instagram"), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(*SUBTEXTO)
-    pdf.cell(0, 6, _latin1(f"Pré-candidatos monitorados · {dia}"),
+    pdf.cell(0, 6, _latin1(f"Candidatos monitorados · {dia}"),
              new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
 
@@ -259,12 +259,47 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
         pdf.cell(passo, 4, _latin1(rotulo.upper()), align="C")
     pdf.set_y(y0 + 22)
 
-    for uf in sorted(_por_uf_candidato(posts)):
-        por_candidato = _por_uf_candidato(posts)[uf]
+    agrupado = _por_uf_candidato(posts)
+    ufs = sorted(agrupado)
+
+    # ── Sumário ───────────────────────────────────────────────────────────────
+    # Uma grade de UFs clicáveis: com 12 páginas e 16 estados, achar o seu
+    # estado é a primeira coisa que se faz no arquivo. O destino de cada link só
+    # existe quando a seção é desenhada, então o link é criado agora e apontado
+    # depois (pdf.set_link).
+    links = {uf: pdf.add_link() for uf in ufs}
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(*SUBTEXTO)
+    pdf.cell(0, 5, _latin1("SUMÁRIO"), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+    por_linha = 6
+    larg_item = largura / por_linha
+    pdf.set_font("Helvetica", "", 9)
+    for i, uf in enumerate(ufs):
+        total_uf = sum(len(v) for v in agrupado[uf].values())
+        pdf.set_text_color(*MARINHO)
+        pdf.cell(larg_item, 6, _latin1(f"{uf} · {total_uf}"), link=links[uf],
+                 new_x="RIGHT", new_y="TOP")
+        if (i + 1) % por_linha == 0:
+            pdf.ln(6)
+    if len(ufs) % por_linha:
+        pdf.ln(6)
+    pdf.ln(4)
+
+    for uf in ufs:
+        por_candidato = agrupado[uf]
         total_uf = sum(len(v) for v in por_candidato.values())
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(255, 255, 255)
         pdf.set_fill_color(*MARINHO)
+        # Antes da faixa: se ela cair no fim da página, a quebra automática joga
+        # o destino do link para a página seguinte e o sumário erra o alvo.
+        if pdf.get_y() > pdf.h - 40:
+            pdf.add_page()
+        pdf.set_link(links[uf], y=pdf.get_y(), page=pdf.page_no())
+        # Também no painel de marcadores do leitor de PDF, que é como se navega
+        # um arquivo longo fora do sumário.
+        pdf.start_section(f"{uf} ({total_uf} posts)")
         pdf.cell(0, 7, _latin1(f"  {uf} · {total_uf} post(s)"), fill=True,
                  new_x="LMARGIN", new_y="NEXT")
         pdf.ln(2)
