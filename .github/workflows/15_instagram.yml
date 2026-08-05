@@ -47,7 +47,7 @@ jobs:
     # 30 min nao cobria a rodada: em 01/08/2026, com backlog de 9 a 12 posts por
     # perfil, deu tempo de processar 10 dos 79 perfis antes do corte (cerca de 20s
     # por post entre download da midia e Gemini). O teto do runner gratuito e 6h.
-    timeout-minutes: 120
+    timeout-minutes: 200
     env:
       TZ: America/Sao_Paulo
 
