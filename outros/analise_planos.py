@@ -116,7 +116,12 @@ EIXOS = {
         "Atenção Primária": "atenção primária, saúde da família, UBS, agentes comunitários de saúde",
         "Média e Alta Complexidade": "hospitais, leitos, UTI, cirurgias eletivas, filas e regulação de vagas",
         "Urgência e Emergência": "SAMU, UPA, pronto-socorro, pronto atendimento, regulação de urgência e transporte sanitário",
-        "Saúde Mental": "saúde mental, CAPS, dependência química, prevenção ao suicídio",
+        # Bets e imposto seletivo entraram a pedido da Lívia (05/08/2026), como
+        # palavras-chave do tema que já existe: o nome fica, porque é ele que
+        # indexa a análise salva, e ampliar a descrição basta para o modelo
+        # reconhecer o assunto. Ludopatia é dependência, e o imposto seletivo é
+        # tributação de produto nocivo à saúde.
+        "Saúde Mental": "saúde mental, CAPS, prevenção ao suicídio, dependência química, álcool e outras drogas, ludopatia e transtorno do jogo, apostas de quota fixa (bets), e imposto seletivo sobre produtos nocivos à saúde",
     },
     "Segurança pública": {
         "Policiamento e Efetivo": "efetivo policial, salário, equipamento, presença ostensiva, videomonitoramento",
