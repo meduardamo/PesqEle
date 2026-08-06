@@ -98,9 +98,16 @@ POSTS_POR_PERFIL_LOWCOST = int(os.getenv("POSTS_POR_PERFIL_LOWCOST", "12"))
 GRUPO_PROXY_APIFY = os.getenv("GRUPO_PROXY_APIFY", "BUYPROXIES94952")
 # Versao fixa do ator. O autor publicou a 1.5.5 em 02/08/2026 as 17:25 UTC, 35 min
 # antes da rodada daquele dia, e ela estoura no _checkAccess do proxy antes de
-# buscar qualquer post, mesmo com o grupo passado explicitamente. A 1.5.3 e a
-# ultima versao que coletou (01/08). Vazio volta a seguir a tag "latest".
-BUILD_ATOR_LOWCOST = os.getenv("BUILD_ATOR_LOWCOST", "1.5.3")
+# buscar qualquer post, mesmo com o grupo passado explicitamente. Fixamos entao a
+# 1.5.3, a ultima que coletou (01/08).
+#
+# Em 06/08/2026 as 12:30 UTC o autor mexeu no ator de novo: apagou a 1.5.3 e a
+# 1.5.5 e apontou a tag latest de volta para a 1.5.2, de 21/07. So restaram a
+# 1.5.1 e a 1.5.2, entao o pin passou a nao existir e os 79 perfis falharam com
+# "Build with number 1.5.3 was not found". A 1.5.2 e a mais nova que existe, e e
+# anterior a que quebrou. Vazio volta a seguir a tag "latest", hoje a propria
+# 1.5.2, mas seguir a tag foi o que trouxe a 1.5.5 quebrada sem aviso.
+BUILD_ATOR_LOWCOST = os.getenv("BUILD_ATOR_LOWCOST", "1.5.2")
 # Fração de perfis que pode falhar na coleta antes da rodada inteira ser considerada
 # quebrada (e sair com código != 0, para o Actions marcar vermelho).
 LIMIAR_FALHA_PERFIS = float(os.getenv("LIMIAR_FALHA_PERFIS", "0.2"))
@@ -565,8 +572,24 @@ def coletar_itens_perfil_lowcost(
     if GRUPO_PROXY_APIFY:
         run_input["proxy"] = {"useApifyProxy": True, "apifyProxyGroups": [GRUPO_PROXY_APIFY]}
 
-    opcoes_run = {"build": BUILD_ATOR_LOWCOST} if BUILD_ATOR_LOWCOST else {}
-    run = client.actor(ATOR_INSTAGRAM_PERFIS_LOWCOST).call(run_input=run_input, **opcoes_run)
+    ator = client.actor(ATOR_INSTAGRAM_PERFIS_LOWCOST)
+    if BUILD_ATOR_LOWCOST:
+        try:
+            run = ator.call(run_input=run_input, build=BUILD_ATOR_LOWCOST)
+        except Exception as erro:
+            # Build fixada some quando o autor republica: em 06/08/2026 ele
+            # apagou a 1.5.3 (e a 1.5.5, quebrada) e voltou a tag latest para a
+            # 1.5.2, de 21/07. Os 79 perfis falharam com "Build with number
+            # 1.5.3 was not found", um por um, e a rodada inteira se perdeu.
+            # Cair para a latest coleta menos bem do que a versão escolhida,
+            # mas coleta; e a build que não existe falha rápido, sem custo.
+            if "was not found" not in str(erro):
+                raise
+            print(f"  build {BUILD_ATOR_LOWCOST} não existe mais no ator; "
+                  f"rodando na latest", flush=True)
+            run = ator.call(run_input=run_input)
+    else:
+        run = ator.call(run_input=run_input)
     dataset_id = dataset_id_do_run(run, f"@{username}")
     itens_brutos = client.dataset(dataset_id).list_items().items
 
