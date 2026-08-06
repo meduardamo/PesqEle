@@ -9,6 +9,14 @@ on:
     - cron: '40 * * * *'
   workflow_dispatch:
 
+# Rodada agendada atrasa (o Actions enfileira de 25 a 250 min) e pode alcançar a
+# da hora seguinte. Duas gravando a mesma aba é o 409 do Sheets, que em
+# 06/08/2026 deixou a aba de candidaturas vazia no workflow 10. A fila resolve na
+# origem; a corrente não é cancelada para não perder PDF de ata já baixado.
+concurrency:
+  group: tse-atas
+  cancel-in-progress: false
+
 jobs:
   coletar:
     runs-on: ubuntu-latest
