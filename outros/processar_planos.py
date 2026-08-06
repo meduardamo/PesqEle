@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analise_planos import (  # noqa: E402
     PlanoIndisponivel, RespostaIlegivel,
     _norm_busca, avaliar_coerencia, classificar_plano, extrair_paginas_url,
-    paginas_do_trecho,
+    paginas_do_trecho, verificar_trecho,
 )
 
 # Convenções deste repo: credenciais em credentials.json (escrito pelo
@@ -54,12 +54,15 @@ LIMIAR_CHARS = 1500
 # álcool e outras drogas, ludopatia, apostas de quota fixa (bets) e imposto
 # seletivo. Sem reprocessar, os planos já lidos não conhecem essas palavras. A
 # coerência fica em 3: o prompt dela lista eixos e temas, que não mudaram.
-VERSAO_ANALISE = "4"
+# Subiu para 5 em 06/08/2026: o prompt passou a exigir [...] em toda junção de
+# partes do plano, e a coluna `verificacao` nasce junto com a análise. Sem
+# reprocessar, os trechos antigos ficariam sem o selo e com a junção não marcada.
+VERSAO_ANALISE = "5"
 VERSAO_COERENCIA = "3"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
-        "programa_nome", "pagina", "chars", "versao", "analisado_em"]
+        "programa_nome", "pagina", "verificacao", "chars", "versao", "analisado_em"]
 COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
             "score_coerencia", "justificativa_coerencia", "chars", "versao", "analisado_em"]
 
@@ -132,6 +135,16 @@ def anexar(sh, nome: str, colunas: list[str], linhas: list[dict]) -> None:
     if not cab:
         ws.update(values=[colunas])
         cab = colunas
+    # Coluna que o código grava e a aba ainda não tem entra no cabeçalho antes
+    # da escrita. Sem isso o reindex abaixo descarta o campo em silêncio: foi
+    # assim que a coluna `tipo` sumiu no scraper de notícias, classificada e
+    # cobrada do Gemini a cada rodada sem nunca chegar à planilha.
+    faltantes = [c for c in colunas if c not in cab]
+    if faltantes:
+        if len(cab) + len(faltantes) > ws.col_count:
+            ws.add_cols(len(cab) + len(faltantes) - ws.col_count)
+        cab = cab + faltantes
+        ws.update(values=[cab], range_name="A1")
     df = pd.DataFrame(linhas).reindex(columns=cab).fillna("").astype(str)
     ws.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
 
@@ -220,7 +233,11 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
                    # não está literal no PDF e não há página para apontar.
                    pagina=", ".join(
                        str(n) for n in paginas_do_trecho(paginas_norm,
-                                                         res["trecho"])))
+                                                         res["trecho"])),
+                   # Conferida aqui, contra o mesmo texto que o modelo acabou de
+                   # ler. É o que deixa o painel dizer quais trechos são
+                   # transcrição sem que ninguém tenha que abrir o PDF.
+                   verificacao=verificar_trecho(paginas_norm, res["trecho"]))
               for tema, res in classif.items()]
     linha_coe = dict(comum, versao=VERSAO_COERENCIA,
                      score_coerencia=coe["score"],
@@ -234,6 +251,12 @@ def preencher_paginas(sh, uf: str = "", limite: int = 0) -> int:
     A coluna nasceu depois das primeiras análises. Reanalisar tudo só para ela
     custaria uma rodada inteira de Gemini à toa: aqui o plano é baixado, o
     trecho de cada tema é casado com a página e só essa célula é escrita.
+
+    Não escreve `verificacao` de propósito. Aqui o PDF é extraído de novo, e a
+    extração de hoje não sai igual à que gerou a análise: nos 1.261 trechos
+    medidos em 06/08/2026, 41 apareceram como não localizados só por caractere
+    quebrado que a extração original não tinha. Selo de verificação errado é
+    pior que selo ausente, então ele só nasce junto da análise, em processar().
     """
     salvas = ler_aba(sh, ANALISE_ABA)
     if salvas.empty:

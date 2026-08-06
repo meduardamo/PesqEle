@@ -432,6 +432,61 @@ def _norm_busca(t: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", t).strip()
 
 
+_CORTE_CITACAO = r"\[\s*[.…]{1,3}\s*\]|\.{3,}|…"
+
+
+def _pedacos_de_citacao(trecho: str) -> list[str]:
+    """A citação quebrada nos cortes que o modelo marcou, já normalizada.
+
+    O prompt manda marcar com [...] toda junção de partes distantes do plano.
+    Cada pedaço entre marcadores é que precisa existir contínuo no PDF: a frase
+    inteira, com as junções, não existe assim em lugar nenhum.
+    """
+    return [p for p in (_norm_busca(x) for x in
+                        re.split(_CORTE_CITACAO, str(trecho or ""))) if p]
+
+
+def verificar_trecho(paginas_norm: list[str], trecho: str) -> str:
+    """Se o trecho gravado é transcrição do plano ou redação do modelo.
+
+    Roda na mesma passagem da análise, contra o mesmo texto que o modelo leu.
+    Refazer a conta depois, reextraindo o PDF, dá resultado diferente: em
+    06/08/2026, medindo os 1.261 trechos já gravados, os 31 do Allyson (RN)
+    apareceram como não localizados só porque a extração de hoje trouxe um
+    caractere quebrado no meio de palavras que a extração da análise não tinha.
+
+    Valores:
+      "literal"        todo pedaço da citação está contínuo no plano;
+      "junta partes"   as palavras são do plano, a frase contínua não é. É o
+                       modelo colando itens de uma lista sem marcar o corte;
+      "nao localizado" a redação é do modelo, não do plano;
+      "curto"          citação de até três palavras, que não distingue nada.
+
+    A diferença entre os dois últimos importa e foi medida: dos 267 trechos não
+    literais de 06/08/2026, 214 tinham 60% ou mais das janelas de três palavras
+    presentes no plano (costura), e só 15 ficaram abaixo de 30% (redação
+    própria). Chamar os dois de "não localizado" jogaria fora essa diferença.
+    """
+    if not paginas_norm or not str(trecho or "").strip():
+        return ""
+    pedacos = [p for p in _pedacos_de_citacao(trecho) if len(p.split()) >= 4]
+    if not pedacos:
+        return "curto"
+    # O texto corrido entra junto porque citação verbatim pode atravessar a
+    # virada de página, e aí não está inteira em nenhuma página sozinha.
+    doc = " ".join(paginas_norm)
+    achados = sum(1 for p in pedacos
+                  if any(p in pag for pag in paginas_norm) or p in doc)
+    if achados == len(pedacos):
+        return "literal"
+    if achados:
+        return "junta partes"
+    palavras = " ".join(pedacos).split()
+    janelas = [" ".join(palavras[i:i + 3]) for i in range(len(palavras) - 2)]
+    cobertura = sum(1 for j in janelas if j in doc) / len(janelas) if janelas else 0
+    return "junta partes" if cobertura >= 0.6 else "nao localizado"
+
+
 def paginas_do_trecho(paginas_norm: list[str], trecho: str,
                       limite: int = 3) -> list[int]:
     """Páginas (1-based) em que o trecho aparece.
@@ -442,9 +497,7 @@ def paginas_do_trecho(paginas_norm: list[str], trecho: str,
     ela não existe assim em lugar nenhum do PDF. Por isso cada pedaço é
     procurado por conta própria e as páginas se somam.
     """
-    pedacos = [_norm_busca(p) for p in
-               re.split(r"\[\s*[.…]{1,3}\s*\]|\.{3,}|…", str(trecho or ""))]
-    pedacos = [p for p in pedacos if p]
+    pedacos = _pedacos_de_citacao(trecho)
     longos = [p for p in pedacos if len(p.split()) >= 4]
     if longos:
         achadas: list[int] = []
@@ -683,11 +736,28 @@ def classificar_plano(texto: str, temas: dict = TEMAS) -> dict:
         "ATENÇÃO 2: classifique cada tema pelo que o plano diz DAQUELE tema. Um plano "
         "forte em segurança não puxa para cima os temas de educação.\n\n"
         "REGRA: se o tema aparecer em múltiplos trechos, use o de maior maturidade.\n\n"
+        # Medido em 06/08/2026 nos 1.261 trechos já gravados: 78% eram
+        # transcrição fiel, e quase toda a diferença vinha de junção sem
+        # marcador, não de texto inventado. O modelo colava dois itens de uma
+        # lista com "e" ou ". " e o resultado parecia uma frase contínua que o
+        # plano nunca teve. Pedir "cite literalmente" não resolvia porque o
+        # modelo já achava que estava citando: o que faltava era a regra do
+        # marcador, que é verificável (ver verificar_trecho).
+        "REGRA DE CITAÇÃO (a mais importante): 'trecho' é transcrição, não resumo.\n"
+        "  - copie do plano exatamente como está escrito, sem trocar nenhuma palavra, "
+        "sem corrigir concordância e sem acrescentar comentário seu;\n"
+        "  - para juntar partes distantes do plano, marque CADA corte com [...]. "
+        "Ex.: 'ampliar a rede de creches [...] até 2030';\n"
+        "  - nunca junte dois pedaços com 'e', com ponto ou com ponto e vírgula "
+        "sem o [...]: o resultado vira uma frase que o plano não tem;\n"
+        "  - se nenhuma frase do plano sustentar a classificação, baixe o nível em "
+        "vez de escrever uma frase sua.\n\n"
         f"Temas a classificar, agrupados por eixo:\n{lista}\n\n"
         "Responda APENAS um objeto JSON válido, sem texto extra. "
         "Estrutura: uma chave por tema (nome exato), valor = objeto com:\n"
         "  'nivel': um dos quatro valores da escala\n"
-        "  'trecho': frase literal do plano que justifica a classificação (vazio se Não menciona)\n"
+        "  'trecho': transcrição do plano que justifica a classificação, seguindo a "
+        "REGRA DE CITAÇÃO (vazio se Não menciona)\n"
         "  'responsavel': quem implementa — ex: 'governo estadual', 'municípios', "
         "'parceria público-privada', 'governo federal' (vazio se Não menciona)\n"
         "  'prazo': horizonte temporal mencionado — ex: 'até 2027', 'primeiro ano de mandato' "
