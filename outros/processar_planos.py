@@ -159,21 +159,10 @@ def reescrever(sh, nome: str, colunas: list[str], df: pd.DataFrame) -> None:
     perdeu a aba de candidaturas exatamente assim, com um 409 do Sheets no meio
     da gravação. O clear é idempotente, então repetir o par é seguro.
     """
-    import gspread
+    from compartilhado.relatorios_sheets_utils import reescrever_aba
     ws = _aba_ou_cria(sh, nome, colunas)
     d = df.reindex(columns=colunas).fillna("").astype(str)
-    for tentativa in range(1, 4):
-        try:
-            ws.clear()
-            ws.update(values=[colunas] + d.values.tolist())
-            return
-        except gspread.exceptions.APIError as erro:
-            if tentativa == 3:
-                raise
-            espera = tentativa * 5
-            print(f"  [{nome}] Sheets recusou a escrita (tentativa {tentativa}/3, "
-                  f"{str(erro)[:60]}); tentando de novo em {espera}s", flush=True)
-            time.sleep(espera)
+    reescrever_aba(ws, [colunas] + d.values.tolist(), nome)
 
 
 # ─── Regra de reprocessamento (igual à do painel) ────────────────────────────

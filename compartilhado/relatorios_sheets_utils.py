@@ -149,6 +149,43 @@ def autorizar_com_retry(creds, tentativas: int = 4):
     return gc
 
 
+def reescrever_aba(ws, linhas, rotulo: str = "", tentativas: int = 3,
+                   antes=None, **kwargs) -> None:
+    """Limpa a aba e grava tudo de novo, repetindo em falha transitória.
+
+    O par clear + update não é atômico: se o update falha, a aba fica VAZIA até
+    alguém rodar de novo. Em 06/08/2026 o workflow 10 gravava as 6.569
+    candidaturas quando a API devolveu 409 ('The operation was aborted', o erro
+    de edição concorrente do Sheets, que qualquer escrita simultânea na mesma
+    planilha dispara, inclusive alguém digitando na aba). A rodada morreu com a
+    aba limpa e o dado só voltou na hora seguinte.
+
+    O 409 não entra no retry de `autorizar_com_retry`, e não deve mesmo: lá o
+    adapter repete qualquer POST/PUT, e repetir um append_rows duplicaria
+    linhas. Aqui é seguro porque a operação é a reescrita inteira, idempotente
+    por construção: o clear roda de novo antes de cada tentativa.
+
+    `antes` é um callable opcional que roda entre o clear e o update (o
+    resize da aba, no caso do pollingdata). kwargs vão para o update, ex.:
+    value_input_option="RAW".
+    """
+    for tentativa in range(1, tentativas + 1):
+        try:
+            ws.clear()
+            if antes is not None:
+                antes()
+            ws.update(linhas, **kwargs)
+            return
+        except gspread.exceptions.APIError as erro:
+            if tentativa == tentativas:
+                raise
+            espera = tentativa * 5
+            print(f"  [{rotulo or getattr(ws, 'title', 'aba')}] Sheets recusou a "
+                  f"escrita (tentativa {tentativa}/{tentativas}, {str(erro)[:60]}); "
+                  f"tentando de novo em {espera}s", flush=True)
+            time.sleep(espera)
+
+
 def _sem_acento(valor):
     return unicodedata.normalize("NFKD", str(valor or "")).encode("ascii", "ignore").decode()
 

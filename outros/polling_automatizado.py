@@ -254,7 +254,8 @@ def salvar(linhas, dry_run=False):
 
     import gspread
     from google.oauth2.service_account import Credentials
-    from compartilhado.relatorios_sheets_utils import autorizar_com_retry
+    from compartilhado.relatorios_sheets_utils import (autorizar_com_retry,
+                                                       reescrever_aba)
 
     sheet_id = os.getenv("SPREADSHEET_ID_POLLING_API", "").strip()
     if not sheet_id:
@@ -268,10 +269,9 @@ def salvar(linhas, dry_run=False):
         ws = sh.worksheet(nome)
     except gspread.exceptions.WorksheetNotFound:
         ws = sh.add_worksheet(title=nome, rows=len(linhas) + 10, cols=len(colunas))
-    ws.clear()
-    ws.update(range_name="A1",
-              values=[colunas] + [[str(l.get(c, "")) for c in colunas] for l in linhas],
-              value_input_option="USER_ENTERED")
+    reescrever_aba(
+        ws, [colunas] + [[str(l.get(c, "")) for c in colunas] for l in linhas],
+        nome, value_input_option="USER_ENTERED")
     ws.freeze(rows=1)
     print(f"aba '{nome}' atualizada com {len(linhas)} linha(s).")
 

@@ -30,6 +30,8 @@ import gspread
 import pandas as pd
 import requests
 
+from compartilhado.relatorios_sheets_utils import reescrever_aba
+
 ANO = 2026
 
 API_ATA = "https://divulgacandcontas.tse.jus.br/divulga/rest/v1/ata"
@@ -213,9 +215,8 @@ def salvar_no_sheets(sh, df, aba):
         ws = sh.worksheet(aba)
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title=aba, rows=len(df) + 1, cols=len(df.columns))
-    ws.clear()
     valores = df.where(df.notna(), "").astype(str)
-    ws.update([valores.columns.tolist()] + valores.values.tolist())
+    reescrever_aba(ws, [valores.columns.tolist()] + valores.values.tolist(), aba)
     print(f"Sheets atualizado: aba '{aba}' ({len(df)} linhas)")
 
 

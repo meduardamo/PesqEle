@@ -17,7 +17,8 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from compartilhado.relatorios_sheets_utils import autorizar_com_retry as _autorizar
+from compartilhado.relatorios_sheets_utils import (autorizar_com_retry as _autorizar,
+                                                   reescrever_aba)
 
 try:
     from webdriver_manager.chrome import ChromeDriverManager
@@ -1389,28 +1390,26 @@ def carregar_df_da_aba(aba) -> pd.DataFrame:
 
 def sobrescrever_aba(aba, df: pd.DataFrame):
     df = reordenar_metodologia_para_ultima_coluna(df)
-    aba.clear()
     n_cols_schema = max(1, len(df.columns))
     n_rows_desejado = max(2, len(df) + 1)  # +1 do header, mínimo 2 para não rejeitar
 
-    try:
-        if aba.col_count != n_cols_schema or aba.row_count > max(n_rows_desejado, 100):
-            aba.resize(rows=n_rows_desejado, cols=n_cols_schema)
-    except Exception as e:
-        print(f"  [rewrite] não foi possível redimensionar '{aba.title}': {e}")
+    def _redimensionar():
+        try:
+            if aba.col_count != n_cols_schema or aba.row_count > max(n_rows_desejado, 100):
+                aba.resize(rows=n_rows_desejado, cols=n_cols_schema)
+        except Exception as e:
+            print(f"  [rewrite] não foi possível redimensionar '{aba.title}': {e}")
 
     if df.empty:
-        aba.update([df.columns.tolist()])
+        reescrever_aba(aba, [df.columns.tolist()], "rewrite", antes=_redimensionar)
         print(f"  [rewrite] aba '{aba.title}' limpa e mantido apenas header")
         return
 
     # Mantém números como números no payload da API. Converter o DataFrame inteiro
     # para texto faz com que decimais possam perder o separador em regravações.
     df_export = df.astype(object).where(pd.notna(df), "")
-    aba.update(
-        [df.columns.tolist()] + df_export.values.tolist(),
-        value_input_option="RAW",
-    )
+    reescrever_aba(aba, [df.columns.tolist()] + df_export.values.tolist(),
+                   "rewrite", antes=_redimensionar, value_input_option="RAW")
     print(f"  [rewrite] aba '{aba.title}' regravada com {len(df)} linhas × {n_cols_schema} colunas")
 
 
@@ -1941,18 +1940,18 @@ def dedup_e_salvar(aba, df: pd.DataFrame, key_col: str):
     values = aba.get_all_values()
 
     if _aba_vazia(values):
-        aba.clear()
         df_export = df.astype(object).where(pd.notna(df), "")
-        aba.update([df.columns.tolist()] + df_export.values.tolist(), value_input_option="RAW")
+        reescrever_aba(aba, [df.columns.tolist()] + df_export.values.tolist(),
+                       "aba vazia", value_input_option="RAW")
         print(f"  [aba vazia] {len(df)} linhas gravadas")
         return len(df), 0
 
     header = values[0]
     if key_col not in header:
         print(f"  [aviso] chave '{key_col}' ausente no header. Reescrevendo aba.")
-        aba.clear()
         df_export = df.astype(object).where(pd.notna(df), "")
-        aba.update([df.columns.tolist()] + df_export.values.tolist(), value_input_option="RAW")
+        reescrever_aba(aba, [df.columns.tolist()] + df_export.values.tolist(),
+                       "header ausente", value_input_option="RAW")
         return len(df), 0
 
     colunas_novas = [c for c in df.columns if c not in header]
@@ -2293,8 +2292,7 @@ def append_log_resultados_manual(gc, spreadsheet_id: str, df_log: pd.DataFrame, 
     header_novo = df_log.columns.tolist()
 
     if _aba_vazia(values):
-        aba.clear()
-        aba.update([header_novo])
+        reescrever_aba(aba, [header_novo], aba_nome)
         header_final = header_novo
     else:
         header_atual = values[0]
