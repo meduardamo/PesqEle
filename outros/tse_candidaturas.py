@@ -258,6 +258,33 @@ CREDS_FILE = Path("credentials.json")
 SHEETS_ID  = os.getenv("SPREADSHEET_ID_TSE", "")
 
 
+def _reescrever_aba(ws, linhas, rotulo=""):
+    """Limpa a aba e grava tudo de novo, repetindo em falha transitória.
+
+    O par clear + update não é atômico: se o update falha, a aba fica vazia até
+    a rodada seguinte. Foi o que aconteceu em 06/08/2026 às 10:11, gravando as
+    6.569 candidaturas: a API devolveu 409 ('The operation was aborted', o erro
+    de edição concorrente do Sheets, que qualquer escrita simultânea na mesma
+    planilha dispara, inclusive alguém digitando na aba) e a rodada morreu com
+    a aba limpa. Repetir o par inteiro resolve porque o clear é idempotente.
+
+    Mesmo padrão de reconstruir_resultados_bi no pollingdata_scraper.
+    """
+    for tentativa in range(1, 4):
+        try:
+            ws.clear()
+            ws.update(linhas)
+            return
+        except gspread.exceptions.APIError as erro:
+            if tentativa == 3:
+                raise
+            espera = tentativa * 5
+            print(f"  [{rotulo or ws.title}] Sheets recusou a escrita "
+                  f"(tentativa {tentativa}/3, {str(erro)[:60]}); "
+                  f"tentando de novo em {espera}s", flush=True)
+            time.sleep(espera)
+
+
 def salvar_no_sheets(df, aba):
     """Sobrescreve a aba no Google Sheets com os dados do DataFrame."""
     gc = gspread.service_account(filename=str(CREDS_FILE))
@@ -266,10 +293,9 @@ def salvar_no_sheets(df, aba):
         ws = sh.worksheet(aba)
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title=aba, rows=len(df) + 1, cols=len(df.columns))
-    ws.clear()
     # converte NaN para string vazia para evitar erros de serialização
     valores = df.where(df.notna(), "").astype(str)
-    ws.update([valores.columns.tolist()] + valores.values.tolist())
+    _reescrever_aba(ws, [valores.columns.tolist()] + valores.values.tolist(), aba)
     print(f"Sheets atualizado: aba '{aba}' ({len(df)} linhas)")
 
 
@@ -478,8 +504,8 @@ def exportar_deputados_federais(df):
     if ws is None:
         ws = sh.add_worksheet(title=PAINEL_NOMES_ABA, rows=len(saida) + 1,
                               cols=len(saida.columns))
-    ws.clear()
-    ws.update([list(saida.columns)] + saida.astype(str).values.tolist())
+    _reescrever_aba(ws, [list(saida.columns)] + saida.astype(str).values.tolist(),
+                    PAINEL_NOMES_ABA)
     reeleicao = int((saida["Situação Atual"] == "Reeleição").sum())
     mantidos = int((saida["Status"].astype(str).str.strip() != "").sum())
     print(f"'{PAINEL_NOMES_ABA}': {len(saida)} candidaturas, "

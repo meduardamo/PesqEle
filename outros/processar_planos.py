@@ -151,11 +151,29 @@ def anexar(sh, nome: str, colunas: list[str], linhas: list[dict]) -> None:
 
 def reescrever(sh, nome: str, colunas: list[str], df: pd.DataFrame) -> None:
     """Reescreve a aba inteira. Só usado quando há reanálise, porque aí é
-    preciso remover as linhas antigas do candidato."""
+    preciso remover as linhas antigas do candidato.
+
+    Repete em falha transitória porque clear + update não é atômico: se o
+    update cai, a aba fica vazia, e aqui isso significaria perder a análise
+    inteira depois de uma rodada de Gemini já paga. Em 06/08/2026 o workflow 10
+    perdeu a aba de candidaturas exatamente assim, com um 409 do Sheets no meio
+    da gravação. O clear é idempotente, então repetir o par é seguro.
+    """
+    import gspread
     ws = _aba_ou_cria(sh, nome, colunas)
     d = df.reindex(columns=colunas).fillna("").astype(str)
-    ws.clear()
-    ws.update(values=[colunas] + d.values.tolist())
+    for tentativa in range(1, 4):
+        try:
+            ws.clear()
+            ws.update(values=[colunas] + d.values.tolist())
+            return
+        except gspread.exceptions.APIError as erro:
+            if tentativa == 3:
+                raise
+            espera = tentativa * 5
+            print(f"  [{nome}] Sheets recusou a escrita (tentativa {tentativa}/3, "
+                  f"{str(erro)[:60]}); tentando de novo em {espera}s", flush=True)
+            time.sleep(espera)
 
 
 # ─── Regra de reprocessamento (igual à do painel) ────────────────────────────
