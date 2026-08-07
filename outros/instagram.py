@@ -950,6 +950,7 @@ def rodar_analise_pendentes(limite: int | None = None) -> None:
     # Passado o prazo, a URL do CDN não volta a funcionar. Marcar tira a linha
     # da fila: sem isso toda rodada gastaria download e tempo no mesmo post
     # morto, para sempre.
+    hoje = datetime.now().strftime("%Y-%m-%d")
     corte = (datetime.now() - timedelta(days=DIAS_PARA_DESISTIR_DA_MIDIA)).strftime("%Y-%m-%d")
     velhas = [p for p in pendentes if p["publicado"] and p["publicado"] < corte]
     pendentes = [p for p in pendentes if p not in velhas]
@@ -975,7 +976,19 @@ def rodar_analise_pendentes(limite: int | None = None) -> None:
                 resultado = tarefa.result()
             except MidiaExpirada as erro:
                 expiradas += 1
-                print(f"[{i}/{len(pendentes)}] {pendente['id']}: mídia indisponível ({erro}), fica pendente.")
+                # 403 do CDN em post de outro dia é URL vencida, e vencida não
+                # volta: marcar aqui tira a linha da fila na hora, em vez de
+                # gastar mais um download por rodada até bater o prazo de
+                # DIAS_PARA_DESISTIR_DA_MIDIA. Post de hoje fica pendente, porque
+                # aí o 403 pode ser bloqueio passageiro do CDN e a mídia ainda
+                # está no ar.
+                if pendente["publicado"] and pendente["publicado"] < hoje:
+                    velhas.append(pendente)
+                    print(f"[{i}/{len(pendentes)}] {pendente['id']}: mídia expirada "
+                          f"({erro}), marcado como não analisado.")
+                else:
+                    print(f"[{i}/{len(pendentes)}] {pendente['id']}: mídia indisponível "
+                          f"({erro}), fica pendente.")
                 continue
             except Exception as erro:
                 falhas += 1
