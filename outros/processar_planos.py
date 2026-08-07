@@ -74,8 +74,8 @@ LIMIAR_CHARS = 1500
 # Subiu para 9: ancoras reforcadas nos cinco temas em que a guarda de ausencia
 # mais falhava, triagem de tema que e item de enumeracao na citacao, e JSON
 # quebrado do modelo virou retentativa em vez de candidato perdido.
-VERSAO_ANALISE = "10"
-VERSAO_COERENCIA = "8"
+VERSAO_ANALISE = "11"
+VERSAO_COERENCIA = "9"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",

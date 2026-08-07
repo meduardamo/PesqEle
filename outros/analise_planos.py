@@ -194,7 +194,7 @@ EIXOS = {
 # prefira expressão de duas palavras: termo solto e comum faz a guarda disparar
 # em todo plano e gasta chamada sem achar nada.
 TERMOS_ANCORA = {
-    "Alfabetização": ["alfabetiza", "pnaic", "pna ", "crianca alfabetizada"],
+    "Alfabetização": ["alfabetiza*", "pnaic", "pna ", "crianca alfabetizada"],
     "Primeira Infância": ["primeira infancia", "creche", "pre escola", "educacao infantil"],
     "Fundamental": ["ensino fundamental", "anos iniciais", "anos finais",
                     "educacao basica", "aprender a ler", "saibam ler",
@@ -206,8 +206,8 @@ TERMOS_ANCORA = {
                               "senai", "senac", "instituto federal", "profissionalizante"],
     "Valorização Docente": ["professor", "docente", "magisterio", "piso salarial"],
     "Educação Inclusiva e EJA": ["educacao especial", "educacao inclusiva", "jovens e adultos",
-                                 "eja", "autis", "estudante com deficiencia"],
-    "Tecnologia na Educação": ["conectividade", "inclusao digital", "internet nas escolas",
+                                 "eja", "autis*", "estudante com deficiencia"],
+    "Tecnologia na Educação": ["conectividade*", "inclusao digital", "internet nas escolas",
                                "tecnologia educacional", "internet", "laboratorio de informatica",
                                "transformacao digital", "computador", "tablet"],
     "Atenção Primária": ["atencao primaria", "atencao basica", "saude da familia", "ubs",
@@ -221,7 +221,7 @@ TERMOS_ANCORA = {
     "Policiamento e Efetivo": ["efetivo policial", "policia militar", "videomonitoramento",
                                "policiamento", "seguranca ostensiva", "policial", "policia civil",
                                "forcas de seguranca", "camera corporal", "viatura"],
-    "Enfrentamento ao Crime Organizado": ["faccao", "crime organizado", "trafico",
+    "Enfrentamento ao Crime Organizado": ["faccao*", "crime organizado", "trafico*",
                                           "inteligencia policial"],
     "Violência contra a Mulher": ["violencia domestica", "maria da penha", "feminicidio",
                                   "delegacia da mulher", "casa da mulher"],
@@ -231,7 +231,7 @@ TERMOS_ANCORA = {
                            "intermediacao de mao de obra", "emprego e renda", "empregabilidade",
                            "frentes de trabalho", "vagas de trabalho", "gerar emprego",
                            "criacao de emprego"],
-    "Ambiente de Negócios": ["desburocratiza", "incentivo fiscal", "atracao de investimento",
+    "Ambiente de Negócios": ["desburocratiza*", "incentivo fiscal", "atracao de investimento",
                              "micro e pequena empresa", "ambiente de negocios", "empreendedorismo",
                              "iniciativa privada", "credito", "banco de fomento", "comercio popular"],
     "Agropecuária": ["agronegocio", "agricultura familiar", "credito rural", "pecuaria",
@@ -262,7 +262,7 @@ TERMOS_ANCORA = {
                                    "recursos publicos"],
     "Transparência e Combate à Corrupção": ["transparencia", "dados abertos", "corrupcao",
                                             "controle interno"],
-    "Governo Digital": ["governo digital", "digitalizacao", "servico digital",
+    "Governo Digital": ["governo digital", "digitalizacao*", "servico digital",
                         "governo eletronico", "atendimento ao cidadao"],
     "Servidores e Municípios": ["servidor publico", "concurso publico", "plano de carreira",
                                 "consorcio", "repasse aos municipios"],
@@ -273,14 +273,14 @@ TERMOS_ANCORA = {
     "Pessoa com Deficiência": ["pessoa com deficiencia", "acessibilidade", "pcd"],
     "Juventude e Pessoa Idosa": ["juventude", "primeiro emprego", "pessoa idosa", "idoso",
                                  "centro de convivencia", "terceira idade"],
-    "Povos Indígenas e Quilombolas": ["indigena", "quilombola", "povos tradicionais",
+    "Povos Indígenas e Quilombolas": ["indigena*", "quilombola", "povos tradicionais",
                                       "comunidade tradicional"],
-    "População LGBTQIA+": ["lgbt", "lgbtfobia", "nome social", "diversidade sexual"],
+    "População LGBTQIA+": ["lgbt*", "lgbtfobia", "nome social", "diversidade sexual"],
     "Cultura": ["cultura", "patrimonio", "economia criativa", "edital de cultura",
                 "equipamento cultural"],
     "Esporte e Lazer": ["esporte", "lazer", "atleta", "quadra poliesportiva",
                         "equipamento esportivo"],
-    "Turismo": ["turismo", "turistic", "atrativo turistico"],
+    "Turismo": ["turismo", "turistic*", "atrativo turistico"],
 }
 
 # Mapa plano tema -> eixo, para a página agrupar sem repetir a estrutura.
@@ -1226,17 +1226,33 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
 
 
 def _regex_ancora(termo: str) -> re.Pattern:
-    """O termo-âncora como padrão que aceita plural.
+    """O termo-âncora como padrão que aceita plural e para na borda da palavra.
 
-    Sem isso o acerto depende de eu ter escrito o termo na mesma flexão do plano:
-    "pessoa com deficiência" não achava as "pessoas com deficiência" do plano do
-    Zema, e a guarda passava batido justamente no caso que ela existe para pegar.
-    O `s?` entra só em palavra de quatro letras ou mais, senão vira ruído em "com",
-    "de" e "e".
+    Sem plural o acerto dependeria de eu ter escrito o termo na mesma flexão do
+    plano: "pessoa com deficiência" não achava as "pessoas com deficiência" do
+    plano do Zema. O sufixo cobre "s" e "es", porque só o "s" deixava de fora
+    "mulheres" e "professores", que são a forma que os planos usam.
+
+    A borda no fim faltava e o estrago era grande: sem ela "fome" casava dentro
+    de "fomento ao empreendedorismo" e "uti" dentro de "utilizadas". Medindo em
+    15 planos, "uti" aparecia 248 vezes e só 5 eram unidade de terapia intensiva.
+    Isso mandava a guarda de ausência reperguntar tema que o plano nem trata.
+
+    Termo terminado em "*" é radical de propósito e continua casando o resto da
+    palavra: "alfabetiza*" pega alfabetização e alfabetizados, "turistic*" pega
+    turístico e turística. Sem a marca, o termo é palavra inteira.
     """
-    palavras = [re.escape(p) + ("s?" if len(p) >= 4 else "")
-                for p in _norm_busca(termo).split()]
-    return re.compile(r"\b" + r"\s+".join(palavras))
+    prefixo = termo.endswith("*")
+    palavras = _norm_busca(termo.rstrip("*")).split()
+    partes = []
+    for i, p in enumerate(palavras):
+        ultima = i == len(palavras) - 1
+        if ultima and prefixo:
+            partes.append(re.escape(p) + r"\w*")
+        else:
+            partes.append(re.escape(p) + ("(?:e?s)?" if len(p) >= 4 else ""))
+    fim = "" if prefixo else r"\b"
+    return re.compile(r"\b" + r"\s+".join(partes) + fim)
 
 
 _ANCORAS_RE = {tema: [_regex_ancora(t) for t in termos]
@@ -1301,8 +1317,16 @@ def reanalisar_tema(contexto: str, tema: str, desc: str = "") -> dict:
         "palavra do texto abaixo. Não corrija concordância, não encurte dentro da "
         "frase e não escreva frase sua. Para juntar partes distantes, marque cada "
         "corte com [...].\n\n"
-        "Se os trechos só citam a palavra de passagem, sem nada sobre o tema, "
-        "responda nivel 'Não menciona' e trecho vazio. Não invente proposta.\n\n"
+        # "Não menciona" aqui significava duas coisas diferentes e a segunda era
+        # falsa: o tema não estar no plano, e o tema estar citado sem proposta.
+        # Medido em 07/08/2026, dos 22 temas ainda gravados como ausentes com o
+        # termo presente no texto, o padrão é este: o plano do Ciro Gomes (PSDB)
+        # cita "a população negra, as comunidades quilombolas, os povos
+        # originários" num diagnóstico, e os três saíram como não mencionados.
+        "Se o tema aparece nos trechos, ainda que de passagem ou só no "
+        "diagnóstico, o nível é no mínimo 'Menciona vagamente'. Nesse caso "
+        "copie a frase em que ele aparece. 'Não menciona' é só para quando o "
+        "tema não está nos trechos. Não invente proposta em nenhum dos casos.\n\n"
         "Responda APENAS um objeto JSON com as chaves 'nivel', 'trecho', "
         "'responsavel', 'prazo', 'publico_alvo' e 'programa_nome'.\n\n"
         f"TRECHOS DO PLANO:\n{contexto}"
