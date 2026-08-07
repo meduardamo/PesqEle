@@ -183,10 +183,22 @@ EIXOS = {
 # São termos discriminantes, não sinônimos amplos: "creche" serve, "criança" não,
 # porque o que aparece em qualquer plano não distingue tema nenhum e faria a
 # guarda disparar sempre. Casam sem acento e sem caixa, por _norm_busca.
+#
+# LIMITE CONHECIDO, medido nos 43 planos em 07/08/2026: a guarda pega 96 das 312
+# ausências gravadas, 31%. O resto passa porque o plano trata do tema sem usar
+# nenhum termo da lista, e isso é a regra e não a exceção: 32% das citações da
+# base não contêm o termo do próprio tema. "A Bahia aprova crianças no terceiro
+# ano sem que saibam ler" é ensino fundamental sem dizer "fundamental". Fechar
+# esse resto exigiria mandar o plano inteiro de volta ao modelo por tema
+# ausente, e a lista de termos é o que dá para conferir de graça. Ao ampliar,
+# prefira expressão de duas palavras: termo solto e comum faz a guarda disparar
+# em todo plano e gasta chamada sem achar nada.
 TERMOS_ANCORA = {
     "Alfabetização": ["alfabetiza", "pnaic", "pna ", "crianca alfabetizada"],
     "Primeira Infância": ["primeira infancia", "creche", "pre escola", "educacao infantil"],
-    "Fundamental": ["ensino fundamental", "anos iniciais", "anos finais"],
+    "Fundamental": ["ensino fundamental", "anos iniciais", "anos finais",
+                    "educacao basica", "aprender a ler", "saibam ler",
+                    "terceiro ano", "quinto ano", "nono ano", "aprendizagem"],
     "Ensino Médio": ["ensino medio", "novo ensino medio"],
     "Tempo Integral": ["tempo integral", "ensino integral", "jornada ampliada",
                        "escola integral", "educacao integral"],
@@ -196,7 +208,8 @@ TERMOS_ANCORA = {
     "Educação Inclusiva e EJA": ["educacao especial", "educacao inclusiva", "jovens e adultos",
                                  "eja", "autis", "estudante com deficiencia"],
     "Tecnologia na Educação": ["conectividade", "inclusao digital", "internet nas escolas",
-                               "tecnologia educacional"],
+                               "tecnologia educacional", "internet", "laboratorio de informatica",
+                               "transformacao digital", "computador", "tablet"],
     "Atenção Primária": ["atencao primaria", "atencao basica", "saude da familia", "ubs",
                          "agente comunitario", "unidade basica"],
     "Média e Alta Complexidade": ["leito", "uti", "cirurgia eletiva", "fila de cirurgia",
@@ -206,7 +219,8 @@ TERMOS_ANCORA = {
     "Saúde Mental": ["saude mental", "caps", "suicidio", "dependencia quimica",
                      "ludopatia", "bets", "imposto seletivo"],
     "Policiamento e Efetivo": ["efetivo policial", "policia militar", "videomonitoramento",
-                               "policiamento", "seguranca ostensiva"],
+                               "policiamento", "seguranca ostensiva", "policial", "policia civil",
+                               "forcas de seguranca", "camera corporal", "viatura"],
     "Enfrentamento ao Crime Organizado": ["faccao", "crime organizado", "trafico",
                                           "inteligencia policial"],
     "Violência contra a Mulher": ["violencia domestica", "maria da penha", "feminicidio",
@@ -214,9 +228,12 @@ TERMOS_ANCORA = {
     "Sistema Prisional e Socioeducativo": ["presidio", "sistema prisional", "vaga prisional",
                                            "ressocializacao", "socioeducativo", "penitenciaria"],
     "Geração de Emprego": ["geracao de emprego", "qualificacao profissional", "posto de trabalho",
-                           "intermediacao de mao de obra", "emprego e renda"],
+                           "intermediacao de mao de obra", "emprego e renda", "empregabilidade",
+                           "frentes de trabalho", "vagas de trabalho", "gerar emprego",
+                           "criacao de emprego"],
     "Ambiente de Negócios": ["desburocratiza", "incentivo fiscal", "atracao de investimento",
-                             "micro e pequena empresa", "ambiente de negocios"],
+                             "micro e pequena empresa", "ambiente de negocios", "empreendedorismo",
+                             "iniciativa privada", "credito", "banco de fomento", "comercio popular"],
     "Agropecuária": ["agronegocio", "agricultura familiar", "credito rural", "pecuaria",
                      "produtor rural", "agropecuaria"],
     "Ciência, Tecnologia e Inovação": ["pesquisa cientifica", "parque tecnologico", "startup",
@@ -240,7 +257,9 @@ TERMOS_ANCORA = {
     "Mobilidade Urbana": ["transporte publico", "mobilidade urbana", "metro", "brt",
                           "ciclovia", "tarifa"],
     "Eficiência e Gasto Público": ["reforma administrativa", "corte de gasto", "teto de gasto",
-                                   "equilibrio fiscal", "gasto publico"],
+                                   "equilibrio fiscal", "gasto publico", "custeio", "despesa",
+                                   "cargo comissionado", "auditar", "auditoria", "orcamento",
+                                   "recursos publicos"],
     "Transparência e Combate à Corrupção": ["transparencia", "dados abertos", "corrupcao",
                                             "controle interno"],
     "Governo Digital": ["governo digital", "digitalizacao", "servico digital",
