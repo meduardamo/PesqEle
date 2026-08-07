@@ -292,7 +292,17 @@ TEMAS = {tema: desc for temas in EIXOS.values() for tema, desc in temas.items()}
 # Só os de educação, para quem quiser o recorte antigo.
 TEMAS_EDUCACAO = dict(EIXOS["Educação"])
 
-GEMINI_MODEL = "gemini-2.5-flash"
+# Trocável por env var para dar para comparar dois modelos no mesmo plano sem
+# mexer no código, que é o único jeito de saber se a troca melhora a citação
+# inventada e o recall em plano longo, os dois pontos fracos medidos aqui.
+#
+# Fica no 2.5-flash porque a análise gravada foi calibrada nele: prompt, régua e
+# guardas foram medidos contra o que ele devolve. O sucessor é o gemini-3.6-flash,
+# recomendado pelo Google para produção nova. A doc oficial de modelos não anuncia
+# aposentadoria do 2.5-flash (o "16/10/2026" que circula em blog de terceiro não
+# aparece lá), então a troca é escolha, não prazo. Antes de trocar de vez, rode o
+# mesmo estado duas vezes com cada modelo e compare nível por tema.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 _CLIENT = None
@@ -671,6 +681,49 @@ def tema_e_item_de_enumeracao(trecho: str, tema: str) -> bool:
     if len(curtos) < 2:
         return False
     return any(ocorrencias_ancora(_norm_busca(s), tema) for s in curtos)
+
+
+# Quem executa, reduzido a ente federativo. O campo `responsavel` é texto livre
+# do modelo e chegou a 198 valores distintos em 1.486 linhas: "governo estadual",
+# "estado", "gdf", "governo de sergipe" e "governo do estado" são a mesma coisa,
+# e "governo dos trabalhadores, sem capitalistas" não é ente nenhum. Sem reduzir,
+# o campo não dá filtro nem contagem.
+#
+# Serve para o que é verificável sem julgar mérito: candidato a governador cujo
+# plano atribui a proposta ao governo federal está prometendo o que não depende
+# do cargo que disputa. Eram 38 linhas na base de 07/08/2026.
+_ENTES = [
+    ("federal", r"\bfederal\b|\buniao\b|\bgoverno da uniao\b|\bcongresso\b|"
+                r"\bministerio\b|\bmec\b|\bfnde\b"),
+    ("municipal", r"\bmunicip|\bprefeitura|\bconsorcio intermunicipal"),
+    ("privado", r"\bprivad|\bppp\b|\bparceria publico|\bempresa|\biniciativa privada|"
+                r"\bconcessao|\bsistema s\b|\bsetor produtivo"),
+    # "governo" sozinho fica fora daqui: casava dentro de "governo federal" e
+    # marcava as duas esferas na mesma linha. Entra só no fallback abaixo.
+    ("estadual", r"\bestad|\bgdf\b|\bsecretaria\b|\bagencia\b|\binstituto\b"),
+]
+_ENTES_RE = [(nome, re.compile(padrao)) for nome, padrao in _ENTES]
+_GOVERNO_GENERICO = re.compile(r"\bgoverno\b|\bgestao\b")
+
+
+def normalizar_responsavel(texto: str) -> str:
+    """Os entes citados em `responsavel`, em ordem fixa e separados por vírgula.
+
+    Devolve vazio quando não dá para reconhecer ente nenhum, que é resposta
+    honesta: "governo dos trabalhadores, sem capitalistas" e "partido" não dizem
+    quem executa. A ordem é fixa para o valor servir de chave de agrupamento.
+    """
+    n = _norm_busca(texto)
+    if not n:
+        return ""
+    achados = {nome for nome, padrao in _ENTES_RE if padrao.search(n)}
+    # "governo" e "gestão" sem esfera valem como estadual, que é o cargo em
+    # disputa, mas só quando nenhuma outra esfera foi nomeada: senão "governo
+    # federal" contaria como as duas.
+    if not achados and _GOVERNO_GENERICO.search(n):
+        achados = {"estadual"}
+    ordem = ["estadual", "federal", "municipal", "privado"]
+    return ", ".join(e for e in ordem if e in achados)
 
 
 def citacao_sustenta(paginas_norm: list[str], trecho: str) -> bool:

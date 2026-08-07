@@ -38,7 +38,8 @@ from analise_planos import (  # noqa: E402
     _norm_busca, avaliar_coerencia, citacao_sustenta, classificar_plano,
     contexto_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
-    tem_alvo_mensuravel, tema_e_item_de_enumeracao, verificar_trecho,
+    normalizar_responsavel, tem_alvo_mensuravel, tema_e_item_de_enumeracao,
+    verificar_trecho,
 )
 
 # Convenções deste repo: credenciais em credentials.json (escrito pelo
@@ -73,13 +74,13 @@ LIMIAR_CHARS = 1500
 # Subiu para 9: ancoras reforcadas nos cinco temas em que a guarda de ausencia
 # mais falhava, triagem de tema que e item de enumeracao na citacao, e JSON
 # quebrado do modelo virou retentativa em vez de candidato perdido.
-VERSAO_ANALISE = "9"
-VERSAO_COERENCIA = "7"
+VERSAO_ANALISE = "10"
+VERSAO_COERENCIA = "8"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
-        "programa_nome", "pagina", "verificacao", "chars", "chars_analisados",
-        "versao", "analisado_em"]
+        "programa_nome", "pagina", "verificacao", "entes", "chars",
+        "chars_analisados", "versao", "analisado_em"]
 COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
             "score_coerencia", "justificativa_coerencia", "chars",
             "chars_analisados", "versao", "analisado_em"]
@@ -265,7 +266,46 @@ def conferir_classificacao(classif: dict, texto: str,
 
     classif = _conferir_citacao_generica(classif, texto, texto_norm, paginas_norm)
     classif = _conferir_enumeracao(classif, texto, texto_norm, paginas_norm)
+    classif = _conferir_subclassificacao(classif, texto, texto_norm, paginas_norm)
     return _conferir_meta(classif)
+
+
+# A partir de quantas ocorrências do termo o tema deixa de ser menção de
+# passagem. ocorrencias_ancora para de contar em 12, então este é o teto dela: o
+# tema aparece doze vezes ou mais no plano.
+OCORRENCIAS_TEMA_TRATADO = 12
+
+
+def _conferir_subclassificacao(classif: dict, texto: str, texto_norm: str,
+                               paginas_norm: list[str]) -> dict:
+    """Repergunta o tema dado como vago que o plano trata a fundo.
+
+    Toda a conferência olhava para um lado só: citação sem lastro e ausência
+    falsa, os dois erros que inflam ou zeram. Faltava o oposto. Medindo os 43
+    planos em 07/08/2026, 50 temas gravados como "Menciona vagamente" tinham o
+    termo aparecendo doze vezes ou mais no plano, e ninguém conferia nenhum.
+
+    Só pode subir, e só com citação que passe em verificar_trecho. Se a segunda
+    passagem não achar proposta, fica o que estava: um tema pode ser citado
+    muitas vezes e nunca ganhar proposta, e isso é resultado legítimo.
+    """
+    for tema, item in classif.items():
+        if item["nivel"] != "Menciona vagamente":
+            continue
+        if len(ocorrencias_ancora(texto_norm, tema)) < OCORRENCIAS_TEMA_TRATADO:
+            continue
+        contexto = contexto_do_tema(texto, texto_norm, tema)
+        if not contexto:
+            continue
+        try:
+            novo = reanalisar_tema(contexto, tema, TEMAS.get(tema, ""))
+        except (RespostaIlegivel, json.JSONDecodeError, ValueError):
+            continue
+        if (novo["score"] > item["score"]
+                and citacao_sustenta(paginas_norm, novo["trecho"])
+                and not tema_e_item_de_enumeracao(novo["trecho"], tema)):
+            classif[tema] = novo
+    return classif
 
 
 def _conferir_enumeracao(classif: dict, texto: str, texto_norm: str,
@@ -420,6 +460,10 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
     linhas = [dict(comum, tema=tema, versao=VERSAO_ANALISE,
                    nivel=res["nivel"], trecho=res["trecho"],
                    responsavel=res.get("responsavel", ""),
+                   # `responsavel` é texto livre e chegou a 198 valores
+                   # distintos. `entes` é a mesma informação reduzida à esfera
+                   # que executa, que é o que dá para filtrar e contar.
+                   entes=normalizar_responsavel(res.get("responsavel", "")),
                    prazo=res.get("prazo", ""),
                    publico_alvo=res.get("publico_alvo", ""),
                    programa_nome=res.get("programa_nome", ""),

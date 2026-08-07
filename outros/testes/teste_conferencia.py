@@ -157,6 +157,38 @@ def main() -> int:
           baixado["Geração de Emprego"]["nivel"] == "Propõe ação"
           and baixado["Geração de Emprego"]["trecho"] != "")
 
+    print("\ntema muito citado não fica como menção vaga sem conferência")
+    cheios = [t for t in ap.TEMAS
+              if len(ap.ocorrencias_ancora(zema_norm, t)) >= pp.OCORRENCIAS_TEMA_TRATADO]
+    check("o plano do Zema tem tema tratado a fundo", bool(cheios), f"{len(cheios)} temas")
+    tema = cheios[0]
+    vago = item(nivel="Menciona vagamente", score=1, trecho="algo vago")
+    real = ("classificar nacional e internacionalmente as facções criminosas "
+            "como organizações terroristas")
+    pp.reanalisar_tema = lambda c, t, desc="": item(trecho=real)
+    check("sobe quando a reanálise traz citação do plano",
+          pp._conferir_subclassificacao({tema: vago}, zema, zema_norm, zema_pgs)[tema]["nivel"]
+          == "Propõe ação")
+    pp.reanalisar_tema = lambda c, t, desc="": item(trecho="frase que o plano não tem")
+    check("não sobe com citação inventada",
+          pp._conferir_subclassificacao({tema: vago}, zema, zema_norm, zema_pgs)[tema]["nivel"]
+          == "Menciona vagamente")
+    pp.reanalisar_tema = sem_lastro
+    check("a guarda nunca desce o nível",
+          pp._conferir_subclassificacao({tema: vago}, zema, zema_norm, zema_pgs)[tema]["nivel"]
+          == "Menciona vagamente")
+
+    print("\nquem executa, reduzido a ente")
+    for texto_resp, esperado in (("governo estadual", "estadual"),
+                                 ("gdf", "estadual"),
+                                 ("governo federal", "federal"),
+                                 ("governo estadual, municípios", "estadual, municipal"),
+                                 ("governo federal, setor privado", "federal, privado"),
+                                 ("partido", "")):
+        check(f"{texto_resp!r} -> {esperado!r}",
+              ap.normalizar_responsavel(texto_resp) == esperado,
+              repr(ap.normalizar_responsavel(texto_resp)))
+
     print("\naspas da justificativa")
     just = ('A Segurança Pública tem propostas para "classificar facções como organizações '
             'terroristas" e "construir presídios de segurança máxima".')
