@@ -971,6 +971,20 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
         "ATENÇÃO: promessas de investimento genéricas ('investiremos R$ X em educação', "
         "'mais recursos para a saúde') SEM vínculo com um programa específico do tema "
         "NÃO contam como Define meta.\n\n"
+        # Sem esta regra o tema entra como item de enumeração e sai como
+        # proposta: no plano da Samara (UP), "fortalecer, universalizar o
+        # saneamento básico, acesso a internet, esporte, etc. das escolas" virou
+        # "Propõe ação" em Esporte e Lazer, e a proposta é sobre escola. Tentei
+        # pegar isso por regra no código, medindo termo citado uma vez dentro de
+        # lista, e a conferência nos 43 planos reprovou: dos 114 casos, metade
+        # era proposta legítima que só listava seus componentes. Fica com o
+        # modelo, que lê a frase.
+        "ATENÇÃO 4: tema que aparece só como item de uma enumeração é Menciona "
+        "vagamente, não Propõe ação. Em 'reformar as escolas com saneamento, "
+        "internet, esporte, etc.', o esporte é item de lista e não proposta de "
+        "esporte. Diferente de 'construir 20 quadras poliesportivas', que é "
+        "proposta própria. Pergunte-se: a frase diz o que será feito NESTE tema, "
+        "ou só cita o tema no meio de uma proposta sobre outra coisa?\n\n"
         "ATENÇÃO 3: quantificador vago não é alvo mensurável. 'milhões de empregos', "
         "'milhares de vagas', 'ampliar significativamente', 'vários municípios' são "
         "Propõe ação, não Define meta. Também não é meta o indicador citado sem valor "
