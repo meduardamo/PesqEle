@@ -594,6 +594,34 @@ def verificar_trecho(paginas_norm: list[str], trecho: str) -> str:
     return "junta partes" if cobertura >= 0.6 else "nao localizado"
 
 
+# O que faz de uma citação uma meta, e não uma ação. A régua da escala é "alvo
+# mensurável", e o modelo estava lendo quantificador vago como número: o plano da
+# Samara (UP) promete "geração de milhões de empregos" e o tema saiu como "Define
+# meta". "Milhões" não é alvo, é adjetivo de tamanho. Medido em 07/08/2026: 66 dos
+# 192 "Define meta" da base, um terço, não tinham alvo mensurável nenhum.
+_META_NUMERO = r"\d"
+_META_PRAZO = (r"\b(ate o final|ate o fim|primeiro ano|no primeiro mandato|"
+               r"ao longo do mandato|anualmente|por ano|primeiros? \w+ "
+               r"(dias|meses|anos))\b")
+# Alvo absoluto é mensurável mesmo sem número: universalizar é 100%, zerar é 0.
+_META_ABSOLUTO = (r"\b(universaliza\w*|zerar|zero|erradic\w*|elimina\w*|dobrar|"
+                  r"triplicar|quadruplicar|toda a rede|todas as escolas|"
+                  r"todos os municipios)\b")
+
+
+def tem_alvo_mensuravel(trecho: str) -> bool:
+    """Se a citação traz alvo que dá para conferir depois: número, prazo ou
+    absoluto. É o que separa 'Define meta' de 'Propõe ação' na régua."""
+    n = _norm_acentos(trecho)
+    return bool(re.search(_META_NUMERO, n) or re.search(_META_PRAZO, n)
+                or re.search(_META_ABSOLUTO, n))
+
+
+def _norm_acentos(t: str) -> str:
+    t = unicodedata.normalize("NFD", str(t or "").lower())
+    return "".join(c for c in t if unicodedata.category(c) != "Mn")
+
+
 def citacao_sustenta(paginas_norm: list[str], trecho: str) -> bool:
     """Se a citação é lastro suficiente para afirmar um nível.
 
@@ -943,6 +971,12 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
         "ATENÇÃO: promessas de investimento genéricas ('investiremos R$ X em educação', "
         "'mais recursos para a saúde') SEM vínculo com um programa específico do tema "
         "NÃO contam como Define meta.\n\n"
+        "ATENÇÃO 3: quantificador vago não é alvo mensurável. 'milhões de empregos', "
+        "'milhares de vagas', 'ampliar significativamente', 'vários municípios' são "
+        "Propõe ação, não Define meta. Também não é meta o indicador citado sem valor "
+        "a alcançar ('acompanhar o tempo médio de espera'): medir não é prometer "
+        "chegar a um número. Só use Define meta quando a frase disser QUANTO ou "
+        "ATÉ QUANDO.\n\n"
         "ATENÇÃO 2: classifique cada tema pelo que o plano diz DAQUELE tema. Um plano "
         "forte em segurança não puxa para cima os temas de educação.\n\n"
         "REGRA: se o tema aparecer em múltiplos trechos, use o de maior maturidade.\n\n"

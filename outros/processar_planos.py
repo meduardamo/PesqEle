@@ -34,11 +34,11 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from analise_planos import (  # noqa: E402
-    TEMAS, PlanoIndisponivel, RespostaIlegivel,
+    NIVEIS, TEMAS, PlanoIndisponivel, RespostaIlegivel,
     _norm_busca, avaliar_coerencia, citacao_sustenta, classificar_plano,
     contexto_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
-    verificar_trecho,
+    tem_alvo_mensuravel, verificar_trecho,
 )
 
 # Convenções deste repo: credenciais em credentials.json (escrito pelo
@@ -67,8 +67,11 @@ LIMIAR_CHARS = 1500
 # citação em quatro caminhos (trecho vazio, citação de três palavras, reanálise
 # sem trecho e merge que descartava a citação boa) e a citação genérica, frase
 # literal do plano que não é evidência de tema nenhum.
-VERSAO_ANALISE = "7"
-VERSAO_COERENCIA = "5"
+# Subiu para 8 ainda em 07/08/2026: "Define meta" passou a exigir alvo que dê
+# para conferir depois. O modelo lia quantificador vago como número, e um terço
+# dos 192 "Define meta" da base não tinha alvo nenhum.
+VERSAO_ANALISE = "8"
+VERSAO_COERENCIA = "6"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
@@ -257,7 +260,27 @@ def conferir_classificacao(classif: dict, texto: str,
         else:
             classif[tema] = sem_lastro(item)
 
-    return _conferir_citacao_generica(classif, texto, texto_norm, paginas_norm)
+    classif = _conferir_citacao_generica(classif, texto, texto_norm, paginas_norm)
+    return _conferir_meta(classif)
+
+
+def _conferir_meta(classif: dict) -> dict:
+    """Desce para 'Propõe ação' a meta que não diz quanto nem até quando.
+
+    A régua da escala é "alvo mensurável: número, percentual, prazo". O modelo
+    vinha lendo quantificador vago como número: no plano da Samara (UP),
+    "geração de milhões de empregos" virou Define meta, e "Revogação da Lei do
+    Novo Ensino Médio", que é ação, também. Um terço dos 192 "Define meta" da
+    base de 07/08/2026 não tinha alvo nenhum.
+
+    Só desce um degrau, nunca apaga: a citação existe e a ação está lá, o que
+    não se sustenta é chamar aquilo de meta.
+    """
+    for tema, item in classif.items():
+        if item["nivel"] == "Define meta" and not tem_alvo_mensuravel(item["trecho"]):
+            classif[tema] = dict(item, nivel="Propõe ação",
+                                 score=NIVEIS.index("Propõe ação"))
+    return classif
 
 
 # Quantos temas a mesma citação pode sustentar antes de deixar de ser evidência.

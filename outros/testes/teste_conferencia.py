@@ -137,6 +137,26 @@ def main() -> int:
     check("mesma frase em dois temas vizinhos passa",
           all(out[t]["nivel"] == "Propõe ação" for t in dois))
 
+    print("\nmeta exige alvo mensurável")
+    # o plano da Samara (UP) promete "geração de milhões de empregos", e isso saiu
+    # como Define meta: quantificador de tamanho não é alvo que dê para conferir
+    for frase in ("Criação de frentes emergenciais de trabalho [...] para geração de "
+                  "milhões de empregos",
+                  "Revogação da Lei do Novo Ensino Médio e reformulação do currículo",
+                  "Ampliar a geração de emprego e renda [...] Nº de empregos gerados"):
+        check(f"não é meta: {frase[:48]}...", not ap.tem_alvo_mensuravel(frase))
+    for frase in ("Aumentar, gradativamente, para R$ 3,00 reais por aluno",
+                  "Ter no transporte público 40% dos acentos adaptados",
+                  "acelerar a universalização do saneamento básico",
+                  "zerar a fila de cirurgias eletivas",
+                  "ampliar para 1 milhão de vagas em EPT até 2027"):
+        check(f"é meta: {frase[:48]}...", ap.tem_alvo_mensuravel(frase))
+    baixado = pp._conferir_meta({"Geração de Emprego": item(
+        nivel="Define meta", score=3, trecho="geração de milhões de empregos")})
+    check("meta sem alvo desce um degrau, sem perder a citação",
+          baixado["Geração de Emprego"]["nivel"] == "Propõe ação"
+          and baixado["Geração de Emprego"]["trecho"] != "")
+
     print("\naspas da justificativa")
     just = ('A Segurança Pública tem propostas para "classificar facções como organizações '
             'terroristas" e "construir presídios de segurança máxima".')
