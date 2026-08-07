@@ -1044,13 +1044,13 @@ _ANCORAS_RE = {tema: [_regex_ancora(t) for t in termos]
 
 def ocorrencias_ancora(texto_norm: str, tema: str) -> list[int]:
     """Onde os termos-âncora do tema aparecem no texto normalizado."""
-    achadas = []
+    achadas = set()
     for padrao in _ANCORAS_RE.get(tema, []):
         for m in padrao.finditer(texto_norm):
-            achadas.append(m.start())
+            achadas.add(m.start())
             if len(achadas) >= 12:
-                break
-    return sorted(set(achadas))
+                return sorted(achadas)
+    return sorted(achadas)
 
 
 def contexto_do_tema(texto: str, texto_norm: str, tema: str,
