@@ -358,7 +358,14 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
         time.sleep(3)
         classif = classificar_plano(texto)
     classif = conferir_classificacao(classif, texto, paginas_norm)
-    coe = avaliar_coerencia(classif)
+    try:
+        coe = avaliar_coerencia(classif)
+    except RespostaIlegivel as e:
+        # A coerência não tinha segunda chance, e é a última chamada do
+        # candidato: cair aqui jogava fora a classificação inteira, já paga.
+        print(f"(coerência ilegível, tentando de novo: {e})", end=" ", flush=True)
+        time.sleep(3)
+        coe = avaliar_coerencia(classif)
 
     # Data em que esta análise foi feita. Sem ela, olhando a planilha ou o painel
     # não dá para saber se o que está lá é de hoje ou de duas semanas atrás.

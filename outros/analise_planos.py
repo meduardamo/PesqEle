@@ -780,6 +780,40 @@ class RespostaIlegivel(RuntimeError):
     """O modelo respondeu num formato que não conseguimos mapear em temas."""
 
 
+def _carregar_json(raw: str, onde: str = "resposta"):
+    """json.loads com os reparos que o modelo costuma exigir.
+
+    O JSON vem quebrado de vez em quando, e a citação literal é a razão: o plano
+    tem aspas dentro da frase e o modelo não escapa. Em 07/08/2026 isso derrubou
+    o Rafael Fonteles (PT/PI) inteiro, com "Expecting ',' delimiter: line 100
+    column 210", porque json.JSONDecodeError não era JSONDecodeError capturado
+    pela retentativa: só RespostaIlegivel era, e o candidato ia embora.
+
+    Reparos, na ordem: tira a cerca de código, corta o que vier antes da primeira
+    chave e depois da última, e remove vírgula sobrando antes de fechar. O que
+    não abrir depois disso vira RespostaIlegivel, que tem retentativa, porque
+    pedir de novo é mais confiável que adivinhar onde faltava a aspa.
+    """
+    texto = (raw or "").strip()
+    if not texto:
+        raise RespostaIlegivel(f"{onde}: o modelo devolveu vazio")
+    try:
+        return json.loads(texto)
+    except json.JSONDecodeError:
+        pass
+    limpo = re.sub(r"^```(?:json)?\s*|\s*```$", "", texto, flags=re.IGNORECASE)
+    abre, fecha = limpo.find("{"), limpo.rfind("}")
+    if abre == -1 or fecha <= abre:
+        abre, fecha = limpo.find("["), limpo.rfind("]")
+    if abre != -1 and fecha > abre:
+        limpo = limpo[abre:fecha + 1]
+    limpo = re.sub(r",\s*([}\]])", r"\1", limpo)
+    try:
+        return json.loads(limpo)
+    except json.JSONDecodeError as e:
+        raise RespostaIlegivel(f"{onde}: JSON inválido ({e})") from e
+
+
 def _chave(nome: str) -> str:
     """Chave tolerante: ignora caixa, acento e espaço extra.
 
@@ -1047,7 +1081,7 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
         config=types.GenerateContentConfig(response_mime_type="application/json"),
     )
     raw = (getattr(resp, "text", "") or "").strip()
-    data = _achatar_por_tema(json.loads(raw), temas)
+    data = _achatar_por_tema(_carregar_json(raw, "classificação"), temas)
     out = {}
     achou = 0
     for tema in temas:
@@ -1073,7 +1107,7 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
         # (AC 2022) ficou gravada como vazia. Melhor falhar e tentar de novo.
         # A forma que veio entra na mensagem: sem isso, cada ocorrência exige
         # reproduzir a chamada à mão para descobrir o que o modelo devolveu.
-        bruto = json.loads(raw)
+        bruto = _carregar_json(raw, "classificação")
         if isinstance(bruto, dict):
             forma = f"objeto com as chaves {list(bruto)[:5]}"
         elif isinstance(bruto, list):
@@ -1174,7 +1208,7 @@ def reanalisar_tema(contexto: str, tema: str, desc: str = "") -> dict:
         contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json"),
     )
-    item = json.loads((getattr(resp, "text", "") or "").strip())
+    item = _carregar_json(getattr(resp, "text", ""), f"reanálise de {tema!r}")
     if not isinstance(item, dict):
         raise RespostaIlegivel(f"reanálise de '{tema}' não veio como objeto JSON")
     nivel = item.get("nivel", "Não menciona")
@@ -1298,7 +1332,7 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS) -> dict:
         config=types.GenerateContentConfig(response_mime_type="application/json"),
     )
     raw = (getattr(resp, "text", "") or "").strip()
-    data = json.loads(raw)
+    data = _carregar_json(raw, "coerência")
     score = int(data.get("score", 1))
     if score not in range(1, 6):
         score = 1
