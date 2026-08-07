@@ -435,6 +435,20 @@ def _norm_busca(t: str) -> str:
 _CORTE_CITACAO = r"\[\s*[.…]{1,3}\s*\]|\.{3,}|…"
 
 
+def _sem_espaco(t: str) -> str:
+    """O texto sem nenhum espaço, para comparar citação com PDF.
+
+    A extração quebra palavra no meio quando o PDF hifeniza na virada de linha:
+    o plano do Alan Rick (AC) traz "mobili dade" no lugar de "mobilidade". Com
+    isso, três citações dele que são transcrição fiel foram gravadas em
+    07/08/2026 como "nao localizado", o rótulo que o painel usa para dizer que a
+    frase é redação do modelo. Comparar sem espaço nenhum tira a extração da
+    conta e não afrouxa a checagem: a sequência de caracteres continua tendo que
+    existir contínua no plano.
+    """
+    return re.sub(r"\s+", "", t)
+
+
 def _pedacos_de_citacao(trecho: str) -> list[str]:
     """A citação quebrada nos cortes que o modelo marcou, já normalizada.
 
@@ -474,16 +488,16 @@ def verificar_trecho(paginas_norm: list[str], trecho: str) -> str:
         return "curto"
     # O texto corrido entra junto porque citação verbatim pode atravessar a
     # virada de página, e aí não está inteira em nenhuma página sozinha.
-    doc = " ".join(paginas_norm)
-    achados = sum(1 for p in pedacos
-                  if any(p in pag for pag in paginas_norm) or p in doc)
+    doc = _sem_espaco(" ".join(paginas_norm))
+    achados = sum(1 for p in pedacos if _sem_espaco(p) in doc)
     if achados == len(pedacos):
         return "literal"
     if achados:
         return "junta partes"
     palavras = " ".join(pedacos).split()
     janelas = [" ".join(palavras[i:i + 3]) for i in range(len(palavras) - 2)]
-    cobertura = sum(1 for j in janelas if j in doc) / len(janelas) if janelas else 0
+    cobertura = (sum(1 for j in janelas if _sem_espaco(j) in doc) / len(janelas)
+                 if janelas else 0)
     return "junta partes" if cobertura >= 0.6 else "nao localizado"
 
 
@@ -532,7 +546,12 @@ def _paginas_de_um_pedaco(paginas_norm: list[str], trecho: str,
     palavras = alvo.split()
     if len(palavras) < 4:
         return []
-    exatas = [i + 1 for i, t in enumerate(paginas_norm) if t and alvo in t]
+    # Mesma comparação sem espaço de verificar_trecho: senão a citação é aceita
+    # como literal mas fica sem página, e o selo do painel manda o leitor
+    # conferir num PDF de 90 páginas sem dizer onde.
+    alvo_ce = _sem_espaco(alvo)
+    exatas = [i + 1 for i, t in enumerate(paginas_norm)
+              if t and alvo_ce in _sem_espaco(t)]
     if exatas:
         return exatas[:limite]
     # Janela menor em trecho curto. Com janela fixa de seis, uma citação de
@@ -541,10 +560,10 @@ def _paginas_de_um_pedaco(paginas_norm: list[str], trecho: str,
     # sua riqueza ambiental", porque o modelo trocou a conjugação do verbo.
     # Com janelas de três, "sua riqueza ambiental" casa e a página aparece.
     _jan = min(_JANELA_TRECHO, max(3, len(palavras) - 1))
-    janelas = [" ".join(palavras[i:i + _jan])
+    janelas = [_sem_espaco(" ".join(palavras[i:i + _jan]))
                for i in range(max(1, len(palavras) - _jan + 1))]
-    escores = [(sum(1 for j in janelas if j in t) / len(janelas)) if t else 0.0
-               for t in paginas_norm]
+    escores = [(sum(1 for j in janelas if j in _sem_espaco(t)) / len(janelas))
+               if t else 0.0 for t in paginas_norm]
     melhor = max(escores) if escores else 0.0
     if melhor < _MIN_ESCORE:
         return []
