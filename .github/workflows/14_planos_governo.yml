@@ -1,17 +1,16 @@
 name: 14 - Planos de Governo
 
 on:
-  # Cron desligado em 07/08/2026 a pedido da Eduarda, enquanto o critério de
-  # análise está sendo mexido. Com VERSAO_ANALISE em 7 todos os 43 planos contam
-  # como pendentes, então a passagem automática reprocessa a base inteira sozinha
-  # e grava por cima. Para religar, tire o comentário das duas linhas abaixo.
-  #
-  # schedule:
-  #   # Mesmo ritmo do DivulgaCand (workflow 10), que é de onde vêm os planos.
-  #   # Rodamos 20 minutos depois dele para pegar o que ele acabou de registrar.
-  #   # O script só processa o que está pendente: em hora sem plano novo ele lê a
-  #   # planilha, não acha nada e sai em segundos, sem gastar chamada de Gemini.
-  #   - cron: '45 * * * *'
+  schedule:
+    # Mesmo ritmo do DivulgaCand (workflow 10), que é de onde vêm os planos.
+    # Rodamos 20 minutos depois dele para pegar o que ele acabou de registrar.
+    # O script só processa o que está pendente: em hora sem plano novo ele lê a
+    # planilha, não acha nada e sai em segundos, sem gastar chamada de Gemini.
+    #
+    # Religado em 07/08/2026 depois da revisão do critério. Com VERSAO_ANALISE em
+    # 10 os 43 planos contam como pendentes, então a primeira passagem reprocessa
+    # a base inteira, em torno de três horas. As seguintes voltam ao de sempre.
+    - cron: '45 * * * *'
   workflow_dispatch:
     inputs:
       uf:
