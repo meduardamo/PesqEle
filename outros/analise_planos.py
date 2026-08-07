@@ -171,6 +171,99 @@ EIXOS = {
     },
 }
 
+# Termos-âncora por tema, usados só como guarda contra falso "Não menciona".
+#
+# Existem porque a ausência era a única classificação que ninguém conferia. O
+# nível acima de "Não menciona" precisa de citação, que verificar_trecho testa
+# contra o PDF; "Não menciona" não precisava de nada e por isso passava batido.
+# Em 07/08/2026, no plano do Zema, 12 dos 15 temas gravados como ausentes tinham
+# ocorrência no texto: "primeira infância" aparece 6 vezes e o plano tem seção
+# própria na página 50.
+#
+# São termos discriminantes, não sinônimos amplos: "creche" serve, "criança" não,
+# porque o que aparece em qualquer plano não distingue tema nenhum e faria a
+# guarda disparar sempre. Casam sem acento e sem caixa, por _norm_busca.
+TERMOS_ANCORA = {
+    "Alfabetização": ["alfabetiza", "pnaic", "pna ", "crianca alfabetizada"],
+    "Primeira Infância": ["primeira infancia", "creche", "pre escola", "educacao infantil"],
+    "Fundamental": ["ensino fundamental", "anos iniciais", "anos finais"],
+    "Ensino Médio": ["ensino medio", "novo ensino medio"],
+    "Tempo Integral": ["tempo integral", "ensino integral", "jornada ampliada",
+                       "escola integral", "educacao integral"],
+    "Educação Profissional": ["educacao profissional", "ensino tecnico", "curso tecnico",
+                              "senai", "senac", "instituto federal", "profissionalizante"],
+    "Valorização Docente": ["professor", "docente", "magisterio", "piso salarial"],
+    "Educação Inclusiva e EJA": ["educacao especial", "educacao inclusiva", "jovens e adultos",
+                                 "eja", "autis", "estudante com deficiencia"],
+    "Tecnologia na Educação": ["conectividade", "inclusao digital", "internet nas escolas",
+                               "tecnologia educacional"],
+    "Atenção Primária": ["atencao primaria", "atencao basica", "saude da familia", "ubs",
+                         "agente comunitario", "unidade basica"],
+    "Média e Alta Complexidade": ["leito", "uti", "cirurgia eletiva", "fila de cirurgia",
+                                  "media e alta complexidade", "hospital"],
+    "Urgência e Emergência": ["samu", "upa", "pronto socorro", "pronto atendimento",
+                              "urgencia e emergencia"],
+    "Saúde Mental": ["saude mental", "caps", "suicidio", "dependencia quimica",
+                     "ludopatia", "bets", "imposto seletivo"],
+    "Policiamento e Efetivo": ["efetivo policial", "policia militar", "videomonitoramento",
+                               "policiamento", "seguranca ostensiva"],
+    "Enfrentamento ao Crime Organizado": ["faccao", "crime organizado", "trafico",
+                                          "inteligencia policial"],
+    "Violência contra a Mulher": ["violencia domestica", "maria da penha", "feminicidio",
+                                  "delegacia da mulher", "casa da mulher"],
+    "Sistema Prisional e Socioeducativo": ["presidio", "sistema prisional", "vaga prisional",
+                                           "ressocializacao", "socioeducativo", "penitenciaria"],
+    "Geração de Emprego": ["geracao de emprego", "qualificacao profissional", "posto de trabalho",
+                           "intermediacao de mao de obra", "emprego e renda"],
+    "Ambiente de Negócios": ["desburocratiza", "incentivo fiscal", "atracao de investimento",
+                             "micro e pequena empresa", "ambiente de negocios"],
+    "Agropecuária": ["agronegocio", "agricultura familiar", "credito rural", "pecuaria",
+                     "produtor rural", "agropecuaria"],
+    "Ciência, Tecnologia e Inovação": ["pesquisa cientifica", "parque tecnologico", "startup",
+                                        "fapes", "inovacao", "pos graduacao"],
+    "Desmatamento e Conservação": ["desmatamento", "unidade de conservacao", "queimada",
+                                   "fiscalizacao ambiental"],
+    "Saneamento e Recursos Hídricos": ["saneamento", "esgoto", "residuos solidos",
+                                       "bacia hidrografica", "abastecimento de agua"],
+    "Transição Energética": ["energia renovavel", "energia solar", "eolica",
+                             "credito de carbono", "transicao energetica"],
+    "Defesa Civil e Desastres": ["defesa civil", "enchente", "deslizamento", "desastre",
+                                 "adaptacao climatica"],
+    "Transferência de Renda": ["transferencia de renda", "bolsa familia", "auxilio",
+                               "beneficio estadual", "renda minima"],
+    "Segurança Alimentar": ["seguranca alimentar", "inseguranca alimentar", "fome",
+                            "restaurante popular", "banco de alimentos", "cesta basica"],
+    "Habitação": ["habitacao", "moradia", "regularizacao fundiaria", "aluguel social",
+                  "minha casa"],
+    "Transporte e Rodovias": ["rodovia", "pavimentacao", "ferrovia", "porto", "aeroporto",
+                              "logistica"],
+    "Mobilidade Urbana": ["transporte publico", "mobilidade urbana", "metro", "brt",
+                          "ciclovia", "tarifa"],
+    "Eficiência e Gasto Público": ["reforma administrativa", "corte de gasto", "teto de gasto",
+                                   "equilibrio fiscal", "gasto publico"],
+    "Transparência e Combate à Corrupção": ["transparencia", "dados abertos", "corrupcao",
+                                            "controle interno"],
+    "Governo Digital": ["governo digital", "digitalizacao", "servico digital",
+                        "governo eletronico", "atendimento ao cidadao"],
+    "Servidores e Municípios": ["servidor publico", "concurso publico", "plano de carreira",
+                                "consorcio", "repasse aos municipios"],
+    "Igualdade Racial": ["igualdade racial", "populacao negra", "racismo", "cotas raciais",
+                         "acao afirmativa"],
+    "Mulheres": ["mulher", "autonomia economica das mulheres", "saude da mulher",
+                 "politica de cuidado"],
+    "Pessoa com Deficiência": ["pessoa com deficiencia", "acessibilidade", "pcd"],
+    "Juventude e Pessoa Idosa": ["juventude", "primeiro emprego", "pessoa idosa", "idoso",
+                                 "centro de convivencia", "terceira idade"],
+    "Povos Indígenas e Quilombolas": ["indigena", "quilombola", "povos tradicionais",
+                                      "comunidade tradicional"],
+    "População LGBTQIA+": ["lgbt", "lgbtfobia", "nome social", "diversidade sexual"],
+    "Cultura": ["cultura", "patrimonio", "economia criativa", "edital de cultura",
+                "equipamento cultural"],
+    "Esporte e Lazer": ["esporte", "lazer", "atleta", "quadra poliesportiva",
+                        "equipamento esportivo"],
+    "Turismo": ["turismo", "turistic", "atrativo turistico"],
+}
+
 # Mapa plano tema -> eixo, para a página agrupar sem repetir a estrutura.
 EIXO_DO_TEMA = {tema: eixo for eixo, temas in EIXOS.items() for tema in temas}
 
@@ -731,9 +824,80 @@ def _lista_por_eixo(temas: dict) -> str:
     return "\n\n".join(blocos)
 
 
+# Tamanho do bloco mandado ao modelo em cada chamada, e quanto um bloco repete
+# do anterior.
+#
+# Existiam como `texto[:80000]`, um corte silencioso: 19 dos 43 planos de
+# 07/08/2026 passavam disso e metade do conteúdo da base nunca foi lida. O plano
+# do Zema tem 145 mil caracteres e o corte caía na página 45 de 81, o que gravou
+# como "Não menciona" a primeira infância que tem seção própria na página 50. Nos
+# planos truncados, 16,5% das citações eram redação do modelo, contra 0,7% nos
+# que couberam inteiros: sem o texto, o modelo preenche a lacuna.
+#
+# 120 mil e não o plano inteiro numa chamada só porque recall cai em contexto
+# muito longo, e aqui são 43 temas por chamada. A sobreposição existe para a
+# proposta que cai bem na emenda entre dois blocos não ser perdida pelos dois.
+BLOCO_CHARS = 120_000
+BLOCO_SOBREPOSICAO = 2_000
+
+
+def _blocos(texto: str, tamanho: int = BLOCO_CHARS,
+            sobreposicao: int = BLOCO_SOBREPOSICAO) -> list[str]:
+    """O texto do plano em blocos que cabem numa chamada, com sobreposição."""
+    texto = texto or ""
+    if len(texto) <= tamanho:
+        return [texto]
+    passo = tamanho - sobreposicao
+    return [texto[i:i + tamanho] for i in range(0, len(texto), passo)
+            if texto[i:i + tamanho].strip()]
+
+
+def _juntar_classificacoes(parciais: list[dict], temas: dict) -> dict:
+    """Junta a classificação de cada bloco ficando com o nível mais alto.
+
+    O tema costuma aparecer em mais de um bloco: a menção de passagem na
+    apresentação e a proposta no capítulo próprio. A regra é a mesma que o prompt
+    já dá ao modelo dentro de um bloco, "se o tema aparecer em múltiplos trechos,
+    use o de maior maturidade", aplicada agora entre blocos.
+    """
+    out = {}
+    for tema in temas:
+        melhor = None
+        for parcial in parciais:
+            item = parcial.get(tema)
+            if not item:
+                continue
+            if melhor is None or item["score"] > melhor["score"]:
+                melhor = item
+        out[tema] = melhor or {
+            "nivel": "Não menciona", "score": 0, "trecho": "",
+            "responsavel": "", "prazo": "", "publico_alvo": "", "programa_nome": "",
+        }
+    return out
+
+
 def classificar_plano(texto: str, temas: dict = TEMAS) -> dict:
-    """Uma chamada ao Gemini por plano: classifica todos os temas de uma vez.
-    Retorna {tema: {nivel, score, trecho, responsavel, prazo, publico_alvo, programa_nome}}."""
+    """Classifica todos os temas do plano, lendo o plano inteiro.
+
+    Retorna {tema: {nivel, score, trecho, responsavel, prazo, publico_alvo,
+    programa_nome}}. Uma chamada ao Gemini por bloco de BLOCO_CHARS.
+    """
+    parciais = []
+    for bloco in _blocos(texto):
+        try:
+            parciais.append(_classificar_bloco(bloco, temas))
+        except RespostaIlegivel:
+            # A resposta do modelo não é determinística. Com o plano em vários
+            # blocos, a chance de um deles voltar ilegível multiplica, e refazer
+            # o plano inteiro por causa de um bloco desperdiça as chamadas que já
+            # deram certo. A segunda tentativa é do bloco, não do plano.
+            time.sleep(3)
+            parciais.append(_classificar_bloco(bloco, temas))
+    return _juntar_classificacoes(parciais, temas)
+
+
+def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
+    """Uma chamada ao Gemini: classifica todos os temas num pedaço do plano."""
     from google.genai import types
 
     lista = _lista_por_eixo(temas)
@@ -785,7 +949,7 @@ def classificar_plano(texto: str, temas: dict = TEMAS) -> dict:
         "'crianças de 0 a 5 anos' (vazio se Não menciona)\n"
         "  'programa_nome': nome de programa específico citado — ex: 'PNAIC', 'PRONATEC' "
         "(vazio se não houver)\n\n"
-        f"PLANO DE GOVERNO:\n{texto[:80000]}"
+        f"PLANO DE GOVERNO:\n{texto}"
     )
     resp = _gemini_client().models.generate_content(
         model=GEMINI_MODEL,
@@ -833,7 +997,155 @@ def classificar_plano(texto: str, temas: dict = TEMAS) -> dict:
     return out
 
 
-def avaliar_coerencia(texto: str, temas: dict = TEMAS) -> dict:
+def _regex_ancora(termo: str) -> re.Pattern:
+    """O termo-âncora como padrão que aceita plural.
+
+    Sem isso o acerto depende de eu ter escrito o termo na mesma flexão do plano:
+    "pessoa com deficiência" não achava as "pessoas com deficiência" do plano do
+    Zema, e a guarda passava batido justamente no caso que ela existe para pegar.
+    O `s?` entra só em palavra de quatro letras ou mais, senão vira ruído em "com",
+    "de" e "e".
+    """
+    palavras = [re.escape(p) + ("s?" if len(p) >= 4 else "")
+                for p in _norm_busca(termo).split()]
+    return re.compile(r"\b" + r"\s+".join(palavras))
+
+
+_ANCORAS_RE = {tema: [_regex_ancora(t) for t in termos]
+               for tema, termos in TERMOS_ANCORA.items()}
+
+
+def ocorrencias_ancora(texto_norm: str, tema: str) -> list[int]:
+    """Onde os termos-âncora do tema aparecem no texto normalizado."""
+    achadas = []
+    for padrao in _ANCORAS_RE.get(tema, []):
+        for m in padrao.finditer(texto_norm):
+            achadas.append(m.start())
+            if len(achadas) >= 12:
+                break
+    return sorted(set(achadas))
+
+
+def contexto_do_tema(texto: str, texto_norm: str, tema: str,
+                     janela: int = 3000, maximo: int = 5) -> str:
+    """Os pedaços do plano em volta dos termos-âncora do tema.
+
+    Serve para a segunda pergunta, dirigida a um tema só. Mandar o plano inteiro
+    de novo custa o mesmo da primeira passagem e volta a diluir 43 temas numa
+    resposta; mandar só o entorno das ocorrências deixa a pergunta específica e a
+    resposta conferível.
+    """
+    posicoes = ocorrencias_ancora(texto_norm, tema)[:maximo]
+    if not posicoes:
+        return ""
+    # texto_norm e texto têm comprimentos diferentes: a posição normalizada é uma
+    # aproximação da posição no original, e a janela é larga o bastante para o
+    # deslize não tirar o trecho de dentro.
+    fator = len(texto) / max(len(texto_norm), 1)
+    pedacos = []
+    for p in posicoes:
+        centro = int(p * fator)
+        pedacos.append(texto[max(0, centro - janela):centro + janela])
+    return "\n[...]\n".join(pedacos)
+
+
+def reanalisar_tema(contexto: str, tema: str, desc: str = "") -> dict:
+    """Pergunta de novo, sobre um tema só, com o entorno onde o termo aparece.
+
+    Duas coisas caem aqui: o tema que o modelo deu como ausente mas cujo termo
+    está no plano, e o tema cuja citação não passou em verificar_trecho. Nos dois
+    casos o que falta é a mesma coisa, uma frase do plano que sustente o nível, e
+    a saída "AUSENTE" é resposta legítima: o termo pode aparecer de passagem sem
+    nenhuma proposta atrás.
+    """
+    from google.genai import types
+
+    prompt = (
+        "Você é analista sênior de políticas públicas. Abaixo estão os trechos de "
+        f"um plano de governo que citam o tema '{tema}'"
+        + (f" ({desc})" if desc else "") + ".\n\n"
+        "ESCALA (use exatamente esses nomes):\n"
+        "  Não menciona       — o tema não é tratado nestes trechos\n"
+        "  Menciona vagamente — citado de forma vaga, sem ação ou medida definida\n"
+        "  Propõe ação        — há ação ou medida concreta, sem alvo mensurável\n"
+        "  Define meta        — há alvo mensurável: número, percentual ou prazo\n\n"
+        "REGRA DE CITAÇÃO: 'trecho' é transcrição literal, copiada palavra por "
+        "palavra do texto abaixo. Não corrija concordância, não encurte dentro da "
+        "frase e não escreva frase sua. Para juntar partes distantes, marque cada "
+        "corte com [...].\n\n"
+        "Se os trechos só citam a palavra de passagem, sem nada sobre o tema, "
+        "responda nivel 'Não menciona' e trecho vazio. Não invente proposta.\n\n"
+        "Responda APENAS um objeto JSON com as chaves 'nivel', 'trecho', "
+        "'responsavel', 'prazo', 'publico_alvo' e 'programa_nome'.\n\n"
+        f"TRECHOS DO PLANO:\n{contexto}"
+    )
+    resp = _gemini_client().models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
+    item = json.loads((getattr(resp, "text", "") or "").strip())
+    if not isinstance(item, dict):
+        raise RespostaIlegivel(f"reanálise de '{tema}' não veio como objeto JSON")
+    nivel = item.get("nivel", "Não menciona")
+    if nivel not in NIVEIS:
+        nivel = "Não menciona"
+    return {
+        "nivel":         nivel,
+        "score":         NIVEIS.index(nivel),
+        "trecho":        _limpa(item.get("trecho", "")),
+        "responsavel":   _limpa(item.get("responsavel", ""),   n=120),
+        "prazo":         _limpa(item.get("prazo", ""),          n=80),
+        "publico_alvo":  _limpa(item.get("publico_alvo", ""),  n=120),
+        "programa_nome": _limpa(item.get("programa_nome", ""), n=80),
+    }
+
+
+_ASPAS = r"[\"“”]([^\"“”]{8,})[\"“”]"
+
+
+def tirar_aspas_sem_lastro(justificativa: str, citacoes: list[str]) -> str:
+    """Tira as aspas do que não é cópia de uma citação verificada.
+
+    A regra de aspas do prompt não basta sozinha. A justificativa do Zema gravada
+    em 07/08/2026 traz quatro frases entre aspas e três não existem no plano: o
+    texto diz "classificar nacional e internacionalmente as facções criminosas
+    como organizações terroristas" e a justificativa encurtou para "classificar
+    facções como organizações terroristas", mantendo as aspas. Encurtar dentro
+    das aspas é fabricar citação, e ninguém conferia esse campo.
+
+    Tira só as aspas, não a frase: o conteúdo continua sendo leitura defensável
+    do analista, o que ele não pode é se passar por transcrição.
+    """
+    corpus = _sem_espaco(" ".join(_norm_busca(c) for c in citacoes if c))
+    if not str(justificativa or "").strip():
+        return justificativa
+
+    def troca(m):
+        dentro = m.group(1)
+        return dentro if _sem_espaco(_norm_busca(dentro)) not in corpus else m.group(0)
+
+    return re.sub(_ASPAS, troca, str(justificativa))
+
+
+def _quadro_da_analise(classif: dict, temas: dict) -> str:
+    """A classificação já verificada, agrupada por eixo, como texto para o prompt."""
+    por_eixo = {}
+    for tema in temas:
+        item = classif.get(tema) or {}
+        por_eixo.setdefault(EIXO_DO_TEMA.get(tema, "Outros"), []).append(
+            (tema, item.get("nivel", "Não menciona"), item.get("trecho", "")))
+    blocos = []
+    for eixo, itens in por_eixo.items():
+        linhas = []
+        for tema, nivel, trecho in itens:
+            linhas.append(f"  - {tema}: {nivel}"
+                          + (f'\n      citação: "{trecho}"' if trecho else ""))
+        blocos.append(f"{eixo}:\n" + "\n".join(linhas))
+    return "\n\n".join(blocos)
+
+
+def avaliar_coerencia(classif: dict, temas: dict = TEMAS) -> dict:
     """Avalia se as propostas formam uma estratégia coerente no plano.
     Retorna {"score": 1–5, "justificativa": str}.
 
@@ -841,13 +1153,23 @@ def avaliar_coerencia(texto: str, temas: dict = TEMAS) -> dict:
     passa a incluir a articulação ENTRE eixos, que é onde plano de governo
     costuma se revelar: segurança que conversa com assistência social, educação
     profissional que conversa com geração de emprego.
+
+    Recebe a classificação já verificada, não o texto do plano. Antes lia
+    `texto[:60000]` e por isso julgava o plano por um pedaço dele: a justificativa
+    do Zema gravada em 07/08/2026 afirma que "Educação Básica e Saúde não têm
+    capítulos próprios", e os dois estão no sumário do próprio PDF, fora do corte.
+    Ler o mesmo material da outra aba resolve as duas coisas de uma vez. A
+    contradição entre abas deixa de ser possível, porque a fonte é uma só, e a
+    justificativa não pode inventar aspas, porque as únicas frases do plano à mão
+    são citações que já passaram em verificar_trecho.
     """
     from google.genai import types
 
-    lista = _lista_por_eixo(temas)
     prompt = (
-        "Você é analista sênior de políticas públicas. Leia o plano de governo abaixo.\n\n"
-        f"Os eixos e temas analisados são:\n{lista}\n\n"
+        "Você é analista sênior de políticas públicas. Abaixo está a análise "
+        "tema a tema de um plano de governo, com o nível de cada tema e a citação "
+        "do plano que sustenta esse nível.\n\n"
+        f"{_quadro_da_analise(classif, temas)}\n\n"
         "Avalie se as propostas formam uma ESTRATÉGIA COERENTE e articulada, "
         "ou se são menções isoladas e desconexas.\n\n"
         "Escala:\n"
@@ -872,8 +1194,13 @@ def avaliar_coerencia(texto: str, temas: dict = TEMAS) -> dict:
         "- Nomeie programas, metas, números e prazos que estão no texto. Uma "
         "justificativa sem nenhum nome próprio de programa ou número não serve.\n"
         "- Nada de juízo de valor. Só o que está escrito no plano.\n\n"
-        f"{RESTRICOES_LINGUAGEM}\n\n"
-        f"PLANO DE GOVERNO:\n{texto[:60000]}"
+        "REGRA DE ASPAS: só use aspas para copiar, palavra por palavra, uma das "
+        "citações listadas acima. Nunca encurte a frase dentro das aspas nem "
+        "escreva entre aspas algo que não está ali. Sem citação à mão para o "
+        "ponto que quer fazer, escreva sem aspas.\n\n"
+        "REGRA DE AUSÊNCIA: só diga que um tema falta se ele está acima como "
+        "'Não menciona'. Tema com nível diferente disso tem proposta no plano.\n\n"
+        f"{RESTRICOES_LINGUAGEM}"
     )
     resp = _gemini_client().models.generate_content(
         model=GEMINI_MODEL,
@@ -887,7 +1214,10 @@ def avaliar_coerencia(texto: str, temas: dict = TEMAS) -> dict:
         score = 1
     # 600 e não 400: no limite antigo, 4 das 16 justificativas gravadas em
     # 03/08/2026 terminavam cortadas no meio da palavra.
-    return {"score": score, "justificativa": _limpa(data.get("justificativa", ""), n=600)}
+    justificativa = _limpa(data.get("justificativa", ""), n=600)
+    citacoes = [(classif.get(t) or {}).get("trecho", "") for t in temas]
+    return {"score": score,
+            "justificativa": tirar_aspas_sem_lastro(justificativa, citacoes)}
 
 
 def sintetizar_comparacao(candidatos_info: list, tema: str) -> str:

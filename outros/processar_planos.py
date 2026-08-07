@@ -34,9 +34,10 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from analise_planos import (  # noqa: E402
-    PlanoIndisponivel, RespostaIlegivel,
-    _norm_busca, avaliar_coerencia, classificar_plano, extrair_paginas_url,
-    paginas_do_trecho, verificar_trecho,
+    TEMAS, PlanoIndisponivel, RespostaIlegivel,
+    _norm_busca, avaliar_coerencia, classificar_plano, contexto_do_tema,
+    extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
+    verificar_trecho,
 )
 
 # Convenções deste repo: credenciais em credentials.json (escrito pelo
@@ -57,14 +58,20 @@ LIMIAR_CHARS = 1500
 # Subiu para 5 em 06/08/2026: o prompt passou a exigir [...] em toda junção de
 # partes do plano, e a coluna `verificacao` nasce junto com a análise. Sem
 # reprocessar, os trechos antigos ficariam sem o selo e com a junção não marcada.
-VERSAO_ANALISE = "5"
-VERSAO_COERENCIA = "3"
+# Subiu para 6 em 07/08/2026: o plano deixou de ser cortado em 80 mil caracteres
+# e passa inteiro, em blocos; a classificação passa por conferir_classificacao
+# antes de gravar; a coerência lê a análise verificada e não mais o texto cru.
+# Metade do conteúdo da base nunca tinha sido lida, então nada de antes vale.
+VERSAO_ANALISE = "6"
+VERSAO_COERENCIA = "4"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
-        "programa_nome", "pagina", "verificacao", "chars", "versao", "analisado_em"]
+        "programa_nome", "pagina", "verificacao", "chars", "chars_analisados",
+        "versao", "analisado_em"]
 COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
-            "score_coerencia", "justificativa_coerencia", "chars", "versao", "analisado_em"]
+            "score_coerencia", "justificativa_coerencia", "chars",
+            "chars_analisados", "versao", "analisado_em"]
 
 # Só 2026. A aba planos_2022 continua na planilha, mas saiu do fluxo.
 ANO = "2026"
@@ -196,6 +203,56 @@ def pendentes(cands: pd.DataFrame, salvas: pd.DataFrame, coes: pd.DataFrame,
 
 # ─── Processamento ───────────────────────────────────────────────────────────
 
+def conferir_classificacao(classif: dict, texto: str,
+                           paginas_norm: list[str]) -> dict:
+    """Passa cada tema por uma conferência contra o texto antes de gravar.
+
+    Duas coisas iam para a planilha sem ninguém conferir, e as duas foram
+    medidas em 07/08/2026:
+
+    - citação que o modelo escreveu em vez de copiar. Eram 8,1% da base, e 88%
+      das citações do Kalil (MG). A que abria Primeira Infância falava em
+      "ampliação do acesso à creche" e a palavra creche não aparece uma vez nas
+      147 páginas do plano dele.
+    - ausência que ninguém checou. No plano do Zema, 12 dos 15 temas gravados
+      como "Não menciona" tinham ocorrência no texto.
+
+    Nos dois casos o tema volta para reanalisar_tema, agora com o entorno do
+    plano onde o assunto aparece. O que a segunda passagem não sustentar com
+    citação verificável não vira nível: o trecho é descartado e o tema fica como
+    "Não menciona", que é o que o texto sustenta quando nem o termo aparece.
+    """
+    texto_norm = _norm_busca(texto)
+    for tema, item in classif.items():
+        tem_ancora = bool(ocorrencias_ancora(texto_norm, tema))
+        if item["nivel"] == "Não menciona":
+            if not tem_ancora:
+                continue                      # ausência conferida, nada a fazer
+        elif verificar_trecho(paginas_norm, item["trecho"]) != "nao localizado":
+            continue                          # citação bate com o plano
+
+        contexto = contexto_do_tema(texto, texto_norm, tema)
+        if not contexto:
+            # Sem nem o termo no plano, não há o que reperguntar: o nível que
+            # estava lá vinha de citação que o plano não tem.
+            classif[tema] = dict(item, nivel="Não menciona", score=0, trecho="",
+                                 responsavel="", prazo="", publico_alvo="",
+                                 programa_nome="")
+            continue
+        try:
+            novo = reanalisar_tema(contexto, tema, TEMAS.get(tema, ""))
+        except (RespostaIlegivel, json.JSONDecodeError, ValueError):
+            novo = None
+        if novo and (novo["nivel"] == "Não menciona"
+                     or verificar_trecho(paginas_norm, novo["trecho"]) != "nao localizado"):
+            classif[tema] = novo
+        else:
+            classif[tema] = dict(item, nivel="Não menciona", score=0, trecho="",
+                                 responsavel="", prazo="", publico_alvo="",
+                                 programa_nome="")
+    return classif
+
+
 def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
     """Baixa, extrai e roda classificação e coerência sobre o MESMO texto.
 
@@ -220,7 +277,8 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
         print(f"(resposta ilegível, tentando de novo: {e})", end=" ", flush=True)
         time.sleep(3)
         classif = classificar_plano(texto)
-    coe = avaliar_coerencia(texto)
+    classif = conferir_classificacao(classif, texto, paginas_norm)
+    coe = avaliar_coerencia(classif)
 
     # Data em que esta análise foi feita. Sem ela, olhando a planilha ou o painel
     # não dá para saber se o que está lá é de hoje ou de duas semanas atrás.
@@ -228,6 +286,11 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
     comum = {"ano": ano, "sq_candidato": str(r["SQ_CANDIDATO"]),
              "candidato": r["NM_URNA_CANDIDATO"], "partido": r["SG_PARTIDO"],
              "uf": r["SG_UF"], "cargo": r["DS_CARGO"], "link": link, "chars": chars,
+             # Quanto do plano foi de fato lido. Enquanto só existia `chars`, o
+             # corte em 80 mil não aparecia em lugar nenhum: a planilha registrava
+             # os 145 mil caracteres do plano do Zema e o modelo tinha visto 80
+             # mil. Com as duas colunas lado a lado, truncamento vira dado.
+             "chars_analisados": chars,
              "analisado_em": agora}
 
     linhas = [dict(comum, tema=tema, versao=VERSAO_ANALISE,
