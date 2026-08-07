@@ -594,6 +594,18 @@ def verificar_trecho(paginas_norm: list[str], trecho: str) -> str:
     return "junta partes" if cobertura >= 0.6 else "nao localizado"
 
 
+def citacao_sustenta(paginas_norm: list[str], trecho: str) -> bool:
+    """Se a citação é lastro suficiente para afirmar um nível.
+
+    A regra em um lugar só, porque testar `!= "nao localizado"` deixava passar
+    dois casos que não sustentam nada: trecho vazio, em que verificar_trecho
+    devolve "" e o nível ficava afirmado sem citação nenhuma, e "curto", a
+    citação de até três palavras, que casa com qualquer plano e por isso não
+    distingue candidato de candidato.
+    """
+    return verificar_trecho(paginas_norm, trecho) in ("literal", "junta partes")
+
+
 def paginas_do_trecho(paginas_norm: list[str], trecho: str,
                       limite: int = 3) -> list[int]:
     """Páginas (1-based) em que o trecho aparece.
@@ -848,8 +860,17 @@ def _blocos(texto: str, tamanho: int = BLOCO_CHARS,
     if len(texto) <= tamanho:
         return [texto]
     passo = tamanho - sobreposicao
-    return [texto[i:i + tamanho] for i in range(0, len(texto), passo)
-            if texto[i:i + tamanho].strip()]
+    blocos = [texto[i:i + tamanho] for i in range(0, len(texto), passo)
+              if texto[i:i + tamanho].strip()]
+    # O resto da divisão vira um bloco de sobra que pode ter poucos milhares de
+    # caracteres. Perguntar os 43 temas sobre um pedaço desses custa uma chamada
+    # inteira e devolve quase só "Não menciona", que ainda entra no merge. Vai
+    # junto com o bloco anterior: passar um pouco de BLOCO_CHARS não é problema,
+    # o limite é de recall, não da janela do modelo.
+    if len(blocos) > 1 and len(blocos[-1]) < tamanho // 4:
+        sobra = blocos.pop()
+        blocos[-1] = blocos[-1] + sobra[sobreposicao:]
+    return blocos
 
 
 def _juntar_classificacoes(parciais: list[dict], temas: dict) -> dict:
@@ -867,9 +888,15 @@ def _juntar_classificacoes(parciais: list[dict], temas: dict) -> dict:
             item = parcial.get(tema)
             if not item:
                 continue
-            if melhor is None or item["score"] > melhor["score"]:
-                melhor = item
-        out[tema] = melhor or {
+            # Entre dois blocos, ganha o nível mais alto, mas citação vazia perde
+            # de citação cheia mesmo com nível menor. Sem isso o bloco que
+            # devolve "Define meta" sem trecho apaga o "Propõe ação" com a frase
+            # do plano, e o tema chega à conferência sem lastro nenhum, quando
+            # havia lastro à mão.
+            chave = (bool(str(item.get("trecho", "")).strip()), item["score"])
+            if melhor is None or chave > melhor[0]:
+                melhor = (chave, item)
+        out[tema] = (melhor[1] if melhor else None) or {
             "nivel": "Não menciona", "score": 0, "trecho": "",
             "responsavel": "", "prazo": "", "publico_alvo": "", "programa_nome": "",
         }

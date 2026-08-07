@@ -35,7 +35,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from analise_planos import (  # noqa: E402
     TEMAS, PlanoIndisponivel, RespostaIlegivel,
-    _norm_busca, avaliar_coerencia, classificar_plano, contexto_do_tema,
+    _norm_busca, avaliar_coerencia, citacao_sustenta, classificar_plano,
+    contexto_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
     verificar_trecho,
 )
@@ -62,8 +63,12 @@ LIMIAR_CHARS = 1500
 # e passa inteiro, em blocos; a classificação passa por conferir_classificacao
 # antes de gravar; a coerência lê a análise verificada e não mais o texto cru.
 # Metade do conteúdo da base nunca tinha sido lida, então nada de antes vale.
-VERSAO_ANALISE = "6"
-VERSAO_COERENCIA = "4"
+# Subiu para 7 no mesmo dia, depois de uma revisão que achou nível afirmado sem
+# citação em quatro caminhos (trecho vazio, citação de três palavras, reanálise
+# sem trecho e merge que descartava a citação boa) e a citação genérica, frase
+# literal do plano que não é evidência de tema nenhum.
+VERSAO_ANALISE = "7"
+VERSAO_COERENCIA = "5"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
@@ -223,33 +228,85 @@ def conferir_classificacao(classif: dict, texto: str,
     "Não menciona", que é o que o texto sustenta quando nem o termo aparece.
     """
     texto_norm = _norm_busca(texto)
+
+    def sem_lastro(item):
+        """O tema volta para 'Não menciona': nada do que estava ali se sustenta."""
+        return dict(item, nivel="Não menciona", score=0, trecho="",
+                    responsavel="", prazo="", publico_alvo="", programa_nome="")
+
     for tema, item in classif.items():
-        tem_ancora = bool(ocorrencias_ancora(texto_norm, tema))
         if item["nivel"] == "Não menciona":
-            if not tem_ancora:
+            if not ocorrencias_ancora(texto_norm, tema):
                 continue                      # ausência conferida, nada a fazer
-        elif verificar_trecho(paginas_norm, item["trecho"]) != "nao localizado":
+        elif citacao_sustenta(paginas_norm, item["trecho"]):
             continue                          # citação bate com o plano
 
         contexto = contexto_do_tema(texto, texto_norm, tema)
         if not contexto:
             # Sem nem o termo no plano, não há o que reperguntar: o nível que
             # estava lá vinha de citação que o plano não tem.
-            classif[tema] = dict(item, nivel="Não menciona", score=0, trecho="",
-                                 responsavel="", prazo="", publico_alvo="",
-                                 programa_nome="")
+            classif[tema] = sem_lastro(item)
             continue
         try:
             novo = reanalisar_tema(contexto, tema, TEMAS.get(tema, ""))
         except (RespostaIlegivel, json.JSONDecodeError, ValueError):
             novo = None
         if novo and (novo["nivel"] == "Não menciona"
-                     or verificar_trecho(paginas_norm, novo["trecho"]) != "nao localizado"):
+                     or citacao_sustenta(paginas_norm, novo["trecho"])):
             classif[tema] = novo
         else:
-            classif[tema] = dict(item, nivel="Não menciona", score=0, trecho="",
-                                 responsavel="", prazo="", publico_alvo="",
-                                 programa_nome="")
+            classif[tema] = sem_lastro(item)
+
+    return _conferir_citacao_generica(classif, texto, texto_norm, paginas_norm)
+
+
+# Quantos temas a mesma citação pode sustentar antes de deixar de ser evidência.
+# Dois é normal e legítimo: uma frase sobre educação básica serve a "Fundamental"
+# e a "Ensino Médio" ao mesmo tempo, e esse par respondeu por 7 das repetições de
+# 07/08/2026. Três já não descreve tema nenhum.
+LIMITE_TEMAS_POR_CITACAO = 3
+
+
+def _conferir_citacao_generica(classif: dict, texto: str, texto_norm: str,
+                               paginas_norm: list[str]) -> dict:
+    """Tira o nível do tema que se apoia numa frase genérica do plano.
+
+    verificar_trecho responde "essa frase está no plano", não "essa frase é sobre
+    esse tema", e a diferença aparecia na planilha: em 07/08/2026, uma frase do
+    plano do Prof Witer Naves (TO), "O primeiro princípio é o Direito da gente
+    Tocantinense", sustentava sozinha 14 temas, entre eles alfabetização, saúde
+    mental e crime organizado. A citação é transcrição fiel e não é evidência de
+    nada. Eram 3,5% das linhas da base.
+
+    O tema volta para a pergunta dirigida, que recebe só o entorno do assunto no
+    plano. Se de lá vier outra citação, verificável e não genérica, o tema fica;
+    senão cai para "Não menciona".
+    """
+    from collections import defaultdict
+    por_trecho = defaultdict(list)
+    for tema, item in classif.items():
+        chave = _norm_busca(item.get("trecho", ""))
+        if chave and item["nivel"] != "Não menciona":
+            por_trecho[chave].append(tema)
+
+    for chave, temas_do_trecho in por_trecho.items():
+        if len(temas_do_trecho) < LIMITE_TEMAS_POR_CITACAO:
+            continue
+        for tema in temas_do_trecho:
+            item = classif[tema]
+            contexto = contexto_do_tema(texto, texto_norm, tema)
+            novo = None
+            if contexto:
+                try:
+                    novo = reanalisar_tema(contexto, tema, TEMAS.get(tema, ""))
+                except (RespostaIlegivel, json.JSONDecodeError, ValueError):
+                    novo = None
+            vale = (novo and novo["nivel"] != "Não menciona"
+                    and _norm_busca(novo["trecho"]) != chave
+                    and citacao_sustenta(paginas_norm, novo["trecho"]))
+            classif[tema] = novo if vale else dict(
+                item, nivel="Não menciona", score=0, trecho="", responsavel="",
+                prazo="", publico_alvo="", programa_nome="")
     return classif
 
 
