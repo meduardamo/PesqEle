@@ -118,7 +118,7 @@ MINIMO_PERFIS_PARA_EXIGIR_POSTS = int(os.getenv("MINIMO_PERFIS_PARA_EXIGIR_POSTS
 SPREADSHEET_ID_PERFIS = os.getenv("SPREADSHEET_ID_PERFIS", "1piO-m19orW1i-Z-6rNeWdXnEAWqw5wneiDpdHZqOa6Y")
 ABA_PERFIS = os.getenv("ABA_PERFIS", "Instagram")
 COLUNA_PERFIS = os.getenv("COLUNA_PERFIS", "B")
-ABA_RESULTADOS_PERFIS = os.getenv("ABA_RESULTADOS_PERFIS", "Resultados")
+ABA_RESULTADOS_PERFIS = os.getenv("ABA_RESULTADOS_PERFIS") or obter_nome_aba_mensal()
 # "Candidato" desde 05/08/2026: com o registro no TSE feito, pré-candidato
 # deixou de ser o termo certo. A leitura aceita os dois nomes (COLUNA_CANDIDATO)
 # para não depender de a planilha estar renomeada.
