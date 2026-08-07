@@ -115,6 +115,34 @@ LIMIAR_FALHA_PERFIS = float(os.getenv("LIMIAR_FALHA_PERFIS", "0.2"))
 # e passa a ser bloqueio do Instagram. Em 31/07/2026 os 79 runs terminaram SUCCEEDED
 # com "access denied" em 76 perfis, então o status do run sozinho não pega esse caso.
 MINIMO_PERFIS_PARA_EXIGIR_POSTS = int(os.getenv("MINIMO_PERFIS_PARA_EXIGIR_POSTS", "10"))
+# Estas duas nasceram abaixo, depois da constante que as chama, e o módulo
+# quebrava no import com NameError: no nível do módulo o nome precisa existir
+# antes do uso. Foi o que derrubou os workflows 15 e 16 em 07/08/2026.
+def obter_nome_mes_portugues(data: datetime | None = None) -> str:
+    """Retorna o nome do mês atual em português, em minúsculas."""
+    referencia = data or datetime.now()
+    nomes = {
+        "January": "janeiro",
+        "February": "fevereiro",
+        "March": "março",
+        "April": "abril",
+        "May": "maio",
+        "June": "junho",
+        "July": "julho",
+        "August": "agosto",
+        "September": "setembro",
+        "October": "outubro",
+        "November": "novembro",
+        "December": "dezembro",
+    }
+    return nomes.get(referencia.strftime("%B"), referencia.strftime("%B")).lower()
+
+
+def obter_nome_aba_mensal() -> str:
+    """Retorna o nome da aba para o mês atual, como 'agosto' ou 'setembro'."""
+    return obter_nome_mes_portugues()
+
+
 SPREADSHEET_ID_PERFIS = os.getenv("SPREADSHEET_ID_PERFIS", "1piO-m19orW1i-Z-6rNeWdXnEAWqw5wneiDpdHZqOa6Y")
 ABA_PERFIS = os.getenv("ABA_PERFIS", "Instagram")
 COLUNA_PERFIS = os.getenv("COLUNA_PERFIS", "B")
@@ -183,30 +211,6 @@ _CHAVE_POR_PREFIXO = (
     ("resumo da legenda", "resumo_legenda"),
     ("tema", "temas"),
 )
-
-def obter_nome_mes_portugues(data: datetime | None = None) -> str:
-    """Retorna o nome do mês atual em português, em minúsculas."""
-    referencia = data or datetime.now()
-    nomes = {
-        "January": "janeiro",
-        "February": "fevereiro",
-        "March": "março",
-        "April": "abril",
-        "May": "maio",
-        "June": "junho",
-        "July": "julho",
-        "August": "agosto",
-        "September": "setembro",
-        "October": "outubro",
-        "November": "novembro",
-        "December": "dezembro",
-    }
-    return nomes.get(referencia.strftime("%B"), referencia.strftime("%B")).lower()
-
-
-def obter_nome_aba_mensal() -> str:
-    """Retorna o nome da aba para o mês atual, como 'agosto' ou 'setembro'."""
-    return obter_nome_mes_portugues()
 
 def dividir_resultado(resultado: str) -> dict:
     """Separa o texto gerado pelo Gemini nas seções transcrição/resumos/temas."""
