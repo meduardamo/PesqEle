@@ -993,6 +993,21 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
         "ATÉ QUANDO.\n\n"
         "ATENÇÃO 2: classifique cada tema pelo que o plano diz DAQUELE tema. Um plano "
         "forte em segurança não puxa para cima os temas de educação.\n\n"
+        # O plano do Elizeu Aguiar (NOVO/PI) tem 3 páginas de tópicos curtos e
+        # saiu com 17 "Propõe ação", entre eles "Internet de alta velocidade" e
+        # "Ampliação da acessibilidade". Nenhum diz como. O exemplo da escala já
+        # trazia "valorizaremos a educação profissional" como Menciona
+        # vagamente, e mesmo assim "Valorização dos professores" virou proposta:
+        # faltava a pergunta que separa os dois.
+        "TESTE DO COMO (aplique em todo tema antes de fechar o nível): a frase diz "
+        "COMO a coisa será feita? Instrumento, programa nomeado, obra, concurso, "
+        "mudança de regra, valor. Se diz só O QUE se quer alcançar, é Menciona "
+        "vagamente, por mais concreto que o assunto pareça.\n"
+        "  - 'Ampliação da acessibilidade' e 'Internet de alta velocidade' são "
+        "Menciona vagamente: nomeiam o desejo, não o meio.\n"
+        "  - 'Reforço do efetivo por meio de concursos públicos' e 'Criação da "
+        "Estatal Eólica do Ceará' são Propõe ação: dizem o meio.\n"
+        "Título de seção e item solto de lista quase nunca passam neste teste.\n\n"
         "REGRA: se o tema aparecer em múltiplos trechos, use o de maior maturidade.\n\n"
         # Medido em 06/08/2026 nos 1.261 trechos já gravados: 78% eram
         # transcrição fiel, e quase toda a diferença vinha de junção sem
