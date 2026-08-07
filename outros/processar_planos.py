@@ -38,7 +38,7 @@ from analise_planos import (  # noqa: E402
     _norm_busca, avaliar_coerencia, citacao_sustenta, classificar_plano,
     contexto_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
-    tem_alvo_mensuravel, verificar_trecho,
+    tem_alvo_mensuravel, tema_e_item_de_enumeracao, verificar_trecho,
 )
 
 # Convenções deste repo: credenciais em credentials.json (escrito pelo
@@ -70,8 +70,11 @@ LIMIAR_CHARS = 1500
 # Subiu para 8 ainda em 07/08/2026: "Define meta" passou a exigir alvo que dê
 # para conferir depois. O modelo lia quantificador vago como número, e um terço
 # dos 192 "Define meta" da base não tinha alvo nenhum.
-VERSAO_ANALISE = "8"
-VERSAO_COERENCIA = "6"
+# Subiu para 9: ancoras reforcadas nos cinco temas em que a guarda de ausencia
+# mais falhava, triagem de tema que e item de enumeracao na citacao, e JSON
+# quebrado do modelo virou retentativa em vez de candidato perdido.
+VERSAO_ANALISE = "9"
+VERSAO_COERENCIA = "7"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
@@ -261,7 +264,41 @@ def conferir_classificacao(classif: dict, texto: str,
             classif[tema] = sem_lastro(item)
 
     classif = _conferir_citacao_generica(classif, texto, texto_norm, paginas_norm)
+    classif = _conferir_enumeracao(classif, texto, texto_norm, paginas_norm)
     return _conferir_meta(classif)
+
+
+def _conferir_enumeracao(classif: dict, texto: str, texto_norm: str,
+                         paginas_norm: list[str]) -> dict:
+    """Repergunta o tema que parece ser item de lista dentro da própria citação.
+
+    A peneira é tema_e_item_de_enumeracao, que erra em cerca de um terço dos
+    casos por não distinguir "esporte no meio de uma lista de outras coisas" de
+    "proposta de saúde mental que enumera seus componentes". Por isso ela não
+    decide nada: o tema volta ao modelo com o entorno do assunto no plano, e só
+    desce se a segunda passagem também não achar proposta própria.
+
+    Desce para "Menciona vagamente", não para "Não menciona": o tema está
+    escrito na citação, o que falta é proposta para ele.
+    """
+    for tema, item in classif.items():
+        if item["nivel"] in ("Não menciona", "Menciona vagamente"):
+            continue
+        if not tema_e_item_de_enumeracao(item["trecho"], tema):
+            continue
+        contexto = contexto_do_tema(texto, texto_norm, tema)
+        novo = None
+        if contexto:
+            try:
+                novo = reanalisar_tema(contexto, tema, TEMAS.get(tema, ""))
+            except (RespostaIlegivel, json.JSONDecodeError, ValueError):
+                novo = None
+        vale = (novo and novo["nivel"] not in ("Não menciona", "Menciona vagamente")
+                and not tema_e_item_de_enumeracao(novo["trecho"], tema)
+                and citacao_sustenta(paginas_norm, novo["trecho"]))
+        classif[tema] = novo if vale else dict(
+            item, nivel="Menciona vagamente", score=NIVEIS.index("Menciona vagamente"))
+    return classif
 
 
 def _conferir_meta(classif: dict) -> dict:

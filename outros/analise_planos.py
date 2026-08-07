@@ -641,6 +641,38 @@ def _norm_acentos(t: str) -> str:
     return "".join(c for c in t if unicodedata.category(c) != "Mn")
 
 
+def tema_e_item_de_enumeracao(trecho: str, tema: str) -> bool:
+    """Triagem, não veredito: o tema parece ser item de uma lista na citação.
+
+    O plano do Alan Rick (AC) promete "infraestrutura, logística, saneamento,
+    mobilidade e integração regional", e daí saíram três "Propõe ação", um por
+    item. O plano do Elizeu Aguiar (NOVO/PI) lista "Cursos em Agronegócio,
+    Energias Renováveis, Tecnologia, Turismo, Logística" e ganhou Turismo.
+
+    Marca 2,6% das citações, e cerca de um terço disso é proposta legítima que
+    só enumera os próprios componentes: "Fortalecer atenção psicossocial,
+    prevenção do suicídio, reabilitação" é proposta de saúde mental, e o termo
+    do tema é item curto do mesmo jeito. Separar os dois é semântico, não cabe
+    em regex, então quem decide é reanalisar_tema. Aqui é só a peneira que
+    escolhe o que vale reperguntar, e falso positivo custa uma chamada.
+
+    Uma versão anterior media só "termo citado uma vez dentro de vírgulas" e
+    marcava 114 casos, metade deles proposta boa. Esta exige que o termo esteja
+    num item curto de uma enumeração de verdade, com dois itens ou mais, e não
+    mexe em citação que já traz alvo mensurável.
+    """
+    t = str(trecho or "")
+    if tem_alvo_mensuravel(t):
+        return False
+    if len(ocorrencias_ancora(_norm_busca(t), tema)) != 1:
+        return False
+    segmentos = [s.strip() for s in re.split(r"[,;]|\be\b(?=\s+[A-ZÀ-Ú])", t) if s.strip()]
+    curtos = [s for s in segmentos if len(s.split()) <= 3]
+    if len(curtos) < 2:
+        return False
+    return any(ocorrencias_ancora(_norm_busca(s), tema) for s in curtos)
+
+
 def citacao_sustenta(paginas_norm: list[str], trecho: str) -> bool:
     """Se a citação é lastro suficiente para afirmar um nível.
 
