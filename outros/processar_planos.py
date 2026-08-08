@@ -75,7 +75,10 @@ LIMIAR_CHARS = 1500
 # mais falhava, triagem de tema que e item de enumeracao na citacao, e JSON
 # quebrado do modelo virou retentativa em vez de candidato perdido.
 VERSAO_ANALISE = "11"
-VERSAO_COERENCIA = "9"
+# Subiu para 10 em 08/08/2026: a justificativa passou a atribuir a proposta ao
+# candidato em vez de abrir pelo nome do programa. Sem reprocessar, o painel
+# segue mostrando frase sem dono, que é justamente o que a mudança corrige.
+VERSAO_COERENCIA = "10"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",

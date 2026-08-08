@@ -1436,11 +1436,22 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS) -> dict:
         "  'justificativa': 2 a 4 frases factuais que sustentem o score, com no "
         "máximo 500 caracteres no total.\n\n"
         "COMO ESCREVER A JUSTIFICATIVA:\n"
-        "- Comece pelo dado, nunca pela palavra 'O plano'. Abra com o nome de um "
-        "programa, uma meta ou um eixo concreto do texto.\n"
+        # A regra anterior mandava abrir pelo dado e proibia começar com "O
+        # plano". Ela cumpria o que queria, tirar o começo morno, e criava
+        # outra coisa: proposta sem dono. Com o plano do Renan Santos a frase
+        # saía como "Marco Nacional da Desfavelização prevê o fim das 12.348
+        # favelas em dez anos", que na tela é o painel afirmando o fim das
+        # favelas. A abertura continua não sendo morna, porque o sujeito é o
+        # candidato e o que vem logo depois é o que ele especificou.
+        "- Toda proposta é do candidato, e a frase precisa dizer isso. Comece "
+        "pelo sujeito, na forma 'o candidato propõe', 'o candidato condiciona', "
+        "'o candidato não registra'. Nunca escreva proposta do plano como "
+        "afirmação sua nem como fato do país.\n"
+        "- Depois da atribuição, diga o que o candidato especifica, com nome de "
+        "programa, prazo, número ou público. É isso que sustenta o score.\n"
         "- Não repita as palavras da escala acima ('integrada', 'articulada', "
-        "'parcial', 'isoladas', 'coerente'). Descreva o que o plano faz, não em "
-        "que degrau ele caiu.\n"
+        "'parcial', 'isoladas', 'coerente'). Descreva o que o candidato propõe, "
+        "não em que degrau ele caiu.\n"
         "- Não use o molde 'o plano faz X, contudo falta Y'. Se um eixo não tem "
         "proposta, diga em frase própria qual eixo e o que falta nele.\n"
         "- Nomeie programas, metas, números e prazos que estão no texto. Uma "
