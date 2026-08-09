@@ -10,7 +10,14 @@ on:
     # Religado em 07/08/2026 depois da revisão do critério. Com VERSAO_ANALISE em
     # 10 os 43 planos contam como pendentes, então a primeira passagem reprocessa
     # a base inteira, em torno de três horas. As seguintes voltam ao de sempre.
-    - cron: '45 * * * *'
+    #
+    # Desligado de novo em 09/08/2026: a gravação estava escrevendo por cima da
+    # aba. Em 09/08 as 215 linhas da rodada das 20:18 caíram nas posições 1722 a
+    # 1936 de analise_planos, em cima de outros cinco candidatos, e o Lula, que
+    # tinha sido analisado às 19:30, sumiu do painel. Cada rodada trocava sete
+    # candidatos de lugar e pagava Gemini de novo pelos mesmos planos. Religar
+    # só depois de conferir que anexar() escreve onde deve.
+    # - cron: '45 * * * *'
   workflow_dispatch:
     inputs:
       uf:
