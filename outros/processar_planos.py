@@ -438,14 +438,20 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
         time.sleep(3)
         classif = classificar_plano(texto)
     classif = conferir_classificacao(classif, texto, paginas_norm)
+    # Nome e gênero vão para a justificativa da coerência: é ela que atribui a
+    # proposta a alguém, e "o candidato" escrito sobre uma mulher é erro de
+    # fato. A base de dados abertos pode não trazer a coluna de gênero; sem ela,
+    # o prompt escreve sem pronome em vez de deduzir do nome.
+    nome_urna = str(r.get("NM_URNA_CANDIDATO", "") or "").strip()
+    genero = str(r.get("DS_GENERO", "") or "").strip()
     try:
-        coe = avaliar_coerencia(classif)
+        coe = avaliar_coerencia(classif, nome=nome_urna, genero=genero)
     except RespostaIlegivel as e:
         # A coerência não tinha segunda chance, e é a última chamada do
         # candidato: cair aqui jogava fora a classificação inteira, já paga.
         print(f"(coerência ilegível, tentando de novo: {e})", end=" ", flush=True)
         time.sleep(3)
-        coe = avaliar_coerencia(classif)
+        coe = avaliar_coerencia(classif, nome=nome_urna, genero=genero)
 
     # Data em que esta análise foi feita. Sem ela, olhando a planilha ou o painel
     # não dá para saber se o que está lá é de hoje ou de duas semanas atrás.

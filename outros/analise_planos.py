@@ -1397,7 +1397,48 @@ def _quadro_da_analise(classif: dict, temas: dict) -> str:
     return "\n\n".join(blocos)
 
 
-def avaliar_coerencia(classif: dict, temas: dict = TEMAS) -> dict:
+def _regras_sujeito(nome: str, genero: str) -> str:
+    """Como o modelo deve nomear quem propõe, na justificativa da coerência.
+
+    Duas coisas dependem de quem é o candidato. O gênero, porque "o candidato"
+    escrito sobre uma mulher é erro de fato, e o painel mostra o cadastro do TSE
+    logo abaixo da frase. E a repetição: com um sujeito só à disposição, saíam
+    quatro frases seguidas abrindo em "O candidato".
+
+    Sem gênero no cadastro, o modelo não recebe pronome nenhum: ele deduziria do
+    nome, e nome não diz gênero.
+    """
+    # O TSE grava o nome de urna em caixa alta, e o modelo copia o que recebe:
+    # sem isto a justificativa sai com "PROFESSORA CAMILA prevê" no meio da frase.
+    _conectivos = {"da", "das", "de", "do", "dos", "e"}
+    nome = " ".join(p.lower() if p.lower() in _conectivos else p.capitalize()
+                    for p in str(nome or "").split())
+    g = str(genero or "").strip().upper()
+    fem = g.startswith("FEMIN")
+    conhecido = g.startswith(("FEMIN", "MASCUL"))
+    quem = "a candidata" if fem else "o candidato"
+    pron = "ela" if fem else "ele"
+
+    regra = (f"- Toda proposta é {'da candidata' if fem else 'do candidato'}, e a "
+             f"frase precisa dizer isso. Comece pelo sujeito, na forma "
+             f"'{quem} propõe', '{quem} condiciona', '{quem} não registra'. "
+             f"Nunca escreva proposta do plano como afirmação sua nem como fato "
+             f"do país.\n")
+    if nome and conhecido:
+        regra += (f"- Escreva '{quem}' uma vez só, na primeira frase. Depois "
+                  f"alterne o sujeito entre '{nome}' e '{pron}', nessa ordem. "
+                  f"Quatro frases abrindo com o mesmo sujeito viram ladainha.\n")
+    elif nome:
+        # Cadastro sem gênero: o nome serve de sujeito, o pronome não, porque
+        # aqui ele seria chute a partir do nome.
+        regra += (f"- Escreva '{quem}' uma vez só, na primeira frase. Nas "
+                  f"seguintes use '{nome}' como sujeito. Não use pronome "
+                  f"pessoal para se referir a quem propõe.\n")
+    return regra
+
+
+def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
+                      nome: str = "", genero: str = "") -> dict:
     """Avalia se as propostas formam uma estratégia coerente no plano.
     Retorna {"score": 1–5, "justificativa": str}.
 
@@ -1436,22 +1477,20 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS) -> dict:
         "  'justificativa': 2 a 4 frases factuais que sustentem o score, com no "
         "máximo 500 caracteres no total.\n\n"
         "COMO ESCREVER A JUSTIFICATIVA:\n"
-        # A regra anterior mandava abrir pelo dado e proibia começar com "O
-        # plano". Ela cumpria o que queria, tirar o começo morno, e criava
-        # outra coisa: proposta sem dono. Com o plano do Renan Santos a frase
-        # saía como "Marco Nacional da Desfavelização prevê o fim das 12.348
-        # favelas em dez anos", que na tela é o painel afirmando o fim das
-        # favelas. A abertura continua não sendo morna, porque o sujeito é o
-        # candidato e o que vem logo depois é o que ele especificou.
-        "- Toda proposta é do candidato, e a frase precisa dizer isso. Comece "
-        "pelo sujeito, na forma 'o candidato propõe', 'o candidato condiciona', "
-        "'o candidato não registra'. Nunca escreva proposta do plano como "
-        "afirmação sua nem como fato do país.\n"
-        "- Depois da atribuição, diga o que o candidato especifica, com nome de "
+        # A regra de abrir pelo dado, sem "O plano", cumpria o que queria, tirar
+        # o começo morno, e criava outra coisa: proposta sem dono. Com o plano
+        # do Renan Santos a frase saía como "Marco Nacional da Desfavelização
+        # prevê o fim das 12.348 favelas em dez anos", que na tela é o painel
+        # afirmando o fim das favelas. A abertura continua não sendo morna,
+        # porque o sujeito é quem propõe e o que vem logo depois é o que essa
+        # pessoa especificou. Quem é esse sujeito, e em que gênero, sai de
+        # _regras_sujeito.
+        + _regras_sujeito(nome, genero) +
+        "- Depois da atribuição, diga o que a pessoa especifica, com nome de "
         "programa, prazo, número ou público. É isso que sustenta o score.\n"
         "- Não repita as palavras da escala acima ('integrada', 'articulada', "
-        "'parcial', 'isoladas', 'coerente'). Descreva o que o candidato propõe, "
-        "não em que degrau ele caiu.\n"
+        "'parcial', 'isoladas', 'coerente'). Descreva o que a proposta faz, não "
+        "em que degrau ela caiu.\n"
         "- Não use o molde 'o plano faz X, contudo falta Y'. Se um eixo não tem "
         "proposta, diga em frase própria qual eixo e o que falta nele.\n"
         "- Nomeie programas, metas, números e prazos que estão no texto. Uma "
