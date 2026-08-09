@@ -1,23 +1,22 @@
 name: 14 - Planos de Governo
 
 on:
-  schedule:
-    # Mesmo ritmo do DivulgaCand (workflow 10), que é de onde vêm os planos.
-    # Rodamos 20 minutos depois dele para pegar o que ele acabou de registrar.
-    # O script só processa o que está pendente: em hora sem plano novo ele lê a
-    # planilha, não acha nada e sai em segundos, sem gastar chamada de Gemini.
-    #
-    # Religado em 07/08/2026 depois da revisão do critério. Com VERSAO_ANALISE em
-    # 10 os 43 planos contam como pendentes, então a primeira passagem reprocessa
-    # a base inteira, em torno de três horas. As seguintes voltam ao de sempre.
-    #
-    # Desligado de novo em 09/08/2026: a gravação estava escrevendo por cima da
-    # aba. Em 09/08 as 215 linhas da rodada das 20:18 caíram nas posições 1722 a
-    # 1936 de analise_planos, em cima de outros cinco candidatos, e o Lula, que
-    # tinha sido analisado às 19:30, sumiu do painel. Cada rodada trocava sete
-    # candidatos de lugar e pagava Gemini de novo pelos mesmos planos. Religar
-    # só depois de conferir que anexar() escreve onde deve.
-    # - cron: '45 * * * *'
+  # Mesmo ritmo do DivulgaCand (workflow 10), que é de onde vêm os planos.
+  # Rodamos 20 minutos depois dele para pegar o que ele acabou de registrar. O
+  # script só processa o que está pendente: em hora sem plano novo ele lê a
+  # planilha, não acha nada e sai em segundos, sem gastar chamada de Gemini.
+  #
+  # Desligado em 09/08/2026, depois de religado em 07/08: a gravação escrevia
+  # por cima da aba. As 215 linhas da rodada das 20:18 caíram nas posições 1722
+  # a 1936 de analise_planos, em cima de outros cinco candidatos, e o Lula, que
+  # tinha sido analisado às 19:30, sumiu do painel. Cada rodada trocava sete
+  # candidatos de lugar e pagava Gemini de novo pelos mesmos planos.
+  #
+  # A gravação foi consertada no mesmo dia (uma escrita só por rodada, com
+  # conferência no fim). Religar depois de ver uma rodada manual fechar com os
+  # candidatos todos na aba:
+  # schedule:
+  #   - cron: '45 * * * *'
   workflow_dispatch:
     inputs:
       uf:
