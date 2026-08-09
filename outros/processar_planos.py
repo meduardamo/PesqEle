@@ -143,32 +143,55 @@ def _aba_ou_cria(sh, nome: str, colunas: list[str]):
         return ws
 
 
-def anexar(sh, nome: str, colunas: list[str], linhas: list[dict]) -> None:
-    """Acrescenta linhas no fim da aba, sem apagar nada.
+def gravar(sh, nome: str, colunas: list[str], chave: list[str],
+           novas: list[dict]) -> None:
+    """Lê a aba, substitui o que é dos candidatos gravados agora e regrava tudo.
 
-    O painel reescreve a aba inteira (clear + update), o que perde dados se duas
-    escritas se cruzarem. Aqui só acrescentamos: é seguro rodar enquanto alguém
-    está com o painel aberto.
+    Aqui havia um `anexar` que mandava "acrescente no fim" (values.append) e
+    deixava a API do Sheets achar onde é o fim. Em 09/08/2026 ela achou a linha
+    1722, no meio do dado: as 215 linhas da rodada das 20:18 caíram em cima de
+    cinco candidatos, e o Lula, analisado às 19:30, sumiu do painel na rodada
+    seguinte. A aba ficava sempre com 65 candidatos e trocava quem estava
+    dentro, então a fila dizia "7 a processar" de hora em hora e o Gemini era
+    pago de novo pelos mesmos planos.
+
+    O append não erra sozinho: com buraco no meio da aba ele acha o fim certo,
+    conferido em 09/08/2026. O que confunde é a rodada escrever de duas formas
+    na mesma aba, `anexar` e a reescrita do fim, cada uma partindo de uma foto
+    diferente do estado. A reescrita é clear + update, que não é atômico: entre
+    um e outro a aba fica curta, e um append que caia nessa janela grava numa
+    linha baixa.
+
+    Agora é uma forma só. Sai mais caro (a aba inteira a cada gravação) e não
+    depende de a API adivinhar nada: as linhas que vão para a planilha são as
+    que estão aqui na memória.
+
+    `chave` dedupe o que sobrar, guardando sempre a análise mais recente. É o
+    que colapsa as 108 linhas repetidas que a aba de coerência acumulou, oito
+    delas do Lula.
     """
-    if not linhas:
+    if not novas:
         return
-    ws = _aba_ou_cria(sh, nome, colunas)
-    cab = [c.strip() for c in (ws.row_values(1) or [])]
-    if not cab:
-        ws.update(values=[colunas])
-        cab = colunas
-    # Coluna que o código grava e a aba ainda não tem entra no cabeçalho antes
-    # da escrita. Sem isso o reindex abaixo descarta o campo em silêncio: foi
-    # assim que a coluna `tipo` sumiu no scraper de notícias, classificada e
-    # cobrada do Gemini a cada rodada sem nunca chegar à planilha.
-    faltantes = [c for c in colunas if c not in cab]
-    if faltantes:
-        if len(cab) + len(faltantes) > ws.col_count:
-            ws.add_cols(len(cab) + len(faltantes) - ws.col_count)
-        cab = cab + faltantes
-        ws.update(values=[cab], range_name="A1")
-    df = pd.DataFrame(linhas).reindex(columns=cab).fillna("").astype(str)
-    ws.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
+    sqs = {str(l.get("sq_candidato", "")) for l in novas}
+    atual = ler_aba(sh, nome)
+    if not atual.empty and "sq_candidato" in atual.columns:
+        # O candidato regravado sai inteiro: reanálise pode devolver menos temas
+        # que a anterior, e sobra de linha antiga viraria tema fantasma.
+        atual = atual[~atual["sq_candidato"].astype(str).isin(sqs)]
+    juntas = pd.concat([atual, pd.DataFrame(novas)], ignore_index=True) \
+        if not atual.empty else pd.DataFrame(novas)
+    juntas = juntas.reindex(columns=colunas).fillna("").astype(str)
+    if "analisado_em" in juntas.columns:
+        # Ordem por data de análise, não por posição na aba: com keep="last" a
+        # linha que vence tem que ser a mais nova, não a que calhou de estar
+        # embaixo.
+        _ordem = pd.to_datetime(juntas["analisado_em"], format="%d/%m/%Y %H:%M",
+                                errors="coerce")
+        juntas = (juntas.assign(_ordem=_ordem)
+                  .sort_values("_ordem", kind="stable", na_position="first")
+                  .drop(columns="_ordem"))
+    juntas = juntas.drop_duplicates(subset=chave, keep="last")
+    reescrever(sh, nome, colunas, juntas)
 
 
 def reescrever(sh, nome: str, colunas: list[str], df: pd.DataFrame) -> None:
@@ -603,21 +626,22 @@ def main() -> int:
         print("Nada a fazer: tudo já analisado e na versão atual.")
         return 0
 
-    ja_gravados = set(salvas["sq_candidato"].astype(str)) if not salvas.empty else set()
     buffer_a, buffer_c = [], []
-    reanalisados, indisponiveis, ilegiveis, erros = set(), [], [], []
+    indisponiveis, ilegiveis, erros = [], [], []
+    processados = set()          # (sq, nome) de quem a rodada analisou inteiro
     feitos = 0
     inicio = time.time()
 
     def descarrega():
-        """Grava o que está no buffer. Só acrescenta; reanálise fica para o fim."""
+        """Grava o que está no buffer, aba inteira, e esvazia o buffer.
+
+        Continua descarregando a cada LOTE e não só no fim: análise já paga não
+        pode depender de o job chegar vivo ao final.
+        """
         nonlocal buffer_a, buffer_c
-        novos_a = [l for l in buffer_a if l["sq_candidato"] not in reanalisados]
-        novos_c = [l for l in buffer_c if l["sq_candidato"] not in reanalisados]
-        anexar(sh, ANALISE_ABA, COLS, novos_a)
-        anexar(sh, COERENCIA_ABA, COLS_COE, novos_c)
-        buffer_a, buffer_c = [l for l in buffer_a if l["sq_candidato"] in reanalisados], \
-                             [l for l in buffer_c if l["sq_candidato"] in reanalisados]
+        gravar(sh, ANALISE_ABA, COLS, ["sq_candidato", "tema"], buffer_a)
+        gravar(sh, COERENCIA_ABA, COLS_COE, ["sq_candidato"], buffer_c)
+        buffer_a, buffer_c = [], []
 
     for n, r in enumerate(fila, 1):
         nome = str(r["NM_URNA_CANDIDATO"])
@@ -646,10 +670,9 @@ def main() -> int:
             print(f"pulado: {pulo}")
             continue
 
-        if sq in ja_gravados:
-            reanalisados.add(sq)
         buffer_a.extend(linhas)
         buffer_c.append(coe)
+        processados.add((sq, nome))
         feitos += 1
         niveis = sum(1 for l in linhas if l["nivel"] != "Não menciona")
         print(f"ok ({niveis}/{len(linhas)} temas com conteúdo, "
@@ -662,24 +685,19 @@ def main() -> int:
 
     descarrega()
 
-    if reanalisados:
-        # Reanálise exige tirar as linhas antigas do candidato: só aqui a aba é
-        # reescrita, uma vez, no fim.
-        print(f"Reescrevendo as abas para {len(reanalisados)} reanálise(s)...")
-        base_a = salvas[~salvas["sq_candidato"].astype(str).isin(reanalisados)] \
-            if not salvas.empty else pd.DataFrame(columns=COLS)
-        base_c = coes[~coes["sq_candidato"].astype(str).isin(reanalisados)] \
-            if not coes.empty else pd.DataFrame(columns=COLS_COE)
-        atual_a = ler_aba(sh, ANALISE_ABA)
-        atual_c = ler_aba(sh, COERENCIA_ABA)
-        novas_a = atual_a[~atual_a["sq_candidato"].astype(str).isin(reanalisados)] \
-            if not atual_a.empty else base_a
-        novas_c = atual_c[~atual_c["sq_candidato"].astype(str).isin(reanalisados)] \
-            if not atual_c.empty else base_c
-        reescrever(sh, ANALISE_ABA, COLS,
-                   pd.concat([novas_a, pd.DataFrame(buffer_a)], ignore_index=True))
-        reescrever(sh, COERENCIA_ABA, COLS_COE,
-                   pd.concat([novas_c, pd.DataFrame(buffer_c)], ignore_index=True))
+    # Confere o que ficou na planilha, e não o que o script acha que gravou. A
+    # rodada de 09/08/2026 terminou dizendo "7 plano(s) processados" com a aba
+    # intacta do dia anterior, e ninguém soube até alguém notar que o Lula tinha
+    # sumido do painel.
+    if processados:
+        conferidos = ler_aba(sh, ANALISE_ABA)
+        gravados = (set(conferidos["sq_candidato"].astype(str))
+                    if not conferidos.empty else set())
+        sumidos = [nome for sq_p, nome in processados if sq_p not in gravados]
+        if sumidos:
+            print(f"ATENÇÃO: {len(sumidos)} analisado(s) não estão na aba depois "
+                  f"da gravação: {', '.join(str(s) for s in sumidos[:8])}")
+            return 1
 
     print(f"\n{feitos} plano(s) processados em {time.time() - inicio:.0f}s.")
     if indisponiveis:
