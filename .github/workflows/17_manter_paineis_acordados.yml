@@ -1,0 +1,37 @@
+name: 17 - Painéis de pé
+
+on:
+  schedule:
+    # A cada 6h. O Community Cloud hiberna por falta de tráfego, e a rodada
+    # agendada do Actions atrasa (25 a 250 min); com 6h de folga o atraso não
+    # abre buraco. Minuto fora do :00 porque é quando o Actions mais enfileira.
+    - cron: '40 */6 * * *'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [manter-paineis-acordados]
+
+# Duas rodadas ao mesmo tempo só gastam minuto de Actions à toa.
+concurrency:
+  group: paineis-acordados
+  cancel-in-progress: false
+
+jobs:
+  visitar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install playwright
+
+      - run: playwright install --with-deps chromium
+
+      - run: python -m outros.manter_paineis_acordados
+        env:
+          # Uma URL por linha. Painel novo entra aqui, não no código.
+          PAINEIS: |
+            https://candidaturas-2026.streamlit.app/
+            https://eleitorado-2026.streamlit.app/
