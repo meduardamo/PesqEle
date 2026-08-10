@@ -819,6 +819,21 @@ def _corrigir_siglas(texto: str) -> str:
     return _RE_SIGLA.sub(lambda m: _SIGLAS_MISTAS[m.group(1)], texto or "")
 
 
+# Ponto final colado na maiúscula seguinte, sem espaço nenhum: foi onde o modelo
+# deveria ter aberto o segundo parágrafo e não abriu ("bandeira central.O debate
+# reuniu"). Só mexe quando o corpo veio sem nenhuma quebra dupla, ou seja, quando
+# a falha é certa; num corpo já separado direito, um ponto colado é erro de
+# digitação e não vira parágrafo novo.
+_RE_PARAGRAFO_COLADO = re.compile(r"([.!?])([A-ZÀ-ÝÁÉÍÓÚÂÊÔÃÕÇ])")
+
+
+def _reparar_paragrafos(corpo: str) -> str:
+    corpo = (corpo or "").strip()
+    if "\n\n" in corpo:
+        return corpo
+    return _RE_PARAGRAFO_COLADO.sub(r"\1\n\n\2", corpo)
+
+
 def _titulo_sem_veiculo(titulo: str) -> str:
     """Tira o ' - Veículo' que o Google Notícias cola no fim de toda manchete."""
     return re.sub(r"\s+[-–]\s+[^-–]{2,40}$", "", str(titulo or "").strip()).strip()
@@ -892,7 +907,7 @@ def gerar_texto_alerta(n) -> str:
     if not corpo:
         return ""
     titulo = _corrigir_siglas(titulo or _titulo_sem_veiculo(n.get("titulo")))
-    corpo = _corrigir_siglas(corpo)
+    corpo = _reparar_paragrafos(_corrigir_siglas(corpo))
     link = _encurtar_link(n.get("link_real") or n.get("link") or "")
     partes = [f"*{_header_alerta(n)}*",
               datetime.now(BRT).strftime("%d/%m/%Y"),
