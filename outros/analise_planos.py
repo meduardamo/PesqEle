@@ -1532,9 +1532,17 @@ TERMOS_PROIBIDOS = [
     "robusto", "robusta", "robustos", "robustas", "significativo", "significativa",
     "notavel", "notaveis", "solido", "solida", "solidos", "solidas",
     "consistente", "consistentes", "inovador", "inovadora", "multifacetado",
-    "apresenta", "possui", "oferece", "ressalta", "enfatiza", "evidencia",
+    "apresenta", "apresentam", "possui", "possuem", "oferece", "oferecem",
+    "ressalta", "ressaltam", "enfatiza", "enfatizam", "evidencia", "evidenciam",
     "aprimorar", "aprimora", "vale destacar", "cabe ressaltar", "e importante notar",
     "panorama", "otica", "mosaico", "horizonte",
+    # Eco da própria régua. O prompt já pedia para não repetir as palavras da
+    # escala, e a justificativa da Samara de 10/08/2026 saiu com "Ela estabelece
+    # duas ligações sustentadas por um mesmo instrumento em eixos distintos".
+    # Isso descreve o degrau em que ela caiu, não o que o plano propõe.
+    "ligacao sustentada", "ligacoes sustentadas", "eixos distintos",
+    "estrategia parcial", "estrategia integrada", "mencoes isoladas",
+    "propostas isoladas", "metas isoladas",
 ]
 _PROIBIDOS_RE = re.compile(r"\b(" + "|".join(TERMOS_PROIBIDOS) + r")\b")
 
@@ -1563,6 +1571,22 @@ def _teto_por_ligacoes(score: int, ligacoes: list, classif: dict) -> int:
     instrumento que os liga. Par sem instrumento, ou com tema que não tem
     proposta no plano, não conta.
     """
+    def mesma_citacao(a: str, b: str) -> bool:
+        """Os dois temas se apoiam na mesma frase do plano.
+
+        Não é ligação, é uma frase indexada em dois temas. Na primeira rodada
+        com esta guarda, 10/08/2026, o plano da Samara Martins tirou 4 com dois
+        pares assim: "creche no local de trabalho" sustentava Primeira Infância
+        e Mulheres, e "Controle estatal dos preços dos alimentos" sustentava
+        Agropecuária e Segurança Alimentar. Articulação exige duas propostas,
+        não uma proposta que atravessa dois temas.
+        """
+        ta = _sem_espaco(_norm_busca((classif.get(a) or {}).get("trecho", "")))
+        tb = _sem_espaco(_norm_busca((classif.get(b) or {}).get("trecho", "")))
+        if not ta or not tb:
+            return False
+        return ta in tb or tb in ta
+
     validas = 0
     for lig in ligacoes or []:
         if not isinstance(lig, dict):
@@ -1571,7 +1595,8 @@ def _teto_por_ligacoes(score: int, ligacoes: list, classif: dict) -> int:
         instrumento = str(lig.get("instrumento", "")).strip()
         com_proposta = [t for t in (de, para)
                         if (classif.get(t) or {}).get("nivel") in ("Propõe ação", "Define meta")]
-        if len(com_proposta) == 2 and de != para and instrumento:
+        if (len(com_proposta) == 2 and de != para and instrumento
+                and not mesma_citacao(de, para)):
             validas += 1
     if validas >= 3:
         return score
@@ -1633,6 +1658,10 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
         "em até 12 palavras, tirado do plano). Só inclua par em que os DOIS temas "
         "têm proposta na análise acima. Lista vazia se não houver ligação, e isso "
         "é resposta legítima.\n"
+        "  NÃO conta como ligação o par em que os dois temas estão apoiados na "
+        "MESMA citação. Uma frase que serve a dois temas é uma proposta só, "
+        "indexada duas vezes. Ligação exige duas propostas diferentes, uma "
+        "servindo de meio para a outra.\n"
         "  'justificativa': 2 a 4 frases factuais que sustentem o score, com no "
         "máximo 500 caracteres no total. Se listou ligação, diga na justificativa "
         "qual é o instrumento que liga os temas.\n\n"
