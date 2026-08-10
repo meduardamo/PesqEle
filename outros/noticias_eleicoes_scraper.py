@@ -632,11 +632,16 @@ def classificar_com_gemini(titulo, trecho=""):
         "ex-presidente ou prefeito de capital\n"
         "- 'rompimento': rompimento público de aliança ou retirada de apoio envolvendo candidato ao "
         "executivo e os mesmos atores acima\n"
-        "- 'educação': política pública de educação aparece na disputa pelo executivo. Vale proposta ou "
-        "plano de governo, fala em debate ou sabatina, e crítica de um candidato à gestão do adversário. "
-        "Assuntos que contam: tempo integral, educação profissional e tecnológica, alfabetização, escolas "
-        "cívico-militares, anos finais do ensino fundamental, Ideb, professores, infraestrutura da rede. "
-        "Precisa ser candidato, pré-candidato ou campanha falando; matéria de jornalista, sindicato ou "
+        "- 'educação': o assunto CENTRAL da notícia é política pública de educação na disputa pelo "
+        "executivo. Vale proposta ou plano de governo, fala em debate ou sabatina, e crítica de um "
+        "candidato à gestão do adversário. Assuntos que contam: tempo integral, educação profissional e "
+        "tecnológica, alfabetização, escolas cívico-militares, anos finais do ensino fundamental, Ideb, "
+        "professores, infraestrutura da rede.\n"
+        "  NÃO marque 'educação' quando educação for só cenário ou um bloco entre vários: cobertura de "
+        "debate cujo tema principal é outro (segurança, saúde, economia, bate-boca entre candidatos), "
+        "ainda que educação apareça na lista de assuntos, é 'nenhum'. Pergunte: se eu tirar educação da "
+        "notícia, ela deixa de existir? Se continuar de pé, não é 'educação'.\n"
+        "  Precisa ser candidato, pré-candidato ou campanha falando; matéria de jornalista, sindicato ou "
         "especialista sobre educação, sem candidato na história, não conta\n"
         "- 'nenhum': todo o resto, inclusive notícia relevante que não se encaixa nos quatro temas acima\n"
         "- Na dúvida entre 'nenhum' e um tema que se encaixa, escolha o tema\n\n"
@@ -715,6 +720,9 @@ def classificar_noticias(noticias):
 REGRAS_POLITICOS_ALERTA = (
     "Formatação de políticos (obrigatório):\n"
     "- Formato: 'Nome (PARTIDO/UF)'. Use barra, nunca hífen entre PARTIDO e UF.\n"
+    "- Escreva a sigla como ela se escreve: PT, PL, PSDB, MDB em maiúsculas, mas "
+    "Republicanos, Podemos, Solidariedade, Avante, União Brasil e Cidadania com "
+    "inicial maiúscula. Nunca 'REPUBLICANOS'.\n"
     "- Se partido/UF não estiverem na notícia, não invente.\n"
     "- PRIMEIRA menção de um político: use 'Nome (PARTIDO/UF)'. Menções seguintes: só o nome.\n"
 )
@@ -753,6 +761,43 @@ def _encurtar_link(url: str) -> str:
         return curto if curto.startswith("http") else url
     except Exception:
         return url
+
+
+# Pede o JSON pelo schema, não só pelo texto do prompt. Sem isso o modelo escreve
+# a quebra de parágrafo como quebra de linha de verdade dentro da string, o que é
+# JSON inválido: em 10/08 um alerta saiu com o objeto inteiro no lugar do texto.
+CONFIG_TITULO_CORPO = {
+    "response_mime_type": "application/json",
+    "response_schema": {
+        "type": "object",
+        "properties": {"titulo": {"type": "string"}, "corpo": {"type": "string"}},
+        "required": ["titulo", "corpo"],
+    },
+}
+
+# Última linha de defesa se o JSON vier quebrado mesmo assim: pesca os dois campos
+# no texto cru. Melhor um alerta com o título do RSS do que um alerta com chave e
+# chaveta no meio do WhatsApp.
+_RE_TITULO = re.compile(r'"titulo"\s*:\s*"(.*?)"\s*,\s*"corpo"', re.S)
+_RE_CORPO = re.compile(r'"corpo"\s*:\s*"(.*?)"\s*\}?\s*$', re.S)
+
+
+def _extrair_titulo_corpo(bruto: str) -> tuple[str, str]:
+    bruto = bruto.replace("```json", "").replace("```", "").strip()
+    if not bruto:
+        return "", ""
+    try:
+        dados = json.loads(bruto)
+        return str(dados.get("titulo") or "").strip(), str(dados.get("corpo") or "").strip()
+    except Exception:
+        pass
+    t = _RE_TITULO.search(bruto)
+    c = _RE_CORPO.search(bruto)
+    if c:
+        return ((t.group(1).strip() if t else ""),
+                c.group(1).replace("\\n", "\n").strip())
+    # nem JSON nem parecido com JSON: era texto corrido mesmo
+    return "", bruto
 
 
 def _titulo_sem_veiculo(titulo: str) -> str:
@@ -807,18 +852,10 @@ def gerar_texto_alerta(n) -> str:
         f"{REGRAS_POLITICOS_ALERTA}\n"
         f"NOTÍCIA:\n{contexto}"
     )
-    resp = _gemini_client().models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    resp = _gemini_client().models.generate_content(
+        model=GEMINI_MODEL, contents=prompt, config=CONFIG_TITULO_CORPO)
     _registrar_uso(resp)
-    bruto = (getattr(resp, "text", "") or "").strip()
-    bruto = bruto.replace("```json", "").replace("```", "").strip()
-    try:
-        dados = json.loads(bruto)
-        titulo = str(dados.get("titulo") or "").strip()
-        corpo = str(dados.get("corpo") or "").strip()
-    except Exception:
-        # JSON quebrado não pode custar o alerta inteiro: cai pro título do RSS
-        # (sem o nome do veículo) e usa o que o modelo escreveu como corpo.
-        titulo, corpo = "", bruto
+    titulo, corpo = _extrair_titulo_corpo(getattr(resp, "text", "") or "")
     if not corpo:
         return ""
     titulo = titulo or _titulo_sem_veiculo(n.get("titulo"))
