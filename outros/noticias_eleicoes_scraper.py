@@ -1448,6 +1448,36 @@ def reescrever_alertas_sem_texto(aba):
     print(f"{len(updates)} alerta(s) reescrito(s).")
 
 
+def _colapsar_por_fato(aba, headers, pendentes):
+    """Última passada de deduplicação, imediatamente antes do email.
+
+    A deduplicação da coleta (marcar_repetidos) só alcança notícia nova. Linha
+    que virou alerta por outro caminho, como reclassificação ou correção à mão,
+    chega aqui sem ter sido conferida: no envio de 10/08 às 16:15 saíram dois
+    Tarcísio e dois Bocalom, cada par do mesmo veículo com o nome grafado
+    diferente no RSS.
+
+    Confere contra os outros pendentes e contra o que já foi enviado, e devolve
+    (o que envia, o que rebaixa).
+    """
+    if "alerta_chave" not in headers:
+        return pendentes, []
+    ja_enviado = {
+        r["alerta_chave"] for r in _ler_colunas(aba, headers, ("alerta_chave", "alerta_enviado_em"))
+        if r.get("alerta_chave") and r.get("alerta_enviado_em")
+    }
+    envia, rebaixa, vistos = [], [], set()
+    for r in pendentes:
+        chave = r.get("alerta_chave", "")
+        if chave and (chave in vistos or chave in ja_enviado):
+            rebaixa.append(r)
+            continue
+        if chave:
+            vistos.add(chave)
+        envia.append(r)
+    return envia, rebaixa
+
+
 def enviar_alertas_pendentes(aba):
     """Manda por email os alertas ainda não enviados e carimba a hora do envio.
 
@@ -1476,6 +1506,17 @@ def enviar_alertas_pendentes(aba):
         pendentes.append(r)
     if not pendentes:
         print("Nenhum alerta novo para enviar.")
+        return
+
+    pendentes, repetidos = _colapsar_por_fato(aba, headers, pendentes)
+    if repetidos:
+        # rebaixar já basta pra não voltarem: a varredura acima só olha alerta='sim'
+        letra_al = _col_letra(headers, "alerta")
+        aba.batch_update([{"range": f"{letra_al}{r['_linha']}", "values": [["repetido"]]}
+                          for r in repetidos], value_input_option="USER_ENTERED")
+        print(f"{len(repetidos)} alerta(s) rebaixado(s) por repetir fato já alertado.")
+    if not pendentes:
+        print("Todos os pendentes eram repetição; nada a enviar.")
         return
 
     agora = datetime.now(BRT)
