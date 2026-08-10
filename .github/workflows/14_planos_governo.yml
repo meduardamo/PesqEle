@@ -41,6 +41,11 @@ on:
         type: boolean
         required: false
         default: false
+      so_coerencia:
+        description: 'Refaz só a coerência, a partir da análise já gravada'
+        type: boolean
+        required: false
+        default: false
 
 # Duas execuções gravando na mesma planilha se atrapalham. A fila garante uma de
 # cada vez, e a corrente não é cancelada para não jogar fora análise já paga.
@@ -81,4 +86,5 @@ jobs:
             --cargo TODOS \
             ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }} \
             ${{ inputs.sq && format('--sq {0}', inputs.sq) || '' }} \
-            ${{ inputs.forcar == true && '--forcar' || '' }}
+            ${{ inputs.forcar == true && '--forcar' || '' }} \
+            ${{ inputs.so_coerencia == true && '--so-coerencia' || '' }}
