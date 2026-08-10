@@ -1733,10 +1733,22 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
         "os temas dele estejam como 'Não menciona'.\n\n"
         f"{RESTRICOES_LINGUAGEM}"
     )
-    def pedir():
+    def pedir(evitar: list[str] | None = None):
+        # A segunda chamada precisa ser diferente da primeira. Repetindo o mesmo
+        # prompt, o modelo repete a resposta: em 10/08/2026, das cinco
+        # retentativas por linguagem, duas voltaram com a mesma palavra
+        # (Valmir de Francisquinho e Professor Marcus Sodré). Dizer qual palavra
+        # ele acabou de usar é o que muda o pedido.
+        texto = prompt
+        if evitar:
+            texto += ("\n\nSUA RESPOSTA ANTERIOR FOI RECUSADA porque usou: "
+                      + ", ".join(evitar)
+                      + ". Reescreva sem nenhuma dessas palavras, sem trocar por "
+                      "sinônimo do mesmo tipo. Diga o que o plano faz, com nome "
+                      "de programa, número ou prazo, e não em que degrau ele caiu.")
         resp = _gemini_client().models.generate_content(
             model=GEMINI_MODEL,
-            contents=prompt,
+            contents=texto,
             config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
         return _carregar_json((getattr(resp, "text", "") or "").strip(), "coerência")
@@ -1754,7 +1766,7 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
         print(f"(linguagem proibida em {', '.join(proibidos)}, refazendo)",
               end=" ", flush=True)
         time.sleep(3)
-        data = pedir()
+        data = pedir(evitar=proibidos)
         justificativa = _limpa(data.get("justificativa", ""), n=600)
         ainda = termos_proibidos(justificativa)
         if ainda:
