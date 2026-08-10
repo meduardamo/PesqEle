@@ -587,6 +587,10 @@ def main() -> int:
                    help="GOVERNADOR, PRESIDENTE ou TODOS")
     p.add_argument("--uf", default="", help="restringe a uma UF")
     p.add_argument("--limite", type=int, default=0, help="processa no máximo N candidatos")
+    # Para reprocessar um candidato só, sem subir versão e sem arrastar a base
+    # inteira junto. Serve quando um tema novo entra e o efeito precisa ser visto
+    # em um plano antes de valer para todos.
+    p.add_argument("--sq", default="", help="restringe a um SQ_CANDIDATO")
     p.add_argument("--forcar", action="store_true",
                    help="reprocessa mesmo quem já está gravado e atualizado")
     p.add_argument("--planilha",
@@ -619,6 +623,8 @@ def main() -> int:
                     == args.cargo.upper()]
     if args.uf:
         base = base[base["SG_UF"].astype(str).str.strip().str.upper() == args.uf.upper()]
+    if args.sq:
+        base = base[base["SQ_CANDIDATO"].astype(str).str.strip() == args.sq.strip()]
 
     salvas = ler_aba(sh, ANALISE_ABA)
     coes = ler_aba(sh, COERENCIA_ABA)

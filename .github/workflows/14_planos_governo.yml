@@ -32,6 +32,10 @@ on:
         description: 'Restringe a uma UF (vazio = todas)'
         required: false
         default: ''
+      sq:
+        description: 'Restringe a um SQ_CANDIDATO (vazio = todos)'
+        required: false
+        default: ''
       forcar:
         description: 'Reprocessa mesmo quem já está gravado e atualizado'
         type: boolean
@@ -76,4 +80,5 @@ jobs:
           python -m outros.processar_planos \
             --cargo TODOS \
             ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }} \
+            ${{ inputs.sq && format('--sq {0}', inputs.sq) || '' }} \
             ${{ inputs.forcar == true && '--forcar' || '' }}

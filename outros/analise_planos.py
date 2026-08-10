@@ -111,6 +111,11 @@ EIXOS = {
         "Valorização Docente": "carreira, salário, piso, concurso, formação continuada e condições de trabalho de professores e demais profissionais da educação",
         "Educação Inclusiva e EJA": "educação especial e inclusiva, estudante com deficiência, educação de jovens e adultos, educação no campo, indígena e quilombola",
         "Tecnologia na Educação": "tecnologia, conectividade, inclusão digital e uso de IA nas escolas",
+        # Entrou em 10/08/2026. Os outros temas de educação são por etapa, então
+        # proposta de dinheiro não achava onde cair: no plano da Samara Martins
+        # (UP), "10% do PIB para educação" foi classificada em Ciência,
+        # Tecnologia e Inovação, e a educação inteira ficou como "Não menciona".
+        "Financiamento da Educação": "financiamento e orçamento da educação: percentual do PIB ou da receita, Fundeb, custo aluno, vinculação de recursos e gratuidade do ensino público",
     },
     "Saúde": {
         "Atenção Primária": "atenção primária, saúde da família, UBS, agentes comunitários de saúde",
@@ -122,6 +127,13 @@ EIXOS = {
         # reconhecer o assunto. Ludopatia é dependência, e o imposto seletivo é
         # tributação de produto nocivo à saúde.
         "Saúde Mental": "saúde mental, CAPS, prevenção ao suicídio, dependência química, álcool e outras drogas, ludopatia e transtorno do jogo, apostas de quota fixa (bets), e imposto seletivo sobre produtos nocivos à saúde",
+        # Entrou em 10/08/2026, pelo mesmo motivo do financiamento da educação.
+        # Os outros temas de saúde são por nível de atenção, e o item 11 do plano
+        # da Samara Martins, "Nacionalização dos planos de Saúde. Aumento do
+        # Orçamento que permita o funcionamento de 100% da saúde pública (SUS)",
+        # não caiu em nenhum. A justificativa então afirmou que o plano não fala
+        # de saúde.
+        "Financiamento e Gestão do SUS": "financiamento e orçamento da saúde, percentual vinculado, gestão do SUS, judicialização, planos de saúde privados e relação entre público e privado",
     },
     "Segurança pública": {
         "Policiamento e Efetivo": "efetivo policial, salário, equipamento, presença ostensiva, videomonitoramento",
@@ -210,6 +222,13 @@ TERMOS_ANCORA = {
     "Tecnologia na Educação": ["conectividade*", "inclusao digital", "internet nas escolas",
                                "tecnologia educacional", "internet", "laboratorio de informatica",
                                "transformacao digital", "computador", "tablet"],
+    "Financiamento da Educação": ["por cento do pib", "% do pib", "do pib para educacao",
+                                  "fundeb", "custo aluno", "orcamento da educacao",
+                                  "financiamento da educacao", "vinculacao de recursos"],
+    "Financiamento e Gestão do SUS": ["orcamento da saude", "financiamento da saude",
+                                      "subfinanciamento", "gestao do sus", "plano de saude",
+                                      "planos de saude", "saude suplementar",
+                                      "judicializacao da saude", "piso da saude"],
     "Atenção Primária": ["atencao primaria", "atencao basica", "saude da familia", "ubs",
                          "agente comunitario", "unidade basica"],
     "Média e Alta Complexidade": ["leito", "uti", "cirurgia eletiva", "fila de cirurgia",
