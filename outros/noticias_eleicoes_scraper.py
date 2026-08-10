@@ -1401,6 +1401,47 @@ def _html_alertas(alertas, agora):
     """
 
 
+def reescrever_alertas_sem_texto(aba):
+    """Escreve o alerta das linhas marcadas alerta='sim' que estão sem resumo.
+
+    Mesma convenção da reclassificação por status vazio: apagar a célula é o
+    jeito de pedir de novo. Serve pra refazer um texto ruim e pra alcançar linha
+    que virou alerta na reclassificação, onde a escrita não passa.
+
+    Só linhas recentes, pela data de publicação: alerta antigo sem resumo é
+    linha de antes desta rotina existir, e reescrever custaria Gemini à toa.
+    """
+    headers = aba.row_values(1)
+    if "alerta" not in headers or "resumo" not in headers:
+        return
+    campos = ("alerta", "resumo", "titulo", "fonte", "data", "link", "link_real",
+              "candidato", "partido", "uf", "cargo", "instituto", "alerta_tema",
+              "texto_completo")
+    corte = datetime.now(BRT) - timedelta(days=JANELA_DIAS + 1)
+    pendentes = []
+    for r in _ler_colunas(aba, headers, campos):
+        if r.get("alerta") != "sim" or r.get("resumo"):
+            continue
+        dt = _data_planilha(r.get("data", ""))
+        if dt and dt < corte:
+            continue
+        pendentes.append(r)
+    if not pendentes:
+        return
+    print(f"{len(pendentes)} alerta(s) sem texto; reescrevendo...")
+
+    def _escrever(r):
+        r["resumo_novo"] = gerar_texto_alerta(r)
+
+    _em_paralelo(pendentes, _escrever, total_rotulo="alertas reescritos", passo=5)
+    letra = _col_letra(headers, "resumo")
+    updates = [{"range": f"{letra}{r['_linha']}", "values": [[_safe(r["resumo_novo"])]]}
+               for r in pendentes if r.get("resumo_novo")]
+    if updates:
+        aba.batch_update(updates, value_input_option="USER_ENTERED")
+    print(f"{len(updates)} alerta(s) reescrito(s).")
+
+
 def enviar_alertas_pendentes(aba):
     """Manda por email os alertas ainda não enviados e carimba a hora do envio.
 
@@ -1482,7 +1523,9 @@ if __name__ == '__main__':
     # depois de gravar, nunca antes: alerta que não chegou na planilha não pode
     # sair por email, senão ninguém acha a linha pra trabalhar em cima dela
     try:
-        enviar_alertas_pendentes(_sheets_aba())
+        aba = _sheets_aba()
+        reescrever_alertas_sem_texto(aba)   # inclusive o que virou alerta na reclassificação
+        enviar_alertas_pendentes(aba)
     except Exception as e:
         # a raspagem é o produto principal; email é o aviso. Falha aqui não
         # derruba a rodada, e o que não saiu volta na próxima (sem carimbo).
