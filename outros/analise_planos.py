@@ -116,6 +116,12 @@ EIXOS = {
         # (UP), "10% do PIB para educação" foi classificada em Ciência,
         # Tecnologia e Inovação, e a educação inteira ficou como "Não menciona".
         "Financiamento da Educação": "financiamento e orçamento da educação: percentual do PIB ou da receita, Fundeb, custo aluno, vinculação de recursos e gratuidade do ensino público",
+        # Entrou em 10/08/2026. Até aqui ensino superior morava na descrição de
+        # Ciência, Tecnologia e Inovação, e foi de lá que "Livre acesso à
+        # universidade e fim do vestibular (ENEM)", do plano da Samara Martins,
+        # saiu classificada como CT&I. Ao criar o tema, a menção some da
+        # descrição de CT&I, senão os dois disputam a mesma citação.
+        "Ensino Superior": "ensino superior e universidades: acesso e vagas, vestibular e ENEM, gratuidade, expansão de campus, assistência estudantil e permanência",
     },
     "Saúde": {
         "Atenção Primária": "atenção primária, saúde da família, UBS, agentes comunitários de saúde",
@@ -145,7 +151,7 @@ EIXOS = {
         "Geração de Emprego": "geração de emprego e renda, qualificação profissional para o trabalho, intermediação de mão de obra",
         "Ambiente de Negócios": "atração de investimento, desburocratização, incentivo fiscal, apoio a micro e pequena empresa",
         "Agropecuária": "agricultura, pecuária, agronegócio, agricultura familiar, crédito rural",
-        "Ciência, Tecnologia e Inovação": "pesquisa científica, fundação de amparo à pesquisa, universidade estadual e ensino superior, parque tecnológico, startups",
+        "Ciência, Tecnologia e Inovação": "pesquisa científica, fundação de amparo à pesquisa, parque tecnológico, startups e inovação — o ensino superior é tema próprio, no eixo de Educação",
     },
     "Meio ambiente e clima": {
         "Desmatamento e Conservação": "desmatamento, unidades de conservação, fiscalização ambiental, queimadas",
@@ -222,6 +228,9 @@ TERMOS_ANCORA = {
     "Tecnologia na Educação": ["conectividade*", "inclusao digital", "internet nas escolas",
                                "tecnologia educacional", "internet", "laboratorio de informatica",
                                "transformacao digital", "computador", "tablet"],
+    "Ensino Superior": ["ensino superior", "universidade", "universitari*", "vestibular",
+                        "enem", "prouni", "fies", "assistencia estudantil",
+                        "graduacao", "campus"],
     "Financiamento da Educação": ["por cento do pib", "% do pib", "do pib para educacao",
                                   "fundeb", "custo aluno", "orcamento da educacao",
                                   "financiamento da educacao", "vinculacao de recursos"],

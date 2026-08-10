@@ -80,12 +80,25 @@ LIMIAR_CHARS = 1500
 # passou a exigir o mesmo nível em todos os temas que sustenta (11 casos
 # divergiam) e título de seção deixou de contar como proposta (3 casos, todos do
 # Alexandre Kalil).
-VERSAO_ANALISE = "12"
+# Subiu para 13 em 10/08/2026: entraram três temas que a lista não tinha, e a
+# falta deles jogava a proposta no tema errado ou no nada. Financiamento da
+# Educação e Financiamento e Gestão do SUS, porque os temas de educação são por
+# etapa e os de saúde por nível de atenção, então "10% do PIB para educação" e
+# "Aumento do Orçamento que permita o funcionamento de 100% da saúde pública"
+# não tinham onde cair. E Ensino Superior, que morava dentro da descrição de
+# Ciência, Tecnologia e Inovação e por isso levava "Livre acesso à universidade"
+# para o eixo de economia.
+VERSAO_ANALISE = "13"
 # Subiu para 11 em 09/08/2026: a justificativa passou a receber nome de urna e
 # gênero do cadastro, então fala "a candidata" quando é mulher e alterna o
 # sujeito em vez de abrir toda frase com "o candidato". O painel já corrige isso
 # na tela; a versão nova é para o texto gravado nascer assim.
-VERSAO_COERENCIA = "11"
+# Subiu para 12 em 10/08/2026, com a régua reescrita. A nota tinha virado
+# contagem de temas com proposta: 56 dos 79 planos estavam em 4. Agora o modelo
+# nomeia os pares de temas que se sustentam e o instrumento que os liga, e o
+# score é limitado pelos pares válidos. No plano da Samara Martins, uma lista de
+# reivindicações, a nota saiu de 3 para 2.
+VERSAO_COERENCIA = "12"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
