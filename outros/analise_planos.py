@@ -636,14 +636,47 @@ _META_PRAZO = (r"\b(ate o final|ate o fim|primeiro ano|no primeiro mandato|"
 _META_ABSOLUTO = (r"\b(universaliza\w*|zerar|zero|erradic\w*|elimina\w*|dobrar|"
                   r"triplicar|quadruplicar|toda a rede|todas as escolas|"
                   r"todos os municipios)\b")
+# Número por extenso é alvo do mesmo jeito: "implantar quatro Centros
+# Hospitalares de Referência" (Joel Rodrigues, PI) estava fora da régua só por
+# não ter dígito. "Um" e "uma" ficam de fora porque são artigo, não contagem.
+_META_EXTENSO = (r"\b(dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|"
+                 r"doze|treze|quatorze|catorze|quinze|vinte|trinta|quarenta|"
+                 r"cinquenta|sessenta|setenta|oitenta|noventa|cem|mil)\b")
+# Ano é alvo quando vem depois de preposição temporal ("até 2030"). Sozinho
+# costuma ser nome de plano: "RN Água Segura 2035" e "Plano Estadual de
+# Infraestrutura 2050" (Álvaro Dias, RN) entraram como meta só por causa disso.
+_META_ANO_ALVO = r"\b(ate|a partir de|para|em|no prazo de)\s+(19|20)\d{2}\b"
+# Dígito que nunca é alvo: numeração do item, número de página que veio junto na
+# citação e ano solto. No plano do Marcelo Maranata (RS) as propostas são uma
+# lista numerada, e "11. Estabelecer metas de inclusão financeira" virou "Define
+# meta" pelo 11. No do Professor Marcus Sodré (SC) o dígito é o "(pg 40)" que a
+# própria citação carrega.
+_META_DECORATIVO = [
+    r"^\s*\d+(\.\d+)*\s*[\.\)\-]\s*",
+    r"\[\.\.\.\]\s*\d+(\.\d+)*\s*[\.\)]\s*",
+    r"\(\s*p[ag]{1,2}\.?\s*\d+\s*\)",
+    r"\bp[ag]{1,2}\.?\s*\d+\b",
+    r"\b(pilar|eixo|capitulo|anexo|item)\s*\d+\b",
+    r"\b(19|20)\d{2}\b",
+]
 
 
 def tem_alvo_mensuravel(trecho: str) -> bool:
-    """Se a citação traz alvo que dá para conferir depois: número, prazo ou
-    absoluto. É o que separa 'Define meta' de 'Propõe ação' na régua."""
+    """Se a citação traz alvo que dá para conferir depois: número, prazo,
+    absoluto ou número por extenso. É o que separa 'Define meta' de 'Propõe
+    ação' na régua.
+
+    O dígito sozinho não basta. Medido em 09/08/2026: 24 dos 299 "Define meta"
+    da base tinham como único número a numeração do item, o número da página ou
+    o ano no nome de um plano, e nenhum alvo.
+    """
     n = _norm_acentos(trecho)
-    return bool(re.search(_META_NUMERO, n) or re.search(_META_PRAZO, n)
-                or re.search(_META_ABSOLUTO, n))
+    if (re.search(_META_PRAZO, n) or re.search(_META_ABSOLUTO, n)
+            or re.search(_META_EXTENSO, n) or re.search(_META_ANO_ALVO, n)):
+        return True
+    for padrao in _META_DECORATIVO:
+        n = re.sub(padrao, " ", n)
+    return bool(re.search(_META_NUMERO, n))
 
 
 def _norm_acentos(t: str) -> str:
