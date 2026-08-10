@@ -1404,7 +1404,14 @@ def reanalisar_tema(contexto: str, tema: str, desc: str = "") -> dict:
     }
 
 
-_ASPAS = r"[\"“”]([^\"“”]{8,})[\"“”]"
+# Sem mínimo de caracteres dentro das aspas. Com o mínimo de 8 que estava aqui,
+# um par curto era pulado e o par seguinte casava errado: a justificativa do
+# Hertz Dias (10/08/2026) tinha "Turismo" (7 caracteres) seguido de
+# "Alfabetização", e o que saiu foi 'ou "Turismo, e menciona vagamente
+# Alfabetização"', com as aspas atravessando o meio da frase. Aspas curtas
+# também não podem se passar por transcrição, então cair na mesma regra é o
+# comportamento certo, não uma concessão.
+_ASPAS = r"[\"“”]([^\"“”]+)[\"“”]"
 
 
 def tirar_aspas_sem_lastro(justificativa: str, citacoes: list[str]) -> str:
@@ -1421,14 +1428,21 @@ def tirar_aspas_sem_lastro(justificativa: str, citacoes: list[str]) -> str:
     do analista, o que ele não pode é se passar por transcrição.
     """
     corpus = _sem_espaco(" ".join(_norm_busca(c) for c in citacoes if c))
-    if not str(justificativa or "").strip():
+    texto = str(justificativa or "")
+    if not texto.strip():
         return justificativa
+
+    # Aspas em número ímpar não dão para parear: qualquer corte aqui junta o
+    # fim de uma citação com o começo da seguinte. Fica como está, que é
+    # estranho de ler mas não inventa transcrição.
+    if sum(texto.count(c) for c in '"“”') % 2:
+        return texto
 
     def troca(m):
         dentro = m.group(1)
         return dentro if _sem_espaco(_norm_busca(dentro)) not in corpus else m.group(0)
 
-    return re.sub(_ASPAS, troca, str(justificativa))
+    return re.sub(_ASPAS, troca, texto)
 
 
 def _quadro_da_analise(classif: dict, temas: dict) -> str:
