@@ -1567,7 +1567,7 @@ def termos_proibidos(texto: str) -> list[str]:
     return sorted(set(_PROIBIDOS_RE.findall(_norm_acentos(sem_citacao))))
 
 
-def _teto_por_ligacoes(score: int, ligacoes: list, classif: dict) -> int:
+def _ligacoes_validas(ligacoes: list, classif: dict) -> list:
     """Rebaixa o score quando o modelo não sustentou a articulação que afirmou.
 
     A régua antiga só descrevia articulação, e o modelo não tinha material que
@@ -1596,7 +1596,7 @@ def _teto_por_ligacoes(score: int, ligacoes: list, classif: dict) -> int:
             return False
         return ta in tb or tb in ta
 
-    validas = 0
+    validas = []
     for lig in ligacoes or []:
         if not isinstance(lig, dict):
             continue
@@ -1606,12 +1606,31 @@ def _teto_por_ligacoes(score: int, ligacoes: list, classif: dict) -> int:
                         if (classif.get(t) or {}).get("nivel") in ("Propõe ação", "Define meta")]
         if (len(com_proposta) == 2 and de != para and instrumento
                 and not mesma_citacao(de, para)):
-            validas += 1
-    if validas >= 3:
-        return score
-    if validas == 2:
+            validas.append({"de": de, "para": para, "instrumento": instrumento})
+    return validas
+
+
+def _teto_por_ligacoes(score: int, validas: list) -> int:
+    """O degrau que a contagem de ligações permite.
+
+    Os cortes mudaram em 10/08/2026, na primeira medição real. A versão
+    anterior pedia até 3 ligações e dava 5 a quem tivesse 3: o teto da lista
+    era o gatilho da nota máxima, então bastava preencher a lista. Resultado,
+    19 dos 40 planos refeitos em 5, o mesmo amontoado que a régua velha tinha
+    no 4, só que no outro extremo.
+
+    Agora a lista vai até 6 e o topo exige mais que quantidade: as ligações
+    precisam tocar pelo menos três eixos, senão três pares dentro da mesma área
+    valeriam o mesmo que um plano amarrado de ponta a ponta.
+    """
+    n = len(validas)
+    eixos = {EIXO_DO_TEMA.get(t, "Outros")
+             for lig in validas for t in (lig["de"], lig["para"])}
+    if n >= 4 and len(eixos) >= 3:
+        return min(score, 5)
+    if n >= 2:
         return min(score, 4)
-    if validas == 1:
+    if n == 1:
         return min(score, 3)
     return min(score, 2)
 
@@ -1657,12 +1676,13 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
         "  1 — Só menções genéricas, sem proposta concreta em nenhum tema\n"
         "  2 — Propostas soltas. Nenhuma serve de meio para outra\n"
         "  3 — Uma ligação sustentada, o resto são propostas paralelas\n"
-        "  4 — Duas ligações sustentadas, envolvendo mais de um eixo\n"
-        "  5 — Três ou mais ligações sustentadas, formando encadeamento\n\n"
+        "  4 — Duas ou três ligações sustentadas\n"
+        "  5 — Quatro ou mais ligações sustentadas, tocando pelo menos três "
+        "eixos diferentes, de modo que o plano se lê como encadeamento\n\n"
         "Um plano que cobre bem UM eixo e ignora os outros não passa de 3.\n\n"
         "Responda APENAS um objeto JSON com:\n"
         "  'score': número inteiro de 1 a 5\n"
-        "  'ligacoes': lista de 0 a 3 objetos com 'de' (nome exato do tema), "
+        "  'ligacoes': lista de 0 a 6 objetos com 'de' (nome exato do tema), "
         "'para' (nome exato de outro tema) e 'instrumento' (o que liga os dois, "
         "em até 12 palavras, tirado do plano). Só inclua par em que os DOIS temas "
         "têm proposta na análise acima. Lista vazia se não houver ligação, e isso "
@@ -1743,10 +1763,16 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
     score = int(data.get("score", 1))
     if score not in range(1, 6):
         score = 1
-    score = _teto_por_ligacoes(score, data.get("ligacoes"), classif)
+    validas = _ligacoes_validas(data.get("ligacoes"), classif)
+    score = _teto_por_ligacoes(score, validas)
     citacoes = [(classif.get(t) or {}).get("trecho", "") for t in temas]
     return {"score": score,
-            "justificativa": tirar_aspas_sem_lastro(justificativa, citacoes)}
+            "justificativa": tirar_aspas_sem_lastro(justificativa, citacoes),
+            "ligacoes": validas,
+            # Uma linha por ligação, para a planilha e para o painel mostrarem
+            # a evidência do lado do número.
+            "ligacoes_texto": " | ".join(
+                f'{l["de"]} + {l["para"]}: {l["instrumento"]}' for l in validas)}
 
 
 def sintetizar_comparacao(candidatos_info: list, tema: str) -> str:

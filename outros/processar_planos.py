@@ -34,7 +34,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from analise_planos import (  # noqa: E402
-    NIVEIS, TEMAS, PlanoIndisponivel, RespostaIlegivel,
+    NIVEIS, NIVEIS_LEGADO, TEMAS, PlanoIndisponivel, RespostaIlegivel,
     _norm_busca, avaliar_coerencia, citacao_sustenta, classificar_plano,
     contexto_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
@@ -105,7 +105,7 @@ COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "programa_nome", "pagina", "verificacao", "entes", "chars",
         "chars_analisados", "versao", "analisado_em"]
 COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
-            "score_coerencia", "justificativa_coerencia", "chars",
+            "score_coerencia", "justificativa_coerencia", "ligacoes", "chars",
             "chars_analisados", "versao", "analisado_em"]
 
 # Só 2026. A aba planos_2022 continua na planilha, mas saiu do fluxo.
@@ -531,8 +531,108 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
               for tema, res in classif.items()]
     linha_coe = dict(comum, versao=VERSAO_COERENCIA,
                      score_coerencia=coe["score"],
-                     justificativa_coerencia=coe["justificativa"])
+                     justificativa_coerencia=coe["justificativa"],
+                     # As ligações que sustentaram a nota, gravadas para o
+                     # painel mostrar a evidência ao lado do número: sem elas,
+                     # um 5 frouxo e um 5 bem amarrado são o mesmo algarismo.
+                     ligacoes=coe.get("ligacoes_texto", ""))
     return linhas, linha_coe, ""
+
+
+def refazer_coerencia(sh, uf: str = "", limite: int = 0, sq: str = "") -> int:
+    """Refaz só a linha de coerência, a partir da análise já gravada.
+
+    Por que existe: mudar a régua da coerência custava um reprocessamento
+    inteiro, porque a fila só tem um caminho e ele baixa o PDF, roda OCR e
+    reclassifica os 46 temas antes de chegar na coerência. Em 10/08/2026 a
+    régua nova saiu com 19 dos 40 planos em nota 5, e corrigir o degrau ia
+    custar outras três horas de Gemini pela classificação que já estava boa.
+
+    A coerência não lê o plano: avaliar_coerencia recebe a classificação, que
+    está na aba de análise. Então dá para remontar o dicionário do que já foi
+    gravado e refazer só a chamada da coerência. São 79 chamadas, minutos, sem
+    download e sem OCR.
+
+    Fica barato errar o degrau, que é o que a régua precisa: mudar o corte,
+    rodar, olhar a distribuição, ajustar.
+    """
+    salvas = ler_aba(sh, ANALISE_ABA)
+    if salvas.empty:
+        print(f"A aba {ANALISE_ABA} está vazia.")
+        return 1
+    salvas = salvas[salvas["ano"].astype(str).str.strip() == ANO]
+    if uf:
+        salvas = salvas[salvas["uf"].astype(str).str.strip().str.upper() == uf.upper()]
+    if sq:
+        salvas = salvas[salvas["sq_candidato"].astype(str).str.strip() == sq.strip()]
+
+    # O gênero não está na análise, e sem ele a justificativa escreve "o
+    # candidato" sobre uma mulher.
+    base = ler_aba(sh, ABA_BASE)
+    genero_de = {}
+    if not base.empty and "DS_GENERO" in base.columns:
+        genero_de = {str(r["SQ_CANDIDATO"]).strip(): str(r.get("DS_GENERO", "")).strip()
+                     for _, r in base.iterrows()}
+
+    sqs = list(dict.fromkeys(salvas["sq_candidato"].astype(str).str.strip()))
+    if limite:
+        sqs = sqs[:limite]
+    print(f"{len(sqs)} planos para refazer a coerência")
+
+    buffer, erros = [], []
+    for i, sq_cand in enumerate(sqs, start=1):
+        linhas = salvas[salvas["sq_candidato"].astype(str).str.strip() == sq_cand]
+        if linhas.empty:
+            continue
+        primeira = linhas.iloc[0]
+        nome = str(primeira.get("candidato", "")).strip()
+        print(f"[{i}/{len(sqs)}] {primeira.get('uf','')} · {nome}...", end=" ", flush=True)
+
+        classif = {}
+        for _, l in linhas.iterrows():
+            tema = str(l.get("tema", "")).strip()
+            if not tema:
+                continue
+            nivel = NIVEIS_LEGADO.get(str(l.get("nivel", "")).strip(),
+                                      str(l.get("nivel", "")).strip())
+            classif[tema] = {"nivel": nivel or "Não menciona",
+                             "trecho": str(l.get("trecho", "")),
+                             "responsavel": str(l.get("responsavel", "")),
+                             "prazo": str(l.get("prazo", "")),
+                             "publico_alvo": str(l.get("publico_alvo", "")),
+                             "programa_nome": str(l.get("programa_nome", ""))}
+        try:
+            coe = avaliar_coerencia(classif, nome=nome,
+                                    genero=genero_de.get(sq_cand, ""))
+        except Exception as e:
+            print(f"ERRO: {type(e).__name__}: {e}")
+            erros.append(nome)
+            continue
+
+        agora = datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y %H:%M")
+        buffer.append({
+            "ano": ANO, "sq_candidato": sq_cand, "candidato": nome,
+            "partido": primeira.get("partido", ""), "uf": primeira.get("uf", ""),
+            "cargo": primeira.get("cargo", ""), "link": primeira.get("link", ""),
+            "score_coerencia": coe["score"],
+            "justificativa_coerencia": coe["justificativa"],
+            "ligacoes": coe.get("ligacoes_texto", ""),
+            "chars": primeira.get("chars", ""),
+            "chars_analisados": primeira.get("chars_analisados", ""),
+            "versao": VERSAO_COERENCIA, "analisado_em": agora,
+        })
+        print(f"ok (coerência {coe['score']})")
+        if len(buffer) >= LOTE:
+            gravar(sh, COERENCIA_ABA, COLS_COE, ["sq_candidato"], buffer)
+            buffer = []
+        time.sleep(PAUSA_ENTRE_PLANOS)
+
+    if buffer:
+        gravar(sh, COERENCIA_ABA, COLS_COE, ["sq_candidato"], buffer)
+    if erros:
+        print(f"\n{len(erros)} com erro: {', '.join(erros)}")
+    print("Coerência refeita.")
+    return 1 if erros else 0
 
 
 def preencher_paginas(sh, uf: str = "", limite: int = 0) -> int:
@@ -611,6 +711,12 @@ def main() -> int:
                                      os.getenv("COLETA_SHEET_ID", "")),
                    help="ID da planilha (ou env SPREADSHEET_ID_TSE)")
     p.add_argument("--credenciais", default="", help="caminho do credentials.json")
+    # Refaz só a coerência a partir da análise gravada. É o que torna
+    # barato mexer na régua: 79 chamadas em minutos, sem baixar PDF nem
+    # reclassificar tema.
+    p.add_argument("--so-coerencia", action="store_true",
+                   help="refaz só a nota e a justificativa de coerência, a "
+                        "partir da análise já gravada")
     p.add_argument("--so-paginas", action="store_true",
                    help="só preenche a coluna `pagina` do que já está gravado, "
                         "sem chamar o modelo")
@@ -626,6 +732,9 @@ def main() -> int:
 
     if args.so_paginas:
         return preencher_paginas(sh, args.uf, args.limite)
+
+    if args.so_coerencia:
+        return refazer_coerencia(sh, args.uf, args.limite, args.sq)
 
     base = ler_aba(sh, ABA_BASE)
     if base.empty or "LINK_PLANO" not in base.columns:
