@@ -1542,7 +1542,7 @@ TERMOS_PROIBIDOS = [
     # Isso descreve o degrau em que ela caiu, não o que o plano propõe.
     "ligacao sustentada", "ligacoes sustentadas", "eixos distintos",
     "estrategia parcial", "estrategia integrada", "mencoes isoladas",
-    "propostas isoladas", "metas isoladas",
+    "propostas isoladas", "metas isoladas", "acoes isoladas",
 ]
 _PROIBIDOS_RE = re.compile(r"\b(" + "|".join(TERMOS_PROIBIDOS) + r")\b")
 
