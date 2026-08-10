@@ -504,6 +504,27 @@ def aplicar_regra_alerta(dados) -> dict:
     return dados
 
 
+def _uf_relevante(n) -> str:
+    """UF que descreve o FATO, não o veículo que publicou.
+
+    O Gemini preenche uf mesmo em notícia nacional: em 10/08 a mesma declaração
+    do presidente da Câmara apoiando Lula veio como SP no Metrópoles e RO no
+    Diário da Amazônia. Com a UF na chave, o mesmo fato virou dois alertas, e o
+    cabeçalho ainda anunciou "Subnacional" numa disputa presidencial.
+
+    Em notícia de presidente a UF só significa alguma coisa quando é pesquisa:
+    pesquisa presidencial estadual existe e cada UF é um fato diferente, então
+    ali a UF fica.
+    """
+    uf = str(n.get("uf") or "").strip().upper()
+    if uf in ("", "NAN", "NONE", "NULL"):
+        return ""
+    cargo = str(n.get("cargo") or "").strip().lower()
+    if cargo == "presidente" and n.get("alerta_tema") != "pesquisa-executivo":
+        return ""
+    return uf
+
+
 def chave_alerta(n) -> str:
     """Identifica o FATO, não a notícia: mesmo tema, UF, cargo e candidato.
 
@@ -518,7 +539,7 @@ def chave_alerta(n) -> str:
     if not n.get("alerta_tema"):
         return ""
     cand = _chave_texto(n.get("candidato"))
-    partes = [n.get("alerta_tema"), str(n.get("uf") or "").upper(),
+    partes = [n.get("alerta_tema"), _uf_relevante(n),
               str(n.get("cargo") or "").lower(),
               cand or f"titulo:{_chave_texto(n.get('titulo'))[:60]}"]
     return "|".join(partes)
@@ -689,9 +710,9 @@ REGRAS_POLITICOS_ALERTA = (
 )
 
 
-def _header_alerta(uf: str) -> str:
-    uf = str(uf or "").strip().upper()
-    if uf and uf != "NAN":
+def _header_alerta(n) -> str:
+    uf = _uf_relevante(n)
+    if uf:
         return f"Alerta | Eixo | Eleições | Subnacional | {uf}"
     return "Alerta | Eixo | Eleições"
 
@@ -733,7 +754,7 @@ def gerar_texto_alerta(n) -> str:
     if not corpo:
         return ""
     link = n.get("link_real") or n.get("link") or ""
-    partes = [f"*{_header_alerta(n.get('uf'))}*",
+    partes = [f"*{_header_alerta(n)}*",
               datetime.now(BRT).strftime("%d/%m/%Y"),
               "",
               f"*{str(n.get('titulo', '')).strip()}*",
@@ -1144,12 +1165,12 @@ def _bloco_html(a):
     ]))
     link = a.get("link_real") or a.get("link") or ""
     resumo = _esc(a.get("resumo")).replace("*", "").strip()
-    # o resumo guardado é o alerta inteiro (cabeçalho, título, corpo, link); no
-    # email só interessa o corpo, o resto já está na moldura do bloco
+    # O resumo guardado é o alerta inteiro, sempre nesta ordem: cabeçalho, data,
+    # título, corpo e link. No email entra só o corpo (linha 3 em diante), porque
+    # título, fonte e link já estão na moldura do bloco. Cortar a partir da linha
+    # 2 fazia o título aparecer duas vezes, colado no começo do texto.
     linhas = [l for l in resumo.split("\n") if l.strip()]
-    corpo = ""
-    if len(linhas) > 3:
-        corpo = " ".join(l for l in linhas[2:] if not l.startswith("Link:"))
+    corpo = " ".join(l for l in linhas[3:] if not l.startswith("Link:"))
     return f"""
       <div style="border-left:3px solid {EIXO_MARINHO};padding:8px 12px;margin:0 0 14px 0;background:#f6f7fa">
         <div style="font-weight:bold;color:{EIXO_MARINHO}">{_esc(a.get('titulo'))}</div>
