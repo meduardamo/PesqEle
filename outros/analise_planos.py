@@ -1521,6 +1521,67 @@ def _regras_sujeito(nome: str, genero: str) -> str:
     return regra
 
 
+# Termos que RESTRICOES_LINGUAGEM já proíbe e que o modelo usou assim mesmo.
+# Medido em 10/08/2026 nas 79 justificativas gravadas: 6 traziam pelo menos um.
+# Instrução sozinha não segura, então a lista vira conferência depois da
+# resposta. Palavra inteira, e "fundamental" fica de fora porque no corpus é
+# quase sempre a etapa de ensino, não o adjetivo.
+TERMOS_PROIBIDOS = [
+    "abrangente", "abrangentes", "crucial", "cruciais", "essencial", "essenciais",
+    "estrategico", "estrategica", "estrategicos", "estrategicas",
+    "robusto", "robusta", "robustos", "robustas", "significativo", "significativa",
+    "notavel", "notaveis", "solido", "solida", "solidos", "solidas",
+    "consistente", "consistentes", "inovador", "inovadora", "multifacetado",
+    "apresenta", "possui", "oferece", "ressalta", "enfatiza", "evidencia",
+    "aprimorar", "aprimora", "vale destacar", "cabe ressaltar", "e importante notar",
+    "panorama", "otica", "mosaico", "horizonte",
+]
+_PROIBIDOS_RE = re.compile(r"\b(" + "|".join(TERMOS_PROIBIDOS) + r")\b")
+
+
+def termos_proibidos(texto: str) -> list[str]:
+    """Termos proibidos presentes no texto, fora das aspas.
+
+    Fora das aspas porque nome de programa citado do plano não é escolha de
+    quem escreve: "Consolidar Política Integrada de Governo Digital" e
+    "Instituto Estadual de Robótica" são do candidato, não do analista.
+    """
+    sem_citacao = re.sub(r'["“][^"“”]*["”]', " ", str(texto or ""))
+    return sorted(set(_PROIBIDOS_RE.findall(_norm_acentos(sem_citacao))))
+
+
+def _teto_por_ligacoes(score: int, ligacoes: list, classif: dict) -> int:
+    """Rebaixa o score quando o modelo não sustentou a articulação que afirmou.
+
+    A régua antiga só descrevia articulação, e o modelo não tinha material que
+    a descrevesse: recebia a grade de temas com nível e citação, que é uma
+    tabela de cobertura. O resultado, medido em 10/08/2026, foi a nota virar
+    contagem de temas com proposta, com 56 dos 79 planos no mesmo 4 e faixas
+    que se atropelam (plano com 40 temas propostos em 3, plano com 20 em 4).
+
+    Agora o modelo tem que nomear os pares de temas que se sustentam e o
+    instrumento que os liga. Par sem instrumento, ou com tema que não tem
+    proposta no plano, não conta.
+    """
+    validas = 0
+    for lig in ligacoes or []:
+        if not isinstance(lig, dict):
+            continue
+        de, para = str(lig.get("de", "")).strip(), str(lig.get("para", "")).strip()
+        instrumento = str(lig.get("instrumento", "")).strip()
+        com_proposta = [t for t in (de, para)
+                        if (classif.get(t) or {}).get("nivel") in ("Propõe ação", "Define meta")]
+        if len(com_proposta) == 2 and de != para and instrumento:
+            validas += 1
+    if validas >= 3:
+        return score
+    if validas == 2:
+        return min(score, 4)
+    if validas == 1:
+        return min(score, 3)
+    return min(score, 2)
+
+
 def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
                       nome: str = "", genero: str = "") -> dict:
     """Avalia se as propostas formam uma estratégia coerente no plano.
@@ -1549,17 +1610,32 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
         f"{_quadro_da_analise(classif, temas)}\n\n"
         "Avalie se as propostas formam uma ESTRATÉGIA COERENTE e articulada, "
         "ou se são menções isoladas e desconexas.\n\n"
+        "COBERTURA NÃO É COERÊNCIA. Quantos temas têm proposta já é medido por "
+        "outra nota. Aqui só conta se as propostas se sustentam uma na outra. Um "
+        "plano que trata 40 temas sem ligação entre eles é 2. Um plano que trata "
+        "8 temas amarrados por um mesmo instrumento é 4.\n\n"
+        "LIGAÇÃO é um par de temas em que a proposta de um serve de meio para a "
+        "do outro, e o plano diz por qual instrumento: um programa nomeado, um "
+        "órgão, uma fonte de recurso, uma condicionalidade. Educação profissional "
+        "que alimenta um programa de emprego nomeado é ligação. Dois temas bons no "
+        "mesmo eixo, sem nada que os ligue, não é.\n\n"
         "Escala:\n"
-        "  1 — Apenas menções genéricas, sem proposta concreta em nenhum eixo\n"
-        "  2 — Propostas isoladas, sem articulação entre temas nem entre eixos\n"
-        "  3 — Alguns temas articulados dentro de um eixo, mas estratégia parcial\n"
-        "  4 — Estratégia clara na maioria dos eixos, com alguma articulação entre eles\n"
-        "  5 — Estratégia integrada: os eixos se conectam e reforçam entre si\n\n"
+        "  1 — Só menções genéricas, sem proposta concreta em nenhum tema\n"
+        "  2 — Propostas soltas. Nenhuma serve de meio para outra\n"
+        "  3 — Uma ligação sustentada, o resto são propostas paralelas\n"
+        "  4 — Duas ligações sustentadas, envolvendo mais de um eixo\n"
+        "  5 — Três ou mais ligações sustentadas, formando encadeamento\n\n"
         "Um plano que cobre bem UM eixo e ignora os outros não passa de 3.\n\n"
         "Responda APENAS um objeto JSON com:\n"
         "  'score': número inteiro de 1 a 5\n"
+        "  'ligacoes': lista de 0 a 3 objetos com 'de' (nome exato do tema), "
+        "'para' (nome exato de outro tema) e 'instrumento' (o que liga os dois, "
+        "em até 12 palavras, tirado do plano). Só inclua par em que os DOIS temas "
+        "têm proposta na análise acima. Lista vazia se não houver ligação, e isso "
+        "é resposta legítima.\n"
         "  'justificativa': 2 a 4 frases factuais que sustentem o score, com no "
-        "máximo 500 caracteres no total.\n\n"
+        "máximo 500 caracteres no total. Se listou ligação, diga na justificativa "
+        "qual é o instrumento que liga os temas.\n\n"
         "COMO ESCREVER A JUSTIFICATIVA:\n"
         # A regra de abrir pelo dado, sem "O plano", cumpria o que queria, tirar
         # o começo morno, e criava outra coisa: proposta sem dono. Com o plano
@@ -1585,22 +1661,51 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
         "escreva entre aspas algo que não está ali. Sem citação à mão para o "
         "ponto que quer fazer, escreva sem aspas.\n\n"
         "REGRA DE AUSÊNCIA: só diga que um tema falta se ele está acima como "
-        "'Não menciona'. Tema com nível diferente disso tem proposta no plano.\n\n"
+        "'Não menciona'. Tema com nível diferente disso tem proposta no plano.\n"
+        # A justificativa da Samara Martins gravada em 10/08/2026 dizia que ela
+        # "não menciona temas como cultura, transporte e saúde mental". Transporte
+        # e Rodovias está em "Não menciona", mas Mobilidade Urbana tem
+        # "Estatização do transporte público: passe-livre", então na tela o painel
+        # negava o que o plano diz. Antes disso, a mesma justificativa afirmou
+        # ausência de saúde inteira com o plano propondo orçamento para o SUS.
+        "- Nomeie a ausência pelo NOME EXATO do tema, como está na lista acima. "
+        "Nunca pelo assunto nem pelo eixo. Escrever 'não menciona transporte' é "
+        "errado quando 'Transporte e Rodovias' está ausente mas 'Mobilidade "
+        "Urbana' tem proposta. Nunca diga que um eixo inteiro falta sem que TODOS "
+        "os temas dele estejam como 'Não menciona'.\n\n"
         f"{RESTRICOES_LINGUAGEM}"
     )
-    resp = _gemini_client().models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json"),
-    )
-    raw = (getattr(resp, "text", "") or "").strip()
-    data = _carregar_json(raw, "coerência")
-    score = int(data.get("score", 1))
-    if score not in range(1, 6):
-        score = 1
+    def pedir():
+        resp = _gemini_client().models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        return _carregar_json((getattr(resp, "text", "") or "").strip(), "coerência")
+
+    data = pedir()
     # 600 e não 400: no limite antigo, 4 das 16 justificativas gravadas em
     # 03/08/2026 terminavam cortadas no meio da palavra.
     justificativa = _limpa(data.get("justificativa", ""), n=600)
+    # Uma segunda chance quando o texto usa termo que o prompt proíbe. Vale a
+    # chamada extra porque é raro (6 em 79) e porque a alternativa, apagar a
+    # palavra aqui, quebra a frase: "apresenta programas" sem o verbo não é
+    # frase. Se a segunda também furar, fica a segunda e o log avisa.
+    proibidos = termos_proibidos(justificativa)
+    if proibidos:
+        print(f"(linguagem proibida em {', '.join(proibidos)}, refazendo)",
+              end=" ", flush=True)
+        time.sleep(3)
+        data = pedir()
+        justificativa = _limpa(data.get("justificativa", ""), n=600)
+        ainda = termos_proibidos(justificativa)
+        if ainda:
+            print(f"(continuou com {', '.join(ainda)})", end=" ", flush=True)
+
+    score = int(data.get("score", 1))
+    if score not in range(1, 6):
+        score = 1
+    score = _teto_por_ligacoes(score, data.get("ligacoes"), classif)
     citacoes = [(classif.get(t) or {}).get("trecho", "") for t in temas]
     return {"score": score,
             "justificativa": tirar_aspas_sem_lastro(justificativa, citacoes)}
