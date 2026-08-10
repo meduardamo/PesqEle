@@ -1164,6 +1164,24 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
         "ATÉ QUANDO.\n\n"
         "ATENÇÃO 2: classifique cada tema pelo que o plano diz DAQUELE tema. Um plano "
         "forte em segurança não puxa para cima os temas de educação.\n\n"
+        # Medido em 09/08/2026, na base de 65 planos: 11 citações apareciam em
+        # dois temas com níveis diferentes. No plano do Fábio Trad (MS),
+        # "Universalizar escolas conectadas e tecnologicamente equipadas com
+        # internet" saiu "Define meta" em Tecnologia na Educação e "Propõe ação"
+        # em Fundamental. O texto é o mesmo, então o degrau não pode mudar: o que
+        # muda de tema para tema é se aquela frase trata do tema, não o quanto
+        # ela promete.
+        "ATENÇÃO 5: se a MESMA citação sustentar mais de um tema, o nível dela tem "
+        "que ser o mesmo nos dois. O que pode variar entre temas é se a frase "
+        "trata daquele tema; o degrau vem do texto, e o texto é um só.\n\n"
+        # O plano do Alexandre Kalil (MG) é numerado por seção, e três títulos
+        # entraram como proposta: "6.8. Mulheres: autonomia, proteção e
+        # oportunidades" e "6.12. Povos indígenas, comunidades quilombolas e
+        # tradicionais" viraram "Propõe ação" sem nada abaixo deles.
+        "ATENÇÃO 6: título de capítulo ou de seção não é proposta. '6.8. Mulheres: "
+        "autonomia, proteção e oportunidades' anuncia o assunto do trecho, não diz "
+        "o que será feito. Cite o que vem DEPOIS do título; se depois dele não "
+        "houver proposta, o tema é Menciona vagamente.\n\n"
         # O plano do Elizeu Aguiar (NOVO/PI) tem 3 páginas de tópicos curtos e
         # saiu com 17 "Propõe ação", entre eles "Internet de alta velocidade" e
         # "Ampliação da acessibilidade". Nenhum diz como. O exemplo da escala já

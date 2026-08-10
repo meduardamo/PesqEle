@@ -74,11 +74,18 @@ LIMIAR_CHARS = 1500
 # Subiu para 9: ancoras reforcadas nos cinco temas em que a guarda de ausencia
 # mais falhava, triagem de tema que e item de enumeracao na citacao, e JSON
 # quebrado do modelo virou retentativa em vez de candidato perdido.
-VERSAO_ANALISE = "11"
-# Subiu para 10 em 08/08/2026: a justificativa passou a atribuir a proposta ao
-# candidato em vez de abrir pelo nome do programa. Sem reprocessar, o painel
-# segue mostrando frase sem dono, que é justamente o que a mudança corrige.
-VERSAO_COERENCIA = "10"
+# Subiu para 12 em 09/08/2026, depois da conferência da base inteira: dígito
+# sozinho deixou de valer como alvo em "Define meta" (12 das 299 metas eram
+# numeração de item, número de página ou ano no nome do plano), a mesma citação
+# passou a exigir o mesmo nível em todos os temas que sustenta (11 casos
+# divergiam) e título de seção deixou de contar como proposta (3 casos, todos do
+# Alexandre Kalil).
+VERSAO_ANALISE = "12"
+# Subiu para 11 em 09/08/2026: a justificativa passou a receber nome de urna e
+# gênero do cadastro, então fala "a candidata" quando é mulher e alterna o
+# sujeito em vez de abrir toda frase com "o candidato". O painel já corrige isso
+# na tela; a versão nova é para o texto gravado nascer assim.
+VERSAO_COERENCIA = "11"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
