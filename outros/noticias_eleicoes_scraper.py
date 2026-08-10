@@ -632,17 +632,17 @@ def classificar_com_gemini(titulo, trecho=""):
         "ex-presidente ou prefeito de capital\n"
         "- 'rompimento': rompimento público de aliança ou retirada de apoio envolvendo candidato ao "
         "executivo e os mesmos atores acima\n"
-        "- 'educação': o assunto CENTRAL da notícia é política pública de educação na disputa pelo "
-        "executivo. Vale proposta ou plano de governo, fala em debate ou sabatina, e crítica de um "
-        "candidato à gestão do adversário. Assuntos que contam: tempo integral, educação profissional e "
-        "tecnológica, alfabetização, escolas cívico-militares, anos finais do ensino fundamental, Ideb, "
-        "professores, infraestrutura da rede.\n"
-        "  NÃO marque 'educação' quando educação for só cenário ou um bloco entre vários: cobertura de "
-        "debate cujo tema principal é outro (segurança, saúde, economia, bate-boca entre candidatos), "
-        "ainda que educação apareça na lista de assuntos, é 'nenhum'. Pergunte: se eu tirar educação da "
-        "notícia, ela deixa de existir? Se continuar de pé, não é 'educação'.\n"
-        "  Precisa ser candidato, pré-candidato ou campanha falando; matéria de jornalista, sindicato ou "
-        "especialista sobre educação, sem candidato na história, não conta\n"
+        "- 'educação': um candidato ao executivo, pré-candidato ou a campanha dele DISSE alguma coisa "
+        "sobre política de educação, e a notícia reporta o que foi dito. Vale proposta, plano de governo, "
+        "fala em debate ou sabatina, defesa da própria gestão e crítica à do adversário. Assuntos que "
+        "contam: tempo integral, educação profissional e tecnológica, alfabetização, escolas "
+        "cívico-militares, anos finais do ensino fundamental, Ideb, professores, infraestrutura da rede.\n"
+        "  Cobertura de debate conta, mesmo que o debate tenha tratado de vários assuntos, DESDE QUE a "
+        "notícia diga o que os candidatos falaram de educação.\n"
+        "  Não conta: educação citada só como cenário, sem conteúdo (ex.: 'durante o bloco sobre "
+        "educação, o candidato se confundiu e elogiou o adversário' é sobre o vacilo, não sobre "
+        "educação); lista de temas do debate sem nenhuma fala de educação reportada; matéria de "
+        "jornalista, sindicato ou especialista sobre educação sem candidato na história\n"
         "- 'nenhum': todo o resto, inclusive notícia relevante que não se encaixa nos quatro temas acima\n"
         "- Na dúvida entre 'nenhum' e um tema que se encaixa, escolha o tema\n\n"
         "- Responda SOMENTE o objeto JSON, sem texto extra, sem markdown, sem bloco de código\n\n"
@@ -800,6 +800,25 @@ def _extrair_titulo_corpo(bruto: str) -> tuple[str, str]:
     return "", bruto
 
 
+# Siglas que não são sigla: o time escreve Republicanos e Avante, não
+# REPUBLICANOS e AVANTE. O modelo copia a caixa do campo partido, que a planilha
+# guarda em maiúsculas, e pedir no prompt não resolveu (saiu 'AVANTE/AM' com a
+# regra escrita). Corrigir depois é determinístico.
+_SIGLAS_MISTAS = {
+    "REPUBLICANOS": "Republicanos", "AVANTE": "Avante", "PODEMOS": "Podemos",
+    "SOLIDARIEDADE": "Solidariedade", "CIDADANIA": "Cidadania", "NOVO": "Novo",
+    "REDE": "Rede", "AGIR": "Agir", "MOBILIZA": "Mobiliza", "MISSÃO": "Missão",
+    "UNIÃO": "União Brasil", "UNIAO": "União Brasil",
+}
+# só dentro de parênteses, onde a sigla é sigla: '(AVANTE/AM)', '(Republicanos)'.
+# No texto corrido 'NOVO' e 'REDE' podem ser palavra comum.
+_RE_SIGLA = re.compile(r"(?<=[(/])(" + "|".join(_SIGLAS_MISTAS) + r")(?=[)/])")
+
+
+def _corrigir_siglas(texto: str) -> str:
+    return _RE_SIGLA.sub(lambda m: _SIGLAS_MISTAS[m.group(1)], texto or "")
+
+
 def _titulo_sem_veiculo(titulo: str) -> str:
     """Tira o ' - Veículo' que o Google Notícias cola no fim de toda manchete."""
     return re.sub(r"\s+[-–]\s+[^-–]{2,40}$", "", str(titulo or "").strip()).strip()
@@ -823,6 +842,19 @@ def gerar_texto_alerta(n) -> str:
         f"Instituto: {n.get('instituto')}" if n.get("instituto") else "",
         f"Trecho do artigo:\n{n.get('texto_completo')}" if n.get("texto_completo") else "",
     ]))
+    # O alerta de educação vai num envio separado, e o time escreve pelo ângulo da
+    # educação mesmo quando a notícia é a cobertura inteira de um debate. Sem esta
+    # instrução o modelo resume o debate todo e a educação some no meio.
+    angulo = ""
+    if n.get("alerta_tema") in TEMAS_EDUCACAO:
+        angulo = (
+            "ÂNGULO OBRIGATÓRIO: este alerta é do envio de educação. Título e primeiro "
+            "parágrafo tratam do que os candidatos disseram sobre educação, com as "
+            "propostas e os números dessa área. O resto da notícia (segurança, saúde, "
+            "economia, bate-boca) só entra no segundo parágrafo, e só se sobrar espaço. "
+            "Se a notícia mal falar de educação, escreva o pouco que ela traz de "
+            "educação em vez de completar com os outros assuntos.\n\n")
+
     prompt = (
         "Você é um analista que produz alertas padronizados para WhatsApp, para uma "
         "consultoria política que acompanha as eleições de 2026.\n"
@@ -849,6 +881,7 @@ def gerar_texto_alerta(n) -> str:
         "o título. Sem trecho, use só o título e não invente detalhe que não está nele.\n"
         "- Não escreva 'ALERTA' nem repita o cabeçalho: isso é montado fora daqui.\n"
         "- Responda SOMENTE o JSON, sem markdown e sem bloco de código.\n\n"
+        f"{angulo}"
         f"{REGRAS_POLITICOS_ALERTA}\n"
         f"NOTÍCIA:\n{contexto}"
     )
@@ -858,7 +891,8 @@ def gerar_texto_alerta(n) -> str:
     titulo, corpo = _extrair_titulo_corpo(getattr(resp, "text", "") or "")
     if not corpo:
         return ""
-    titulo = titulo or _titulo_sem_veiculo(n.get("titulo"))
+    titulo = _corrigir_siglas(titulo or _titulo_sem_veiculo(n.get("titulo")))
+    corpo = _corrigir_siglas(corpo)
     link = _encurtar_link(n.get("link_real") or n.get("link") or "")
     partes = [f"*{_header_alerta(n)}*",
               datetime.now(BRT).strftime("%d/%m/%Y"),
