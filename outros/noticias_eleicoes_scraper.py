@@ -415,7 +415,7 @@ def normalize_status(raw) -> str:
 # Os quatro temas que o time trata como alerta, do prompt do agente de
 # monitoramento do Slack. "Executivo" aqui é só governador ou presidente: pesquisa
 # ou apoio para Senado e Câmara não vira alerta, mesmo sendo notícia relevante.
-ALERTA_TEMAS = ("pesquisa-executivo", "apoio", "rompimento", "proposta-educação")
+ALERTA_TEMAS = ("pesquisa-executivo", "apoio", "rompimento", "educação")
 _TEMA_ALIAS = {
     "pesquisa": "pesquisa-executivo", "pesquisa executivo": "pesquisa-executivo",
     "pesquisa-eleitoral": "pesquisa-executivo", "pesquisa eleitoral": "pesquisa-executivo",
@@ -423,10 +423,15 @@ _TEMA_ALIAS = {
     "apoio e aliança": "apoio", "apoio/aliança": "apoio",
     "rompimentos": "rompimento", "rompimento de aliança": "rompimento",
     "rompimento de alianca": "rompimento",
-    "proposta-educacao": "proposta-educação", "proposta educação": "proposta-educação",
-    "proposta de governo em educação": "proposta-educação",
-    "educação": "proposta-educação",
+    "educacao": "educação", "proposta-educação": "educação",
+    "proposta-educacao": "educação", "proposta educação": "educação",
+    "proposta de governo em educação": "educação", "crítica-educação": "educação",
+    "critica-educacao": "educação",
 }
+
+# O tema de educação muda o cabeçalho do alerta ("Eixo | Educação" no lugar de
+# "Eixo | Eleições"), que é como o time separa os dois envios.
+TEMAS_EDUCACAO = ("educação",)
 _TEMA_VAZIO = {"", "nenhum", "none", "null", "nan", "não", "nao", "n/a"}
 
 # Só pesquisa desses institutos vira alerta (lista fechada, do prompt do time).
@@ -494,7 +499,10 @@ def aplicar_regra_alerta(dados) -> dict:
 
     if tema == "pesquisa-executivo" and not (cargo in CARGOS_EXECUTIVO and instituto):
         tema = ""
-    elif tema and cargo and cargo not in CARGOS_EXECUTIVO:
+    elif tema and tema not in TEMAS_EDUCACAO and cargo and cargo not in CARGOS_EXECUTIVO:
+        # educação escapa da trava de cargo: o alerta costuma sair de debate com
+        # vários candidatos na mesa, e nesse caso o cargo que o modelo devolve é
+        # o de quem falou, não o da disputa
         tema = ""
     if dados.get("status") == "não relacionado":
         tema = ""
@@ -624,10 +632,12 @@ def classificar_com_gemini(titulo, trecho=""):
         "ex-presidente ou prefeito de capital\n"
         "- 'rompimento': rompimento público de aliança ou retirada de apoio envolvendo candidato ao "
         "executivo e os mesmos atores acima\n"
-        "- 'proposta-educação': candidato ao executivo apresenta proposta ou compromisso de governo em "
-        "educação, nos assuntos: educação em tempo integral, educação profissional e tecnológica, "
-        "alfabetização, escolas cívico-militares, anos finais do ensino fundamental. Crítica ao adversário "
-        "não é proposta\n"
+        "- 'educação': política pública de educação aparece na disputa pelo executivo. Vale proposta ou "
+        "plano de governo, fala em debate ou sabatina, e crítica de um candidato à gestão do adversário. "
+        "Assuntos que contam: tempo integral, educação profissional e tecnológica, alfabetização, escolas "
+        "cívico-militares, anos finais do ensino fundamental, Ideb, professores, infraestrutura da rede. "
+        "Precisa ser candidato, pré-candidato ou campanha falando; matéria de jornalista, sindicato ou "
+        "especialista sobre educação, sem candidato na história, não conta\n"
         "- 'nenhum': todo o resto, inclusive notícia relevante que não se encaixa nos quatro temas acima\n"
         "- Na dúvida entre 'nenhum' e um tema que se encaixa, escolha o tema\n\n"
         "- Responda SOMENTE o objeto JSON, sem texto extra, sem markdown, sem bloco de código\n\n"
@@ -711,10 +721,43 @@ REGRAS_POLITICOS_ALERTA = (
 
 
 def _header_alerta(n) -> str:
+    """Cabeçalho no formato que o time manda no WhatsApp:
+
+        Alerta | Eixo | Eleições | Subnacional | MG
+        Alerta | Eixo | Educação | Subnacional | GO
+        Alerta | Eixo | Eleições | Gov. Federal
+
+    O terceiro campo separa os dois envios que o time faz (eleições e educação).
+    O quarto é o escopo: "Gov. Federal" quando o fato é da disputa presidencial,
+    e nada quando não deu pra saber a UF de uma disputa estadual, porque afirmar
+    o escopo errado é pior do que omitir.
+    """
+    assunto = "Educação" if n.get("alerta_tema") in TEMAS_EDUCACAO else "Eleições"
     uf = _uf_relevante(n)
     if uf:
-        return f"Alerta | Eixo | Eleições | Subnacional | {uf}"
-    return "Alerta | Eixo | Eleições"
+        return f"Alerta | Eixo | {assunto} | Subnacional | {uf}"
+    if str(n.get("cargo") or "").strip().lower() == "presidente":
+        return f"Alerta | Eixo | {assunto} | Gov. Federal"
+    return f"Alerta | Eixo | {assunto}"
+
+
+def _encurtar_link(url: str) -> str:
+    """Encurta no TinyURL, como o time faz à mão. Falhou, devolve a URL inteira:
+    link comprido incomoda, link faltando quebra o alerta."""
+    if not url or not url.startswith("http"):
+        return url
+    try:
+        r = requests.get("http://tinyurl.com/api-create.php",
+                         params={"url": url}, headers=HEADERS, timeout=8)
+        curto = r.text.strip()
+        return curto if curto.startswith("http") else url
+    except Exception:
+        return url
+
+
+def _titulo_sem_veiculo(titulo: str) -> str:
+    """Tira o ' - Veículo' que o Google Notícias cola no fim de toda manchete."""
+    return re.sub(r"\s+[-–]\s+[^-–]{2,40}$", "", str(titulo or "").strip()).strip()
 
 
 def gerar_texto_alerta(n) -> str:
@@ -736,28 +779,54 @@ def gerar_texto_alerta(n) -> str:
         f"Trecho do artigo:\n{n.get('texto_completo')}" if n.get("texto_completo") else "",
     ]))
     prompt = (
-        "Você é um analista que produz alertas padronizados para WhatsApp.\n"
-        "Escreva um texto curto (PT-BR), factual e direto, a partir da notícia abaixo.\n"
-        "Sem opinião, sem especulação, sem bullets e sem emojis.\n"
-        "Comece pelo fato principal (quem fez o quê e a consequência imediata, se houver).\n"
-        "1 parágrafo, no máximo 90 palavras.\n"
-        "Não comece com 'ALERTA' nem título.\n"
-        "Preserve nomes, cargos, datas e números exatamente como na notícia. "
-        "Se houver trecho do artigo, baseie os fatos e números nele, é mais completo que o "
-        "título. Sem trecho, use só o título e não invente detalhes que não estão nele.\n\n"
+        "Você é um analista que produz alertas padronizados para WhatsApp, para uma "
+        "consultoria política que acompanha as eleições de 2026.\n"
+        "A partir da notícia abaixo, devolve um JSON com exatamente dois campos:\n\n"
+        '{"titulo": "...", "corpo": "..."}\n\n'
+        "titulo: uma linha, em PT-BR, dizendo o fato principal. É manchete reescrita por "
+        "você, não cópia: nunca termine com o nome do veículo, nunca use aspas de citação "
+        "no começo. Cite o político central como 'Nome (PARTIDO/UF)' quando isso couber "
+        "na linha.\n"
+        "corpo: DOIS parágrafos, separados por uma linha em branco, 130 palavras no total "
+        "no máximo.\n"
+        "  - 1º parágrafo: o fato. Quem fez o quê, quando (com a data por extenso no "
+        "formato 'nesta quinta-feira (6)'), onde, e o número principal se houver.\n"
+        "  - 2º parágrafo: o desdobramento. O que a decisão destrava ou trava, quem fica "
+        "de fora, como fica o quadro da disputa depois disso. Se a notícia não trouxer "
+        "desdobramento nenhum, use o 2º parágrafo para o detalhe concreto que sobrou "
+        "(outros participantes, propostas citadas, próxima etapa) em vez de encher "
+        "linguiça.\n\n"
+        "Regras dos dois campos:\n"
+        "- Factual e direto. Sem opinião, sem especulação, sem adjetivo de torcida, sem "
+        "bullets, sem emoji, sem travessão.\n"
+        "- Preserve nomes, cargos, datas e números exatamente como na notícia.\n"
+        "- Se houver trecho do artigo, baseie os fatos e números nele, é mais completo que "
+        "o título. Sem trecho, use só o título e não invente detalhe que não está nele.\n"
+        "- Não escreva 'ALERTA' nem repita o cabeçalho: isso é montado fora daqui.\n"
+        "- Responda SOMENTE o JSON, sem markdown e sem bloco de código.\n\n"
         f"{REGRAS_POLITICOS_ALERTA}\n"
         f"NOTÍCIA:\n{contexto}"
     )
     resp = _gemini_client().models.generate_content(model=GEMINI_MODEL, contents=prompt)
     _registrar_uso(resp)
-    corpo = (getattr(resp, "text", "") or "").strip()
+    bruto = (getattr(resp, "text", "") or "").strip()
+    bruto = bruto.replace("```json", "").replace("```", "").strip()
+    try:
+        dados = json.loads(bruto)
+        titulo = str(dados.get("titulo") or "").strip()
+        corpo = str(dados.get("corpo") or "").strip()
+    except Exception:
+        # JSON quebrado não pode custar o alerta inteiro: cai pro título do RSS
+        # (sem o nome do veículo) e usa o que o modelo escreveu como corpo.
+        titulo, corpo = "", bruto
     if not corpo:
         return ""
-    link = n.get("link_real") or n.get("link") or ""
+    titulo = titulo or _titulo_sem_veiculo(n.get("titulo"))
+    link = _encurtar_link(n.get("link_real") or n.get("link") or "")
     partes = [f"*{_header_alerta(n)}*",
               datetime.now(BRT).strftime("%d/%m/%Y"),
               "",
-              f"*{str(n.get('titulo', '')).strip()}*",
+              f"*{titulo}*",
               "",
               corpo]
     if link.startswith("http"):
@@ -1145,7 +1214,7 @@ ROTULO_TEMA = {
     "pesquisa-executivo": "Pesquisa eleitoral (governador ou presidente)",
     "apoio": "Apoio e aliança ao executivo",
     "rompimento": "Rompimento de aliança",
-    "proposta-educação": "Proposta de governo em educação",
+    "educação": "Educação na campanha",
 }
 
 PAINEL_URL = os.getenv("PAINEL_NOTICIAS_URL",
