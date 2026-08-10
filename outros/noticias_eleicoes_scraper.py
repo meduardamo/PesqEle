@@ -497,7 +497,13 @@ def aplicar_regra_alerta(dados) -> dict:
     instituto = instituto_prioritario(dados.get("instituto"))
     dados["instituto"] = instituto or ""
 
+    abrangencia = str(dados.get("abrangencia") or "").strip().lower()
     if tema == "pesquisa-executivo" and not (cargo in CARGOS_EXECUTIVO and instituto):
+        tema = ""
+    elif tema == "pesquisa-executivo" and cargo == "presidente" and abrangencia == "estadual":
+        # Pedido do time (Marcela, 10/08): pesquisa presidencial recortada por um
+        # estado não é alerta. Alerta de pesquisa é governador na UF dele e
+        # presidente no Brasil inteiro.
         tema = ""
     elif tema and tema not in TEMAS_EDUCACAO and cargo and cargo not in CARGOS_EXECUTIVO:
         # educação escapa da trava de cargo: o alerta costuma sair de debate com
