@@ -55,7 +55,7 @@ jobs:
           python-version: '3.12'
 
       - name: Instalar dependências
-        run: pip install requests google-genai gspread google-auth "newspaper3k==0.2.8" "lxml[html_clean]==5.2.2" googlenewsdecoder
+        run: pip install requests google-genai gspread google-auth "newspaper3k==0.2.8" "lxml[html_clean]==5.2.2" googlenewsdecoder "brevo-python==1.1.2"
 
       - name: Rodar scraper
         env:
@@ -64,4 +64,11 @@ jobs:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
           SPREADSHEET_ID_SITES: ${{ secrets.SPREADSHEET_ID_SITES }}
+          # email de alerta pós-rodada. Sem BREVO_API_KEY/EMAIL a rodada segue
+          # igual, só não envia. DESTINATARIOS_NOTICIAS é opcional: sem ele cai
+          # na lista geral (DESTINATARIOS), a mesma do alerta de pesquisas.
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          EMAIL: ${{ secrets.EMAIL }}
+          DESTINATARIOS_NOTICIAS: ${{ secrets.DESTINATARIOS_NOTICIAS }}
+          DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
         run: python -u -m outros.noticias_eleicoes_scraper

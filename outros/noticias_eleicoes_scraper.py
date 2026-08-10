@@ -4,6 +4,15 @@ Alertas de notícias sobre candidaturas.
 Usado na fase das convenções (julho), quando o TSE ainda não tem dado. A gente
 monitora notícia por palavra-chave e usa pra montar a matriz de quem foi anunciado.
 Fonte: Google Notícias (RSS). A classificação fica por conta do Gemini (ver TODO).
+
+Além de classificar, a rodada decide o que é alerta (régua em ALERTA_TEMAS),
+escreve o texto pronto pro WhatsApp na coluna 'resumo' e manda um email com os
+alertas novos ao fim da raspagem. A régua veio do prompt do agente de
+monitoramento que o time usa no Slack, então a classificação daqui e o alerta
+que a Monique cria por lá seguem o mesmo critério.
+
+Secrets do email: BREVO_API_KEY, EMAIL, DESTINATARIOS_NOTICIAS (ou DESTINATARIOS).
+Sem eles a rodada segue normal, só não envia.
 """
 
 import json
@@ -20,8 +29,9 @@ from email.utils import parsedate_to_datetime
 import requests
 from googlenewsdecoder import gnewsdecoder
 from newspaper import Article
+from compartilhado.email_utils import EIXO_MARINHO, destinatarios, enviar_email
 from compartilhado.relatorios_sheets_utils import (
-    _col_count_atual, autorizar_com_retry as _autorizar)
+    _col_count_atual, _sem_acento, autorizar_com_retry as _autorizar)
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
@@ -165,6 +175,14 @@ def _formatar_data(pubdate):
     return dt.strftime("%d/%m/%Y %H:%M") if dt else (pubdate or "")
 
 
+def _data_planilha(valor):
+    """Lê de volta a data no formato que a planilha guarda ('dd/mm/aaaa HH:MM')."""
+    try:
+        return datetime.strptime(str(valor).strip(), "%d/%m/%Y %H:%M").replace(tzinfo=BRT)
+    except Exception:
+        return None
+
+
 def google_news_rss(busca, max_itens=20, tentativas=3):
     """Retorna as notícias recentes de uma busca (título, fonte, data, link).
     Descarta o que for mais antigo que JANELA_DIAS.
@@ -268,8 +286,8 @@ def coletar(cargos=('presidente', 'governador', 'senador')):
     return resultado
 
 
-def _extrair_texto_pagina(url: str, limite: int = 6000) -> str:
-    """Devolve o texto completo do artigo por trás do link do Google Notícias.
+def _ler_pagina(url: str, limite: int = 6000) -> tuple[str, str]:
+    """Devolve (texto do artigo, URL real) por trás do link do Google Notícias.
 
     O <link> do RSS (news.google.com/rss/articles/...) não é o artigo: é uma
     página de redirecionamento via JavaScript. Um navegador executa o JS e
@@ -279,23 +297,28 @@ def _extrair_texto_pagina(url: str, limite: int = 6000) -> str:
     do repo googlenews, usando newspaper3k pra extração (mais robusto que
     tirar tag na unha, lida melhor com a variedade de sites de notícia).
 
-    Falha em qualquer etapa (decodificação, paywall, bloqueio, timeout) só
-    volta string vazia; quem chama cai de volta pra classificar só pela
-    manchete."""
+    A URL real vale por si: é ela que vai no alerta de WhatsApp e no email, no
+    lugar do endereço news.google.com/rss/articles/... , que é comprido, opaco e
+    não abre direto em alguns aparelhos.
+
+    Falha em qualquer etapa (decodificação, paywall, bloqueio, timeout) só volta
+    texto vazio e a URL que deu pra apurar; quem chama cai de volta pra
+    classificar só pela manchete."""
     if not url or not url.startswith("http"):
-        return ""
+        return "", ""
     try:
         decoded = gnewsdecoder(url, interval=1)
         url_real = decoded.get("decoded_url") if decoded.get("status") else url
     except Exception:
         url_real = url
+    url_real = url_real or url
     try:
         art = Article(url_real, language="pt")
         art.download()
         art.parse()
-        return (art.text or "").strip()[:limite]
+        return (art.text or "").strip()[:limite], url_real
     except Exception:
-        return ""
+        return "", url_real
 
 
 # Variações de texto livre que o Gemini gera pra federação/partido, canonicalizadas
@@ -326,7 +349,8 @@ def normalize_partido(raw) -> str:
 # texto livre, então acento, caixa e variação de escrita são canonicalizados aqui
 # para o filtro do painel não virar uma lista de quase-duplicatas (foi o que
 # aconteceu com o campo partido).
-TIPOS = ("agenda", "pesquisa", "debate", "aliança", "apoio", "crítica-educação", "outro")
+TIPOS = ("agenda", "pesquisa", "debate", "aliança", "apoio", "crítica-educação",
+         "proposta-educação", "outro")
 _TIPO_ALIAS = {
     "alianca": "aliança", "aliancas": "aliança", "alianças": "aliança",
     "coligacao": "aliança", "coligação": "aliança", "federacao": "aliança",
@@ -336,6 +360,12 @@ _TIPO_ALIAS = {
     "crítica educação": "crítica-educação", "critica-educação": "crítica-educação",
     "crítica-educacao": "crítica-educação", "educacao": "crítica-educação",
     "educação": "crítica-educação",
+    # proposta de educação é o oposto da crítica (o candidato diz o que vai fazer,
+    # não ataca o adversário) e é um dos temas de alerta pedidos pelo time
+    "proposta-educacao": "proposta-educação", "proposta educacao": "proposta-educação",
+    "proposta educação": "proposta-educação", "propostas de educação": "proposta-educação",
+    "proposta de educação": "proposta-educação",
+    "proposta de governo em educação": "proposta-educação",
     "debates": "debate", "sabatina": "debate",
     "agendas": "agenda", "agenda de campanha": "agenda",
     "pesquisas": "pesquisa", "pesquisa eleitoral": "pesquisa",
@@ -381,6 +411,119 @@ def normalize_status(raw) -> str:
     return v if v in STATUS else "indefinido"
 
 
+# ─── Régua de alerta ──────────────────────────────────────────────────────────
+# Os quatro temas que o time trata como alerta, do prompt do agente de
+# monitoramento do Slack. "Executivo" aqui é só governador ou presidente: pesquisa
+# ou apoio para Senado e Câmara não vira alerta, mesmo sendo notícia relevante.
+ALERTA_TEMAS = ("pesquisa-executivo", "apoio", "rompimento", "proposta-educação")
+_TEMA_ALIAS = {
+    "pesquisa": "pesquisa-executivo", "pesquisa executivo": "pesquisa-executivo",
+    "pesquisa-eleitoral": "pesquisa-executivo", "pesquisa eleitoral": "pesquisa-executivo",
+    "apoios": "apoio", "aliança": "apoio", "alianca": "apoio",
+    "apoio e aliança": "apoio", "apoio/aliança": "apoio",
+    "rompimentos": "rompimento", "rompimento de aliança": "rompimento",
+    "rompimento de alianca": "rompimento",
+    "proposta-educacao": "proposta-educação", "proposta educação": "proposta-educação",
+    "proposta de governo em educação": "proposta-educação",
+    "educação": "proposta-educação",
+}
+_TEMA_VAZIO = {"", "nenhum", "none", "null", "nan", "não", "nao", "n/a"}
+
+# Só pesquisa desses institutos vira alerta (lista fechada, do prompt do time).
+# Ipec e Ibope entram os dois: é a mesma casa antes e depois da troca de nome, e
+# manchete regional ainda escreve "Ibope".
+INSTITUTOS_PRIORITARIOS = ("Datafolha", "Quaest", "Ipec", "Ibope", "AtlasIntel",
+                           "Paraná Pesquisas", "Real Time Big Data")
+
+# Subtemas de educação que contam como proposta de governo.
+SUBTEMAS_EDUCACAO = ("tempo integral", "educação profissional", "educação tecnológica",
+                     "alfabetização", "escolas cívico-militares", "anos finais")
+
+CARGOS_EXECUTIVO = ("governador", "vice-governador", "presidente")
+
+
+def _chave_texto(valor) -> str:
+    """Minúsculas, sem acento e sem pontuação: 'Paraná Pesquisas' -> 'paranapesquisas'."""
+    return re.sub(r"[^a-z0-9]", "", _sem_acento(valor).lower())
+
+
+_INSTITUTOS_CHAVE = {_chave_texto(i) for i in INSTITUTOS_PRIORITARIOS}
+_INSTITUTOS_CHAVE.add("rtbd")   # como o Real Time Big Data às vezes aparece
+
+
+def normalize_tema(raw) -> str:
+    v = str(raw or "").strip().lower()
+    if v in _TEMA_VAZIO:
+        return ""
+    v = _TEMA_ALIAS.get(v, v)
+    return v if v in ALERTA_TEMAS else ""
+
+
+def instituto_prioritario(raw) -> str:
+    """Devolve o nome canônico do instituto, ou '' se não for da lista fechada.
+
+    Compara por chave sem acento nem espaço e aceita o nome dentro de uma frase
+    ("pesquisa Quaest/Genial"), porque o Gemini às vezes devolve o texto do jeito
+    que estava na manchete em vez do nome seco.
+    """
+    chave = _chave_texto(raw)
+    if not chave:
+        return ""
+    for nome in INSTITUTOS_PRIORITARIOS:
+        if _chave_texto(nome) in chave:
+            return nome
+    return "Real Time Big Data" if "rtbd" in chave else ""
+
+
+def aplicar_regra_alerta(dados) -> dict:
+    """Confere em código o alerta que o Gemini propôs e derruba o que não passa.
+
+    O modelo lê a notícia e sugere o tema; quem decide é esta função. As condições
+    aqui são estruturais (o cargo é do executivo? o instituto é da lista?), então
+    não dependem de interpretação e não valem uma segunda chamada de Gemini.
+
+    Assimetria de propósito: pesquisa é estrita (cargo precisa estar explícito e
+    ser do executivo, instituto precisa ser um dos sete), os outros três são
+    permissivos e só caem quando o cargo é claramente de legislativo. É a regra do
+    time: na dúvida entre alertar e não alertar, alerta.
+    """
+    tema = normalize_tema(dados.get("alerta_tema"))
+    cargo = str(dados.get("cargo") or "").strip().lower()
+    instituto = instituto_prioritario(dados.get("instituto"))
+    dados["instituto"] = instituto or ""
+
+    if tema == "pesquisa-executivo" and not (cargo in CARGOS_EXECUTIVO and instituto):
+        tema = ""
+    elif tema and cargo and cargo not in CARGOS_EXECUTIVO:
+        tema = ""
+    if dados.get("status") == "não relacionado":
+        tema = ""
+
+    dados["alerta_tema"] = tema
+    dados["alerta"] = "sim" if tema else "não"
+    return dados
+
+
+def chave_alerta(n) -> str:
+    """Identifica o FATO, não a notícia: mesmo tema, UF, cargo e candidato.
+
+    Serve pra não alertar duas vezes quando a mesma pesquisa ou o mesmo apoio sai
+    em dois veículos, com títulos e links diferentes.
+
+    Sem nome de candidato não dá pra dizer que dois textos falam do mesmo fato, e
+    colapsar por (tema, UF, cargo) engoliria notícias distintas. Nesse caso a
+    chave leva o título, ou seja, não deduplica nada além do que a deduplicação
+    por título já pega.
+    """
+    if not n.get("alerta_tema"):
+        return ""
+    cand = _chave_texto(n.get("candidato"))
+    partes = [n.get("alerta_tema"), str(n.get("uf") or "").upper(),
+              str(n.get("cargo") or "").lower(),
+              cand or f"titulo:{_chave_texto(n.get('titulo'))[:60]}"]
+    return "|".join(partes)
+
+
 def classificar_com_gemini(titulo, trecho=""):
     """Lê a manchete (e trecho do artigo) e extrai os campos estruturados (JSON) via Gemini."""
     contexto = f"Manchete: {titulo}"
@@ -398,7 +541,10 @@ def classificar_com_gemini(titulo, trecho=""):
         '  "status": "confirmado | pré-candidato | em disputa | renúncia | desistência | pesquisa | cobertura geral | não relacionado | indefinido",\n'
         '  "convencao": true ou false — true SOMENTE se a notícia trata diretamente de uma convenção partidária '
         "(data, realização, resultado ou decisão tomada em convenção). Independente do status da candidatura.\n"
-        '  "tipo": "agenda | pesquisa | debate | aliança | apoio | crítica-educação | outro",\n'
+        '  "tipo": "agenda | pesquisa | debate | aliança | apoio | crítica-educação | proposta-educação | outro",\n'
+        '  "instituto": "Nome do instituto de pesquisa, se a notícia trata de pesquisa de intenção de voto '
+        "(ex: Datafolha, Quaest, Ipec, AtlasIntel). null se não for pesquisa ou se o instituto não for citado\",\n"
+        '  "alerta_tema": "pesquisa-executivo | apoio | rompimento | proposta-educação | nenhum",\n'
         '  "confianca": "alto | médio | baixo"\n'
         "}\n\n"
         "Regras de preenchimento:\n"
@@ -439,11 +585,30 @@ def classificar_com_gemini(titulo, trecho=""):
         "pública de educação (escola, professor, creche, ensino médio, alfabetização, merenda, piso do "
         "magistério, tempo integral, universidade, gestão da rede de ensino). Se o candidato critica o "
         "adversário por outro assunto (saúde, segurança, corrupção, economia), use 'outro'\n"
+        "  - tipo='proposta-educação': candidato ou pré-candidato apresenta proposta, promessa ou "
+        "compromisso de governo na área de educação. É o que ele diz que vai fazer, não ataque ao "
+        "adversário (isso é 'crítica-educação')\n"
         "  - tipo='outro': não se encaixa em nenhum dos anteriores\n"
         "- confianca='alto': candidato, cargo e UF estão todos explícitos no texto\n"
         "- confianca='médio': algum campo foi inferido com boa certeza pelo contexto\n"
         "- confianca='baixo': muita ambiguidade ou faltam dois ou mais campos principais\n"
-        "- Use null (não a string 'null') para campos ausentes\n"
+        "- Use null (não a string 'null') para campos ausentes\n\n"
+        "Régua de alerta (campo alerta_tema). Diz se a notícia merece virar alerta para o cliente, e é "
+        "independente de status, tipo e convencao. Aqui 'executivo' significa SOMENTE governador ou "
+        "presidente, nunca senador, deputado, prefeito ou vereador:\n"
+        "- 'pesquisa-executivo': resultado ou divulgação de pesquisa de intenção de voto para governador "
+        "ou presidente. Pesquisa para Senado, Câmara ou Assembleia NÃO conta\n"
+        "- 'apoio': declaração pública de apoio, endosso ou formação de aliança a favor de um candidato ao "
+        "executivo, partindo de partido, dirigente partidário estadual ou nacional, ex-governador, "
+        "ex-presidente ou prefeito de capital\n"
+        "- 'rompimento': rompimento público de aliança ou retirada de apoio envolvendo candidato ao "
+        "executivo e os mesmos atores acima\n"
+        "- 'proposta-educação': candidato ao executivo apresenta proposta ou compromisso de governo em "
+        "educação, nos assuntos: educação em tempo integral, educação profissional e tecnológica, "
+        "alfabetização, escolas cívico-militares, anos finais do ensino fundamental. Crítica ao adversário "
+        "não é proposta\n"
+        "- 'nenhum': todo o resto, inclusive notícia relevante que não se encaixa nos quatro temas acima\n"
+        "- Na dúvida entre 'nenhum' e um tema que se encaixa, escolha o tema\n\n"
         "- Responda SOMENTE o objeto JSON, sem texto extra, sem markdown, sem bloco de código\n\n"
         f"{contexto}"
     )
@@ -464,13 +629,14 @@ def classificar_com_gemini(titulo, trecho=""):
     # normaliza pra string: bool False vira "" com o _safe() de salvar_no_sheets
     # (False é falsy em Python), o que confundiria "não" com "não preenchido"
     dados["convencao"] = "sim" if dados.get("convencao") is True else "não"
-    return dados
+    return aplicar_regra_alerta(dados)
 
 
 def _classificar_uma(n):
     """Baixa o artigo e classifica uma notícia, no lugar (dict mutado)."""
-    trecho = _extrair_texto_pagina(n.get("link", ""))
+    trecho, url_real = _ler_pagina(n.get("link", ""))
     n["texto_completo"] = trecho
+    n["link_real"] = url_real
     n.update(classificar_com_gemini(n["titulo"], trecho))
     # site regional: a UF é conhecida, preenche se o Gemini não achou
     if not n.get("uf") and n.get("uf_regional"):
@@ -511,10 +677,147 @@ def classificar_noticias(noticias):
     return _em_paralelo(noticias, _classificar_uma)
 
 
+# ─── Texto do alerta ──────────────────────────────────────────────────────────
+# Mesmo formato do botão de envelope do painel interno (pages/5_Notícias.py):
+# quem abre a linha na planilha e quem abre no painel tem que ver o mesmo texto.
+# Se mudar aqui, mude lá.
+REGRAS_POLITICOS_ALERTA = (
+    "Formatação de políticos (obrigatório):\n"
+    "- Formato: 'Nome (PARTIDO/UF)'. Use barra, nunca hífen entre PARTIDO e UF.\n"
+    "- Se partido/UF não estiverem na notícia, não invente.\n"
+    "- PRIMEIRA menção de um político: use 'Nome (PARTIDO/UF)'. Menções seguintes: só o nome.\n"
+)
+
+
+def _header_alerta(uf: str) -> str:
+    uf = str(uf or "").strip().upper()
+    if uf and uf != "NAN":
+        return f"Alerta | Eixo | Eleições | Subnacional | {uf}"
+    return "Alerta | Eixo | Eleições"
+
+
+def gerar_texto_alerta(n) -> str:
+    """Escreve o alerta pronto pra colar no WhatsApp, a partir da notícia já
+    classificada. Só roda pros itens com alerta='sim', que são poucos por rodada.
+
+    Sem thinking_config: aqui o modelo está escrevendo, não extraindo campo, e o
+    orçamento zerado que barateia a classificação não se justifica em meia dúzia
+    de chamadas.
+    """
+    contexto = "\n".join(filter(None, [
+        f"Título: {n.get('titulo', '')}",
+        f"Fonte: {n.get('fonte')}" if n.get("fonte") else "",
+        f"Data: {n.get('data')}" if n.get("data") else "",
+        f"Candidato citado: {n.get('candidato')} ({n.get('partido')})" if n.get("candidato") else "",
+        f"UF: {n.get('uf')}" if n.get("uf") else "",
+        f"Cargo: {n.get('cargo')}" if n.get("cargo") else "",
+        f"Instituto: {n.get('instituto')}" if n.get("instituto") else "",
+        f"Trecho do artigo:\n{n.get('texto_completo')}" if n.get("texto_completo") else "",
+    ]))
+    prompt = (
+        "Você é um analista que produz alertas padronizados para WhatsApp.\n"
+        "Escreva um texto curto (PT-BR), factual e direto, a partir da notícia abaixo.\n"
+        "Sem opinião, sem especulação, sem bullets e sem emojis.\n"
+        "Comece pelo fato principal (quem fez o quê e a consequência imediata, se houver).\n"
+        "1 parágrafo, no máximo 90 palavras.\n"
+        "Não comece com 'ALERTA' nem título.\n"
+        "Preserve nomes, cargos, datas e números exatamente como na notícia. "
+        "Se houver trecho do artigo, baseie os fatos e números nele, é mais completo que o "
+        "título. Sem trecho, use só o título e não invente detalhes que não estão nele.\n\n"
+        f"{REGRAS_POLITICOS_ALERTA}\n"
+        f"NOTÍCIA:\n{contexto}"
+    )
+    resp = _gemini_client().models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    _registrar_uso(resp)
+    corpo = (getattr(resp, "text", "") or "").strip()
+    if not corpo:
+        return ""
+    link = n.get("link_real") or n.get("link") or ""
+    partes = [f"*{_header_alerta(n.get('uf'))}*",
+              datetime.now(BRT).strftime("%d/%m/%Y"),
+              "",
+              f"*{str(n.get('titulo', '')).strip()}*",
+              "",
+              corpo]
+    if link.startswith("http"):
+        partes += ["", f"Link: {link}"]
+    return "\n".join(partes)
+
+
+def escrever_alertas(noticias):
+    """Preenche 'resumo' com o texto pronto, nos itens marcados como alerta.
+
+    Não sobrescreve resumo que já exista: em notícia nova ele está sempre vazio,
+    mas a função também roda em cima de linha que alguém já editou à mão no
+    painel, e o texto da pessoa vale mais que o do modelo.
+    """
+    alvo = [n for n in noticias
+            if n.get("alerta") == "sim" and not str(n.get("resumo") or "").strip()]
+    if not alvo:
+        return noticias
+
+    def _escrever(n):
+        n["resumo"] = gerar_texto_alerta(n)
+
+    print(f"{len(alvo)} alerta(s) para escrever...")
+    _em_paralelo(alvo, _escrever, total_rotulo="alertas escritos", passo=5)
+    return noticias
+
+
+# ─── Deduplicação por fato ────────────────────────────────────────────────────
+JANELA_DEDUP_HORAS = int(os.getenv("NOTICIAS_JANELA_DEDUP_HORAS", "48"))
+
+
+def carregar_chaves_recentes(aba):
+    """Chaves de alerta já gravadas nas últimas JANELA_DEDUP_HORAS.
+
+    Lê só duas colunas e só o topo da aba (LIMITE_VARREDURA linhas): a inserção é
+    sempre no topo, então tudo que é recente está lá, e a aba inteira passa de 11
+    mil linhas.
+    """
+    headers = aba.row_values(1)
+    if "alerta_chave" not in headers or "data" not in headers:
+        return set()
+    corte = datetime.now(BRT) - timedelta(hours=JANELA_DEDUP_HORAS)
+    recentes = set()
+    for r in _ler_colunas(aba, headers, ("alerta_chave", "data")):
+        chave = r.get("alerta_chave", "")
+        dt = _data_planilha(r.get("data", ""))
+        if chave and dt and dt >= corte:   # sem data legível, fora da janela
+            recentes.add(chave)
+    return recentes
+
+
+def marcar_repetidos(noticias, chaves_recentes):
+    """Rebaixa para 'repetido' o alerta cujo fato já foi alertado.
+
+    Vale contra o que já está na planilha e contra a própria rodada: a mesma
+    pesquisa sai em quatro veículos no mesmo dia e as quatro chegam juntas aqui.
+    A linha continua na planilha com o tema preenchido, só não vira email.
+    """
+    vistos = set(chaves_recentes)
+    for n in noticias:
+        chave = chave_alerta(n)
+        n["alerta_chave"] = chave
+        if not chave or n.get("alerta") != "sim":
+            continue
+        if chave in vistos:
+            n["alerta"] = "repetido"
+        else:
+            vistos.add(chave)
+    return noticias
+
+
 COLUNAS_PLANILHA = [
-    "candidato", "cargo", "uf", "partido", "status", "convencao", "tipo", "resumo",
-    "confianca", "titulo", "fonte", "data", "link", "busca", "texto_completo",
+    "candidato", "cargo", "uf", "partido", "status", "convencao", "tipo",
+    "alerta", "alerta_tema", "instituto", "resumo",
+    "confianca", "titulo", "fonte", "data", "link", "link_real", "busca",
+    "alerta_chave", "alerta_enviado_em", "texto_completo",
 ]
+
+# A ordem acima só vale pra uma aba criada do zero. Na aba que já existe, coluna
+# nova entra no fim do cabeçalho (_garantir_colunas) e a gravação é toda por
+# nome, então a posição não muda nada.
 
 
 def _gc():
@@ -572,6 +875,42 @@ def _garantir_colunas(aba):
     faixa = f"{rowcol_to_a1(1, inicio)}:{rowcol_to_a1(1, fim)}"
     aba.update(range_name=faixa, values=[faltando])
     print(f"Coluna(s) acrescentada(s) no cabeçalho: {', '.join(faltando)}")
+
+
+# Quantas linhas do topo da aba as varreduras de alerta olham. A inserção é
+# sempre no topo (salvar_no_sheets), então alerta pendente de envio e chave
+# recente estão sempre nas primeiras linhas; a aba inteira já passou de 11 mil e
+# ler tudo a cada rodada é caro à toa.
+LIMITE_VARREDURA = int(os.getenv("NOTICIAS_LIMITE_VARREDURA", "600"))
+
+
+def _col_letra(headers, coluna):
+    from gspread.utils import rowcol_to_a1
+    return rowcol_to_a1(1, headers.index(coluna) + 1).rstrip("1")
+
+
+def _ler_colunas(aba, headers, colunas, limite=None):
+    """batch_get de colunas inteiras pelo nome, do topo até `limite`.
+
+    Devolve [{coluna: valor}] com a linha da planilha em '_linha'. Só as colunas
+    pedidas: uma delas é o texto completo do artigo, e get_all_values() na aba
+    inteira baixa dezenas de MB por rodada.
+    """
+    colunas = [c for c in colunas if c in headers]
+    if not colunas:
+        return []
+    fim = limite or LIMITE_VARREDURA
+    faixas = [f"{_col_letra(headers, c)}2:{_col_letra(headers, c)}{fim}" for c in colunas]
+    blocos = aba.batch_get(faixas)
+    total = max((len(b) for b in blocos), default=0)
+    registros = []
+    for i in range(total):
+        reg = {"_linha": i + 2}
+        for coluna, bloco in zip(colunas, blocos):
+            linha = bloco[i] if i < len(bloco) else []
+            reg[coluna] = (linha[0] if linha else "").strip()
+        registros.append(reg)
+    return registros
 
 
 def carregar_sites_regionais():
@@ -673,13 +1012,12 @@ def reclassificar_pendentes(aba):
     Cada lote é classificado em paralelo (mesmo pool da coleta) e só então
     gravado, para o progresso continuar sendo salvo de LOTE em LOTE.
     """
-    from gspread.utils import rowcol_to_a1
     headers = aba.row_values(1)
     if "titulo" not in headers or "status" not in headers:
         return
 
     def _letra(coluna):
-        return rowcol_to_a1(1, headers.index(coluna) + 1).rstrip("1")
+        return _col_letra(headers, coluna)
 
     # Só as três colunas que interessam, em vez de get_all_values(): a aba tem
     # mais de 11 mil linhas e uma delas é o texto completo do artigo, ou seja,
@@ -696,8 +1034,12 @@ def reclassificar_pendentes(aba):
 
     # "resumo" fica de fora: não é gerado aqui, é o alerta que alguém gerou e
     # decidiu salvar no painel. Reclassificar não pode sobrescrever isso.
+    # "alerta_enviado_em" também fica de fora, por outro motivo: é registro do que
+    # já saiu por email, não classificação. Reescrever apagaria o histórico e
+    # reenviaria alerta velho.
     cols = [c for c in ("candidato", "cargo", "uf", "partido", "status", "convencao",
-                        "tipo", "confianca", "texto_completo")
+                        "tipo", "alerta", "alerta_tema", "instituto", "alerta_chave",
+                        "confianca", "link_real", "texto_completo")
             if c in headers]
     # célula por célula, não um range candidato→confiança: se as colunas novas
     # forem adicionadas fora da ordem (ex.: no fim da planilha, depois de titulo/
@@ -715,9 +1057,12 @@ def reclassificar_pendentes(aba):
     print(f"{len(pendentes)} linhas pendentes de reclassificação.")
 
     def _reclassificar(p):
-        trecho = _extrair_texto_pagina(p["link"])
-        p["classificacao"] = dict(classificar_com_gemini(p["titulo"], trecho),
-                                  texto_completo=trecho)
+        trecho, url_real = _ler_pagina(p["link"])
+        dados = dict(classificar_com_gemini(p["titulo"], trecho),
+                     texto_completo=trecho, link_real=url_real, titulo=p["titulo"])
+        # a chave de fato depende de campos que só existem depois de classificar
+        dados["alerta_chave"] = chave_alerta(dados)
+        p["classificacao"] = dados
 
     total = 0
     for inicio in range(0, len(pendentes), LOTE_RECLASSIFICACAO):
@@ -758,6 +1103,137 @@ def salvar_no_sheets(noticias):
     print(f"{len(noticias)} notícias inseridas no topo do Google Sheets.")
 
 
+# ─── Email do alerta ──────────────────────────────────────────────────────────
+# Faixas de plantão, iguais às do agente do Slack. A rodada cai por volta de
+# 06h15, 11h15 e 15h15, então na prática o email da manhã vai pra dupla da manhã,
+# o do meio-dia pros quatro e o da tarde pra dupla da tarde.
+PLANTAO_MANHA = ("Yas", "Paulo")
+PLANTAO_TARDE = ("Emilly", "Maria Eduarda")
+
+
+def plantao(agora=None):
+    h = (agora or datetime.now(BRT)).hour
+    if 11 <= h <= 13:            # sobreposição: cai pros quatro
+        return PLANTAO_MANHA + PLANTAO_TARDE
+    if 13 < h < 19:
+        return PLANTAO_TARDE
+    return PLANTAO_MANHA         # manhã e também fora do horário comercial
+
+
+ROTULO_TEMA = {
+    "pesquisa-executivo": "Pesquisa eleitoral (governador ou presidente)",
+    "apoio": "Apoio e aliança ao executivo",
+    "rompimento": "Rompimento de aliança",
+    "proposta-educação": "Proposta de governo em educação",
+}
+
+PAINEL_URL = os.getenv("PAINEL_NOTICIAS_URL",
+                       "https://painel-eleitoral-interno.streamlit.app/Notícias")
+
+
+def _esc(v):
+    return (str(v or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _bloco_html(a):
+    ident = " · ".join(filter(None, [
+        _esc(a.get("candidato")),
+        _esc(a.get("partido")),
+        _esc(a.get("uf")),
+        _esc(a.get("instituto")),
+    ]))
+    link = a.get("link_real") or a.get("link") or ""
+    resumo = _esc(a.get("resumo")).replace("*", "").strip()
+    # o resumo guardado é o alerta inteiro (cabeçalho, título, corpo, link); no
+    # email só interessa o corpo, o resto já está na moldura do bloco
+    linhas = [l for l in resumo.split("\n") if l.strip()]
+    corpo = ""
+    if len(linhas) > 3:
+        corpo = " ".join(l for l in linhas[2:] if not l.startswith("Link:"))
+    return f"""
+      <div style="border-left:3px solid {EIXO_MARINHO};padding:8px 12px;margin:0 0 14px 0;background:#f6f7fa">
+        <div style="font-weight:bold;color:{EIXO_MARINHO}">{_esc(a.get('titulo'))}</div>
+        <div style="color:#6b7280;font-size:12px;margin:2px 0 6px 0">
+          {_esc(a.get('fonte'))} · {_esc(a.get('data'))}{(' · ' + ident) if ident else ''}
+        </div>
+        {f'<div style="font-size:13px;margin:0 0 6px 0">{corpo}</div>' if corpo else ''}
+        {f'<a href="{_esc(link)}" style="color:{EIXO_MARINHO};font-size:12px">abrir a notícia</a>' if link.startswith("http") else ''}
+      </div>"""
+
+
+def _html_alertas(alertas, agora):
+    por_tema = {}
+    for a in alertas:
+        por_tema.setdefault(a.get("alerta_tema", ""), []).append(a)
+    secoes = "".join(
+        f"<h3 style='margin:20px 0 8px 0;color:{EIXO_MARINHO}'>"
+        f"{ROTULO_TEMA.get(tema, tema)} ({len(por_tema[tema])})</h3>"
+        + "".join(_bloco_html(a) for a in por_tema[tema])
+        for tema in ROTULO_TEMA if por_tema.get(tema)
+    )
+    return f"""
+    <html><body style="font-family:Arial,sans-serif;color:#111">
+      <h2 style="margin:0 0 6px 0">Alertas de notícias</h2>
+      <div style="color:#374151;margin:0 0 14px 0">
+        {agora.strftime('%d/%m/%Y %H:%M')} · {len(alertas)} alerta(s) novo(s)
+      </div>
+      <div style="background:#eef0f6;border-left:3px solid {EIXO_MARINHO};padding:10px 12px;margin:0 0 16px 0;font-size:13px">
+        <strong style="color:{EIXO_MARINHO}">Plantão agora:</strong> {', '.join(plantao(agora))}.
+        O texto pronto pra WhatsApp de cada alerta está na coluna <b>resumo</b> da aba
+        <b>noticias</b>, e no botão de envelope do
+        <a href="{PAINEL_URL}" style="color:{EIXO_MARINHO}">painel interno</a>.
+        Confira a fonte antes de disparar.
+      </div>
+      {secoes}
+    </body></html>
+    """
+
+
+def enviar_alertas_pendentes(aba):
+    """Manda por email os alertas ainda não enviados e carimba a hora do envio.
+
+    O carimbo (coluna alerta_enviado_em) só é gravado depois que o envio dá
+    certo, então email que falhou volta na rodada seguinte em vez de sumir. É
+    esse carimbo, e não a rodada em que a notícia entrou, que define o que já foi
+    avisado.
+
+    Filtra pela data de publicação além do carimbo: sem isso, uma linha antiga
+    reclassificada à mão viraria email de notícia de semanas atrás.
+    """
+    headers = aba.row_values(1)
+    if "alerta" not in headers or "alerta_enviado_em" not in headers:
+        print("Aba sem as colunas de alerta; pulando envio.")
+        return
+    campos = ("alerta", "alerta_enviado_em", "alerta_tema", "titulo", "fonte", "data",
+              "link", "link_real", "candidato", "partido", "uf", "instituto", "resumo")
+    corte = datetime.now(BRT) - timedelta(days=JANELA_DIAS + 1)
+    pendentes = []
+    for r in _ler_colunas(aba, headers, campos):
+        if r.get("alerta") != "sim" or r.get("alerta_enviado_em"):
+            continue
+        dt = _data_planilha(r.get("data", ""))
+        if dt and dt < corte:
+            continue
+        pendentes.append(r)
+    if not pendentes:
+        print("Nenhum alerta novo para enviar.")
+        return
+
+    agora = datetime.now(BRT)
+    dests = destinatarios("DESTINATARIOS_NOTICIAS")
+    assunto = f"Alertas eleições 2026 · {agora.strftime('%d/%m %H:%M')} · {len(pendentes)} novo(s)"
+    print(f"{len(pendentes)} alerta(s) pendente(s); enviando para {len(dests)} destinatário(s)...")
+    if not enviar_email(assunto, _html_alertas(pendentes, agora), dests):
+        print("Email não saiu; os alertas ficam pendentes para a próxima rodada.")
+        return
+
+    carimbo = agora.strftime("%d/%m/%Y %H:%M")
+    letra = _col_letra(headers, "alerta_enviado_em")
+    aba.batch_update([{"range": f"{letra}{r['_linha']}", "values": [[carimbo]]}
+                      for r in pendentes], value_input_option="USER_ENTERED")
+    print(f"{len(pendentes)} alerta(s) marcado(s) como enviado(s).")
+
+
 if __name__ == '__main__':
     print("Carregando títulos já salvos na planilha...")
     titulos_existentes = carregar_titulos_existentes()
@@ -784,9 +1260,20 @@ if __name__ == '__main__':
 
     if novas:
         novas = classificar_noticias(novas)
+        marcar_repetidos(novas, carregar_chaves_recentes(_sheets_aba()))
+        escrever_alertas(novas)
         salvar_no_sheets(novas)
 
     # reclassifica linhas cuja classificação foi apagada à mão (status vazio)
     reclassificar_pendentes(_sheets_aba())
+
+    # depois de gravar, nunca antes: alerta que não chegou na planilha não pode
+    # sair por email, senão ninguém acha a linha pra trabalhar em cima dela
+    try:
+        enviar_alertas_pendentes(_sheets_aba())
+    except Exception as e:
+        # a raspagem é o produto principal; email é o aviso. Falha aqui não
+        # derruba a rodada, e o que não saiu volta na próxima (sem carimbo).
+        print(f"Falha ao enviar os alertas por email: {e}")
 
     _resumo_uso_tokens("notícias", USO_TOKENS)

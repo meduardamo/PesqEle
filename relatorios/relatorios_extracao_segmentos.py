@@ -127,27 +127,10 @@ def _html(pesquisas, hoje):
 
 
 def _enviar(subject, html_body):
-    import re
-    api_key, sender = os.getenv("BREVO_API_KEY"), os.getenv("EMAIL")
-    bruto = re.split(r"[,;\s]+", os.getenv("DESTINATARIOS", ""))
-    dests = [e.strip(" <>") for e in bruto if "@" in e]
-    if not (api_key and sender and dests):
-        print("Config de email incompleta ou sem destinatário válido; pulando envio.")
-        return
-    from brevo_python import ApiClient, Configuration
-    from brevo_python.api.transactional_emails_api import TransactionalEmailsApi
-    from brevo_python.models.send_smtp_email import SendSmtpEmail
-    cfg = Configuration()
-    cfg.api_key["api-key"] = api_key
-    api = TransactionalEmailsApi(ApiClient(configuration=cfg))
-    for dest in dests:
-        try:
-            api.send_transac_email(SendSmtpEmail(
-                to=[{"email": dest}], sender={"email": sender},
-                subject=subject, html_content=html_body))
-            print(f"enviado para {dest}")
-        except Exception as e:
-            print(f"falha para {dest}: {e}")
+    # o envio em si mora em compartilhado/email_utils.py desde que o alerta de
+    # notícias passou a mandar email pela mesma conta da Brevo
+    from compartilhado.email_utils import enviar_email
+    enviar_email(subject, html_body)
 
 
 def _preencher_fila(pesquisas):
