@@ -528,9 +528,14 @@ def _uf_relevante(n) -> str:
     if uf in ("", "NAN", "NONE", "NULL"):
         return ""
     cargo = str(n.get("cargo") or "").strip().lower()
-    if cargo == "presidente" and n.get("alerta_tema") != "pesquisa-executivo":
+    if cargo != "presidente":
+        return uf
+    if n.get("alerta_tema") != "pesquisa-executivo":
         return ""
-    return uf
+    # Pesquisa presidencial: a UF só entra se a pesquisa for estadual mesmo. Um
+    # levantamento nacional publicado por site de Pernambuco saiu como
+    # "Subnacional | PE" em 10/08, porque a UF veio de quem publicou.
+    return uf if str(n.get("abrangencia") or "").strip().lower() == "estadual" else ""
 
 
 def chave_alerta(n) -> str:
@@ -573,6 +578,9 @@ def classificar_com_gemini(titulo, trecho=""):
         '  "tipo": "agenda | pesquisa | debate | aliança | apoio | crítica-educação | proposta-educação | outro",\n'
         '  "instituto": "Nome do instituto de pesquisa, se a notícia trata de pesquisa de intenção de voto '
         "(ex: Datafolha, Quaest, Ipec, AtlasIntel). null se não for pesquisa ou se o instituto não for citado\",\n"
+        '  "abrangencia": "Só quando a notícia trata de pesquisa eleitoral: \'nacional\' se a pesquisa ouviu o '
+        "Brasil inteiro, 'estadual' se ouviu só um estado. Repare que site regional publica pesquisa nacional "
+        "o tempo todo: o que vale é quem foi ouvido, não quem publicou. null se não for pesquisa\",\n"
         '  "alerta_tema": "pesquisa-executivo | apoio | rompimento | proposta-educação | nenhum",\n'
         '  "confianca": "alto | médio | baixo"\n'
         "}\n\n"
@@ -639,10 +647,16 @@ def classificar_com_gemini(titulo, trecho=""):
         "cívico-militares, anos finais do ensino fundamental, Ideb, professores, infraestrutura da rede.\n"
         "  Cobertura de debate conta, mesmo que o debate tenha tratado de vários assuntos, DESDE QUE a "
         "notícia diga o que os candidatos falaram de educação.\n"
-        "  Não conta: educação citada só como cenário, sem conteúdo (ex.: 'durante o bloco sobre "
-        "educação, o candidato se confundiu e elogiou o adversário' é sobre o vacilo, não sobre "
-        "educação); lista de temas do debate sem nenhuma fala de educação reportada; matéria de "
-        "jornalista, sindicato ou especialista sobre educação sem candidato na história\n"
+        "  Não conta:\n"
+        "    · educação citada só como cenário, sem conteúdo (ex.: 'durante o bloco sobre educação, o "
+        "candidato se confundiu e elogiou o adversário' é sobre o vacilo, não sobre educação);\n"
+        "    · lista de temas do debate sem nenhuma fala de educação reportada;\n"
+        "    · perfil, currículo ou trajetória do candidato, ainda que ele seja professor, pedagogo ou "
+        "ex-secretário de educação. Ser da área não é falar de política de educação;\n"
+        "    · anúncio de debate, sabatina ou entrevista que AINDA VAI acontecer, mesmo que a chamada "
+        "diga que educação será um dos temas. O alerta é sobre o que foi dito, não sobre o que será "
+        "discutido;\n"
+        "    · matéria de jornalista, sindicato ou especialista sobre educação sem candidato na história\n"
         "- 'nenhum': todo o resto, inclusive notícia relevante que não se encaixa nos quatro temas acima\n"
         "- Na dúvida entre 'nenhum' e um tema que se encaixa, escolha o tema\n\n"
         "- Responda SOMENTE o objeto JSON, sem texto extra, sem markdown, sem bloco de código\n\n"
@@ -665,6 +679,8 @@ def classificar_com_gemini(titulo, trecho=""):
     # normaliza pra string: bool False vira "" com o _safe() de salvar_no_sheets
     # (False é falsy em Python), o que confundiria "não" com "não preenchido"
     dados["convencao"] = "sim" if dados.get("convencao") is True else "não"
+    abrang = str(dados.get("abrangencia") or "").strip().lower()
+    dados["abrangencia"] = abrang if abrang in ("nacional", "estadual") else ""
     return aplicar_regra_alerta(dados)
 
 
@@ -827,11 +843,29 @@ def _corrigir_siglas(texto: str) -> str:
 _RE_PARAGRAFO_COLADO = re.compile(r"([.!?])([A-ZÀ-ÝÁÉÍÓÚÂÊÔÃÕÇ])")
 
 
+_RE_FIM_DE_FRASE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÝÁÉÍÓÚÂÊÔÃÕÇ])")
+
+
 def _reparar_paragrafos(corpo: str) -> str:
+    """Garante os dois parágrafos que o alerta tem que ter.
+
+    Dois jeitos de o modelo errar isso, os dois vistos em 10/08:
+    o ponto colado na maiúscula ("bandeira central.O debate reuniu"), e o texto
+    inteiro num parágrafo só (a pesquisa do Pará). No segundo caso a quebra vai
+    para a fronteira de frase mais perto do meio, que é onde o fato costuma
+    virar desdobramento.
+    """
     corpo = (corpo or "").strip()
     if "\n\n" in corpo:
         return corpo
-    return _RE_PARAGRAFO_COLADO.sub(r"\1\n\n\2", corpo)
+    colado = _RE_PARAGRAFO_COLADO.sub(r"\1\n\n\2", corpo)
+    if "\n\n" in colado:
+        return colado
+    cortes = [m.end() for m in _RE_FIM_DE_FRASE.finditer(corpo)]
+    if len(cortes) < 2:      # uma ou duas frases: parágrafo único é o certo
+        return corpo
+    meio = min(cortes, key=lambda c: abs(c - len(corpo) // 2))
+    return corpo[:meio].strip() + "\n\n" + corpo[meio:].strip()
 
 
 def _titulo_sem_veiculo(titulo: str) -> str:
@@ -881,8 +915,10 @@ def gerar_texto_alerta(n) -> str:
         "na linha.\n"
         "corpo: DOIS parágrafos, separados por uma linha em branco, 130 palavras no total "
         "no máximo.\n"
-        "  - 1º parágrafo: o fato. Quem fez o quê, quando (com a data por extenso no "
-        "formato 'nesta quinta-feira (6)'), onde, e o número principal se houver.\n"
+        "  - 1º parágrafo: o fato. Quem fez o quê, quando, onde, e o número principal se "
+        "houver. A data vai no formato 'nesta quinta-feira (6)' quando o fato é da mesma "
+        "semana; sendo mais antigo, escreva a data seca ('em 27 de julho'). Nunca misture "
+        "as duas formas ('nesta segunda-feira (27) de julho' está errado).\n"
         "  - 2º parágrafo: o desdobramento. O que a decisão destrava ou trava, quem fica "
         "de fora, como fica o quadro da disputa depois disso. Se a notícia não trouxer "
         "desdobramento nenhum, use o 2º parágrafo para o detalhe concreto que sobrou "
@@ -986,7 +1022,7 @@ def marcar_repetidos(noticias, chaves_recentes):
 
 COLUNAS_PLANILHA = [
     "candidato", "cargo", "uf", "partido", "status", "convencao", "tipo",
-    "alerta", "alerta_tema", "instituto", "resumo",
+    "alerta", "alerta_tema", "instituto", "abrangencia", "resumo",
     "confianca", "titulo", "fonte", "data", "link", "link_real", "busca",
     "alerta_chave", "alerta_enviado_em", "texto_completo",
 ]
@@ -1214,7 +1250,7 @@ def reclassificar_pendentes(aba):
     # já saiu por email, não classificação. Reescrever apagaria o histórico e
     # reenviaria alerta velho.
     cols = [c for c in ("candidato", "cargo", "uf", "partido", "status", "convencao",
-                        "tipo", "alerta", "alerta_tema", "instituto", "alerta_chave",
+                        "tipo", "alerta", "alerta_tema", "instituto", "abrangencia", "alerta_chave",
                         "confianca", "link_real", "texto_completo")
             if c in headers]
     # célula por célula, não um range candidato→confiança: se as colunas novas
