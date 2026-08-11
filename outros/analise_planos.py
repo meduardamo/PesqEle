@@ -1640,6 +1640,112 @@ def _teto_por_ligacoes(score: int, validas: list) -> int:
     return min(score, 2)
 
 
+# Palavras que aparecem no nome de quase todo programa e não distinguem um do
+# outro. Sem tirar, "Programa Estadual X" e "X" contam como programas
+# diferentes e a ponte entre temas se perde.
+_NOME_GENERICO = {
+    "programa", "programas", "projeto", "projetos", "plano", "planos", "politica",
+    "politicas", "estadual", "estaduais", "municipal", "nacional", "novo", "nova",
+    "modelo", "sistema", "rede", "pacto", "fundo", "estado", "governo",
+    "de", "da", "do", "das", "dos", "e", "para", "com", "em", "a", "o", "as", "os",
+}
+
+
+def _nome_programa(nome: str) -> str:
+    t = re.sub(r"[^a-z0-9 ]", " ", _norm_busca(str(nome or "")))
+    return " ".join(w for w in t.split() if w not in _NOME_GENERICO and len(w) > 2)
+
+
+def _quadro_das_pontes(pontes: dict) -> str:
+    """As pontes encontradas, como texto para o prompt."""
+    if not pontes:
+        return ("PROGRAMAS QUE ATRAVESSAM MAIS DE UM TEMA: nenhum. As propostas "
+                "deste plano não compartilham um programa nomeado.")
+    linhas = [f"  - {nome}: {', '.join(sorted(temas))}"
+              for nome, temas in sorted(pontes.items(), key=lambda x: -len(x[1]))]
+    return "PROGRAMAS QUE ATRAVESSAM MAIS DE UM TEMA:\n" + "\n".join(linhas)
+
+
+def pontes_de_programa(classif: dict) -> dict:
+    """Programas nomeados pelo plano que aparecem em mais de um tema.
+
+    Esta é a definição de articulação que o dado sustenta. "Trilhas de Futuro"
+    citado em Educação Profissional, Ensino Médio e Geração de Emprego é uma
+    ponte escrita pelo candidato, não uma leitura de quem analisa.
+
+    Por que substituiu a contagem que o modelo fazia: pedir "liste até N
+    ligações" e dar nota pela quantidade listada é circular, porque o pedido
+    convida a listar N e nada premia responder "não há". Medido em 10/08/2026,
+    a régua anterior punha 36 dos 60 planos refeitos na nota máxima, o mesmo
+    amontoado da régua de antes, só que no outro extremo.
+
+    Os nomes são juntados por continência, e não por igualdade: com igualdade
+    exata, "Trilhas de Futuro" e "Programa Trilhas de Futuro" viram dois
+    programas. A diferença não é detalhe, o Rafael Fonteles (PT/PI) sai de zero
+    para três pontes, sobre 7 temas e 5 eixos, só com essa junção.
+    """
+    nomes, originais = {}, {}
+    for tema, item in classif.items():
+        if (item or {}).get("nivel") == "Não menciona":
+            continue
+        bruto = str((item or {}).get("programa_nome", "")).strip()
+        chave = _nome_programa(bruto)
+        if len(chave) >= 5:
+            nomes.setdefault(chave, set()).add(tema)
+            # O nome que vai para a tela e para o prompt é como o plano
+            # escreveu, não a chave sem acento e sem "Programa". Fica a grafia
+            # mais completa entre as variantes.
+            if len(bruto) > len(originais.get(chave, "")):
+                originais[chave] = bruto
+
+    chaves = sorted(nomes, key=len)
+    pai = {k: k for k in chaves}
+
+    def raiz(x):
+        while pai[x] != x:
+            x = pai[x]
+        return x
+
+    for i, a in enumerate(chaves):
+        for b in chaves[i + 1:]:
+            if a in b or set(a.split()) <= set(b.split()):
+                pai[raiz(a)] = raiz(b)
+
+    juntos, rotulo = {}, {}
+    for chave, temas in nomes.items():
+        r = raiz(chave)
+        juntos.setdefault(r, set()).update(temas)
+        if len(originais.get(chave, "")) > len(rotulo.get(r, "")):
+            rotulo[r] = originais[chave]
+    return {rotulo.get(p, p): t for p, t in juntos.items() if len(t) >= 2}
+
+
+def nota_por_pontes(pontes: dict, classif: dict) -> int:
+    """A nota de coerência, contada e não julgada.
+
+    Distribuição nos 87 planos de 10/08/2026: 25 planos em 2, 22 em 3, 23 em 4
+    e 17 em 5. Quatro faixas povoadas, contra 56 de 79 empatados num valor só
+    na régua que o modelo julgava. Correlação de 0,29 com a maturidade, ou
+    seja, deixou de remedir cobertura.
+
+    O 5 exige três eixos porque três programas dentro de uma área só é plano
+    detalhado numa área, não plano encadeado.
+    """
+    propostas = sum(1 for i in classif.values()
+                    if (i or {}).get("nivel") in ("Propõe ação", "Define meta"))
+    if propostas < 3:
+        return 1
+    n = len(pontes)
+    if n == 0:
+        return 2
+    if n == 1:
+        return 3
+    if n == 2:
+        return 4
+    eixos = {EIXO_DO_TEMA.get(t, "Outros") for temas in pontes.values() for t in temas}
+    return 5 if len(eixos) >= 3 else 4
+
+
 def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
                       nome: str = "", genero: str = "") -> dict:
     """Avalia se as propostas formam uma estratégia coerente no plano.
@@ -1661,44 +1767,30 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
     """
     from google.genai import types
 
+    # A nota é contada aqui, antes de falar com o modelo. Ele recebe as pontes
+    # prontas e só escreve a justificativa: quem gera a evidência não pode ser
+    # quem é medido por ela.
+    pontes = pontes_de_programa(classif)
+    score = nota_por_pontes(pontes, classif)
+
     prompt = (
         "Você é analista sênior de políticas públicas. Abaixo está a análise "
         "tema a tema de um plano de governo, com o nível de cada tema e a citação "
         "do plano que sustenta esse nível.\n\n"
         f"{_quadro_da_analise(classif, temas)}\n\n"
-        "Avalie se as propostas formam uma ESTRATÉGIA COERENTE e articulada, "
-        "ou se são menções isoladas e desconexas.\n\n"
-        "COBERTURA NÃO É COERÊNCIA. Quantos temas têm proposta já é medido por "
-        "outra nota. Aqui só conta se as propostas se sustentam uma na outra. Um "
-        "plano que trata 40 temas sem ligação entre eles é 2. Um plano que trata "
-        "8 temas amarrados por um mesmo instrumento é 4.\n\n"
-        "LIGAÇÃO é um par de temas em que a proposta de um serve de meio para a "
-        "do outro, e o plano diz por qual instrumento: um programa nomeado, um "
-        "órgão, uma fonte de recurso, uma condicionalidade. Educação profissional "
-        "que alimenta um programa de emprego nomeado é ligação. Dois temas bons no "
-        "mesmo eixo, sem nada que os ligue, não é.\n\n"
-        "Escala:\n"
-        "  1 — Só menções genéricas, sem proposta concreta em nenhum tema\n"
-        "  2 — Propostas soltas. Nenhuma serve de meio para outra\n"
-        "  3 — Uma ligação sustentada, o resto são propostas paralelas\n"
-        "  4 — Duas ou três ligações sustentadas\n"
-        "  5 — Quatro ou mais ligações sustentadas, tocando pelo menos três "
-        "eixos diferentes, de modo que o plano se lê como encadeamento\n\n"
-        "Um plano que cobre bem UM eixo e ignora os outros não passa de 3.\n\n"
-        "Responda APENAS um objeto JSON com:\n"
-        "  'score': número inteiro de 1 a 5\n"
-        "  'ligacoes': lista de 0 a 6 objetos com 'de' (nome exato do tema), "
-        "'para' (nome exato de outro tema) e 'instrumento' (o que liga os dois, "
-        "em até 12 palavras, tirado do plano). Só inclua par em que os DOIS temas "
-        "têm proposta na análise acima. Lista vazia se não houver ligação, e isso "
-        "é resposta legítima.\n"
-        "  NÃO conta como ligação o par em que os dois temas estão apoiados na "
-        "MESMA citação. Uma frase que serve a dois temas é uma proposta só, "
-        "indexada duas vezes. Ligação exige duas propostas diferentes, uma "
-        "servindo de meio para a outra.\n"
-        "  'justificativa': 2 a 4 frases factuais que sustentem o score, com no "
-        "máximo 500 caracteres no total. Se listou ligação, diga na justificativa "
-        "qual é o instrumento que liga os temas.\n\n"
+        "A NOTA JÁ ESTÁ DECIDIDA e não é sua tarefa. Ela vem da contagem de "
+        "programas nomeados pelo plano que aparecem em mais de um tema, que "
+        "estão listados abaixo. Sua tarefa é escrever a justificativa desse "
+        "número, descrevendo o que o plano faz.\n\n"
+        f"{_quadro_das_pontes(pontes)}\n\n"
+        "Escreva 2 a 4 frases factuais, com no máximo 500 caracteres no total.\n"
+        "- Se há programas acima, nomeie pelo menos um e diga quais temas ele "
+        "atravessa.\n"
+        "- Se não há nenhum, diga o que o plano propõe e que as propostas não "
+        "compartilham um programa comum. Não invente ligação.\n"
+        "- Não fale em nota, em degrau, em escala nem em quantidade de "
+        "ligações.\n\n"
+        "Responda APENAS um objeto JSON com a chave 'justificativa'.\n\n"
         "COMO ESCREVER A JUSTIFICATIVA:\n"
         # A regra de abrir pelo dado, sem "O plano", cumpria o que queria, tirar
         # o começo morno, e criava outra coisa: proposta sem dono. Com o plano
@@ -1710,10 +1802,10 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
         # _regras_sujeito.
         + _regras_sujeito(nome, genero) +
         "- Depois da atribuição, diga o que a pessoa especifica, com nome de "
-        "programa, prazo, número ou público. É isso que sustenta o score.\n"
-        "- Não repita as palavras da escala acima ('integrada', 'articulada', "
-        "'parcial', 'isoladas', 'coerente'). Descreva o que a proposta faz, não "
-        "em que degrau ela caiu.\n"
+        "programa, prazo, número ou público.\n"
+        "- Proibidas as palavras 'integrada', 'articulada', 'parcial', "
+        "'isoladas' e 'coerente'. Descreva o que a proposta faz, não o quanto "
+        "ela vale.\n"
         "- Não use o molde 'o plano faz X, contudo falta Y'. Se um eixo não tem "
         "proposta, diga em frase própria qual eixo e o que falta nele.\n"
         "- Nomeie programas, metas, números e prazos que estão no texto. Uma "
@@ -1777,19 +1869,16 @@ def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
         if ainda:
             print(f"(continuou com {', '.join(ainda)})", end=" ", flush=True)
 
-    score = int(data.get("score", 1))
-    if score not in range(1, 6):
-        score = 1
-    validas = _ligacoes_validas(data.get("ligacoes"), classif)
-    score = _teto_por_ligacoes(score, validas)
     citacoes = [(classif.get(t) or {}).get("trecho", "") for t in temas]
     return {"score": score,
             "justificativa": tirar_aspas_sem_lastro(justificativa, citacoes),
-            "ligacoes": validas,
-            # Uma linha por ligação, para a planilha e para o painel mostrarem
-            # a evidência do lado do número.
+            "pontes": pontes,
+            # Uma linha por ponte, para a planilha e o painel mostrarem a
+            # evidência do lado do número: quem quiser conferir abre o plano e
+            # procura o programa.
             "ligacoes_texto": " | ".join(
-                f'{l["de"]} + {l["para"]}: {l["instrumento"]}' for l in validas)}
+                f"{nome}: {', '.join(sorted(temas))}"
+                for nome, temas in sorted(pontes.items(), key=lambda x: -len(x[1])))}
 
 
 def sintetizar_comparacao(candidatos_info: list, tema: str) -> str:
