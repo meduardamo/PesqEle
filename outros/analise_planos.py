@@ -1720,165 +1720,90 @@ def pontes_de_programa(classif: dict) -> dict:
     return {rotulo.get(p, p): t for p, t in juntos.items() if len(t) >= 2}
 
 
-def nota_por_pontes(pontes: dict, classif: dict) -> int:
-    """A nota de coerência, contada e não julgada.
+def resumir_plano(classif: dict, temas: dict = TEMAS,
+                  nome: str = "", genero: str = "") -> dict:
+    """Escreve o resumo do plano, em 3 ou 4 frases, e devolve as pontes.
 
-    Distribuição nos 87 planos de 10/08/2026: 25 planos em 2, 22 em 3, 23 em 4
-    e 17 em 5. Quatro faixas povoadas, contra 56 de 79 empatados num valor só
-    na régua que o modelo julgava. Correlação de 0,29 com a maturidade, ou
-    seja, deixou de remedir cobertura.
+    Substituiu avaliar_coerencia em 10/08/2026. A nota de 1 a 5 saiu: ela
+    prometia medir articulação e media cobertura, mudava um ponto em três de
+    quatro planos entre rodadas, e não tem correspondente na literatura da
+    área, que mede saliência e se a promessa é verificável, não coerência.
 
-    O 5 exige três eixos porque três programas dentro de uma área só é plano
-    detalhado numa área, não plano encadeado.
-    """
-    propostas = sum(1 for i in classif.values()
-                    if (i or {}).get("nivel") in ("Propõe ação", "Define meta"))
-    if propostas < 3:
-        return 1
-    n = len(pontes)
-    if n == 0:
-        return 2
-    if n == 1:
-        return 3
-    if n == 2:
-        return 4
-    eixos = {EIXO_DO_TEMA.get(t, "Outros") for temas in pontes.values() for t in temas}
-    return 5 if len(eixos) >= 3 else 4
+    O texto ficou, porque ele nunca dependeu da nota. A matéria-prima é a
+    mesma: a classificação verificada, tema a tema, e os programas que
+    aparecem em mais de um tema.
 
-
-def avaliar_coerencia(classif: dict, temas: dict = TEMAS,
-                      nome: str = "", genero: str = "") -> dict:
-    """Avalia se as propostas formam uma estratégia coerente no plano.
-    Retorna {"score": 1–5, "justificativa": str}.
-
-    Com mais de um eixo, a pergunta deixa de ser só "a educação se sustenta" e
-    passa a incluir a articulação ENTRE eixos, que é onde plano de governo
-    costuma se revelar: segurança que conversa com assistência social, educação
-    profissional que conversa com geração de emprego.
-
-    Recebe a classificação já verificada, não o texto do plano. Antes lia
-    `texto[:60000]` e por isso julgava o plano por um pedaço dele: a justificativa
-    do Zema gravada em 07/08/2026 afirma que "Educação Básica e Saúde não têm
-    capítulos próprios", e os dois estão no sumário do próprio PDF, fora do corte.
-    Ler o mesmo material da outra aba resolve as duas coisas de uma vez. A
-    contradição entre abas deixa de ser possível, porque a fonte é uma só, e a
-    justificativa não pode inventar aspas, porque as únicas frases do plano à mão
-    são citações que já passaram em verificar_trecho.
+    Não fala do que falta. Ausência já está na tela, tema a tema, e dita em
+    prosa vira frase de efeito sobre o que o candidato não escreveu.
     """
     from google.genai import types
 
-    # A nota é contada aqui, antes de falar com o modelo. Ele recebe as pontes
-    # prontas e só escreve a justificativa: quem gera a evidência não pode ser
-    # quem é medido por ela.
     pontes = pontes_de_programa(classif)
-    score = nota_por_pontes(pontes, classif)
 
     prompt = (
         "Você é analista sênior de políticas públicas. Abaixo está a análise "
         "tema a tema de um plano de governo, com o nível de cada tema e a citação "
         "do plano que sustenta esse nível.\n\n"
         f"{_quadro_da_analise(classif, temas)}\n\n"
-        "A NOTA JÁ ESTÁ DECIDIDA e não é sua tarefa. Ela vem da contagem de "
-        "programas nomeados pelo plano que aparecem em mais de um tema, que "
-        "estão listados abaixo. Sua tarefa é escrever a justificativa desse "
-        "número, descrevendo o que o plano faz.\n\n"
         f"{_quadro_das_pontes(pontes)}\n\n"
-        "Escreva 2 a 4 frases factuais, com no máximo 500 caracteres no total.\n"
-        "- Se há programas acima, nomeie pelo menos um e diga quais temas ele "
-        "atravessa.\n"
-        "- Se não há nenhum, diga o que o plano propõe e que as propostas não "
-        "compartilham um programa comum. Não invente ligação.\n"
-        "- Não fale em nota, em degrau, em escala nem em quantidade de "
-        "ligações.\n\n"
-        "Responda APENAS um objeto JSON com a chave 'justificativa'.\n\n"
-        "COMO ESCREVER A JUSTIFICATIVA:\n"
-        # A regra de abrir pelo dado, sem "O plano", cumpria o que queria, tirar
-        # o começo morno, e criava outra coisa: proposta sem dono. Com o plano
-        # do Renan Santos a frase saía como "Marco Nacional da Desfavelização
-        # prevê o fim das 12.348 favelas em dez anos", que na tela é o painel
-        # afirmando o fim das favelas. A abertura continua não sendo morna,
-        # porque o sujeito é quem propõe e o que vem logo depois é o que essa
-        # pessoa especificou. Quem é esse sujeito, e em que gênero, sai de
-        # _regras_sujeito.
+        "Escreva um RESUMO do plano em 3 ou 4 frases, no máximo 500 caracteres.\n"
+        "- Comece pela proposta mais concreta, a que tem nome de programa, "
+        "número ou prazo.\n"
+        "- Se houver programa atravessando mais de um tema, diga qual e quais "
+        "temas ele cobre.\n"
+        "- Descreva o que o plano propõe. NÃO diga o que falta, o que não é "
+        "mencionado nem o que o plano deixa de fazer.\n"
+        "- Não dê nota, não classifique, não fale em nível, degrau ou escala.\n\n"
+        "Responda APENAS um objeto JSON com a chave 'resumo'.\n\n"
+        "COMO ESCREVER:\n"
         + _regras_sujeito(nome, genero) +
         "- Depois da atribuição, diga o que a pessoa especifica, com nome de "
         "programa, prazo, número ou público.\n"
         "- Proibidas as palavras 'integrada', 'articulada', 'parcial', "
-        "'isoladas' e 'coerente'. Descreva o que a proposta faz, não o quanto "
-        "ela vale.\n"
-        "- Não use o molde 'o plano faz X, contudo falta Y'. Se um eixo não tem "
-        "proposta, diga em frase própria qual eixo e o que falta nele.\n"
-        "- Nomeie programas, metas, números e prazos que estão no texto. Uma "
-        "justificativa sem nenhum nome próprio de programa ou número não serve.\n"
+        "'isoladas' e 'coerente'.\n"
+        "- Nomeie programas, metas, números e prazos que estão no texto. Um "
+        "resumo sem nenhum nome próprio de programa ou número não serve.\n"
         "- Nada de juízo de valor. Só o que está escrito no plano.\n\n"
         "REGRA DE ASPAS: só use aspas para copiar, palavra por palavra, uma das "
         "citações listadas acima. Nunca encurte a frase dentro das aspas nem "
         "escreva entre aspas algo que não está ali. Sem citação à mão para o "
         "ponto que quer fazer, escreva sem aspas.\n\n"
-        "REGRA DE AUSÊNCIA: só diga que um tema falta se ele está acima como "
-        "'Não menciona'. Tema com nível diferente disso tem proposta no plano.\n"
-        # A justificativa da Samara Martins gravada em 10/08/2026 dizia que ela
-        # "não menciona temas como cultura, transporte e saúde mental". Transporte
-        # e Rodovias está em "Não menciona", mas Mobilidade Urbana tem
-        # "Estatização do transporte público: passe-livre", então na tela o painel
-        # negava o que o plano diz. Antes disso, a mesma justificativa afirmou
-        # ausência de saúde inteira com o plano propondo orçamento para o SUS.
-        "- Nomeie a ausência pelo NOME EXATO do tema, como está na lista acima. "
-        "Nunca pelo assunto nem pelo eixo. Escrever 'não menciona transporte' é "
-        "errado quando 'Transporte e Rodovias' está ausente mas 'Mobilidade "
-        "Urbana' tem proposta. Nunca diga que um eixo inteiro falta sem que TODOS "
-        "os temas dele estejam como 'Não menciona'.\n\n"
         f"{RESTRICOES_LINGUAGEM}"
     )
+
     def pedir(evitar: list[str] | None = None):
-        # A segunda chamada precisa ser diferente da primeira. Repetindo o mesmo
-        # prompt, o modelo repete a resposta: em 10/08/2026, das cinco
-        # retentativas por linguagem, duas voltaram com a mesma palavra
-        # (Valmir de Francisquinho e Professor Marcus Sodré). Dizer qual palavra
-        # ele acabou de usar é o que muda o pedido.
         texto = prompt
         if evitar:
             texto += ("\n\nSUA RESPOSTA ANTERIOR FOI RECUSADA porque usou: "
                       + ", ".join(evitar)
                       + ". Reescreva sem nenhuma dessas palavras, sem trocar por "
-                      "sinônimo do mesmo tipo. Diga o que o plano faz, com nome "
-                      "de programa, número ou prazo, e não em que degrau ele caiu.")
+                      "sinônimo do mesmo tipo.")
         resp = _gemini_client().models.generate_content(
             model=GEMINI_MODEL,
             contents=texto,
             config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
-        return _carregar_json((getattr(resp, "text", "") or "").strip(), "coerência")
+        return _carregar_json((getattr(resp, "text", "") or "").strip(), "resumo")
 
     data = pedir()
-    # 600 e não 400: no limite antigo, 4 das 16 justificativas gravadas em
-    # 03/08/2026 terminavam cortadas no meio da palavra.
-    justificativa = _limpa(data.get("justificativa", ""), n=600)
-    # Uma segunda chance quando o texto usa termo que o prompt proíbe. Vale a
-    # chamada extra porque é raro (6 em 79) e porque a alternativa, apagar a
-    # palavra aqui, quebra a frase: "apresenta programas" sem o verbo não é
-    # frase. Se a segunda também furar, fica a segunda e o log avisa.
-    proibidos = termos_proibidos(justificativa)
+    resumo = _limpa(data.get("resumo", ""), n=600)
+    proibidos = termos_proibidos(resumo)
     if proibidos:
         print(f"(linguagem proibida em {', '.join(proibidos)}, refazendo)",
               end=" ", flush=True)
         time.sleep(3)
         data = pedir(evitar=proibidos)
-        justificativa = _limpa(data.get("justificativa", ""), n=600)
-        ainda = termos_proibidos(justificativa)
+        resumo = _limpa(data.get("resumo", ""), n=600)
+        ainda = termos_proibidos(resumo)
         if ainda:
             print(f"(continuou com {', '.join(ainda)})", end=" ", flush=True)
 
     citacoes = [(classif.get(t) or {}).get("trecho", "") for t in temas]
-    return {"score": score,
-            "justificativa": tirar_aspas_sem_lastro(justificativa, citacoes),
+    return {"resumo": tirar_aspas_sem_lastro(resumo, citacoes),
             "pontes": pontes,
-            # Uma linha por ponte, para a planilha e o painel mostrarem a
-            # evidência do lado do número: quem quiser conferir abre o plano e
-            # procura o programa.
-            "ligacoes_texto": " | ".join(
-                f"{nome}: {', '.join(sorted(temas))}"
-                for nome, temas in sorted(pontes.items(), key=lambda x: -len(x[1])))}
+            "pontes_texto": " | ".join(
+                f"{n}: {', '.join(sorted(t))}"
+                for n, t in sorted(pontes.items(), key=lambda x: -len(x[1])))}
 
 
 def sintetizar_comparacao(candidatos_info: list, tema: str) -> str:

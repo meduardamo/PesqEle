@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from analise_planos import (  # noqa: E402
     NIVEIS, NIVEIS_LEGADO, TEMAS, PlanoIndisponivel, RespostaIlegivel,
-    _norm_busca, _sem_espaco, avaliar_coerencia, citacao_sustenta, classificar_plano,
+    _norm_busca, _sem_espaco, citacao_sustenta, classificar_plano, resumir_plano,
     contexto_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
     normalizar_responsavel, tem_alvo_mensuravel, tema_e_item_de_enumeracao,
@@ -104,9 +104,12 @@ COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
         "programa_nome", "pagina", "verificacao", "entes", "chars",
         "chars_analisados", "versao", "analisado_em"]
+# score_coerencia saiu em 10/08/2026 e a coluna fica, vazia, para não quebrar
+# quem já leu a aba. O que a tela usa agora é `resumo`, que descreve o plano em
+# vez de justificar um número.
 COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
-            "score_coerencia", "justificativa_coerencia", "ligacoes", "chars",
-            "chars_analisados", "versao", "analisado_em"]
+            "resumo", "pontes", "score_coerencia", "justificativa_coerencia",
+            "chars", "chars_analisados", "versao", "analisado_em"]
 
 # Só 2026. A aba planos_2022 continua na planilha, mas saiu do fluxo.
 ANO = "2026"
@@ -489,13 +492,13 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
     nome_urna = str(r.get("NM_URNA_CANDIDATO", "") or "").strip()
     genero = str(r.get("DS_GENERO", "") or "").strip()
     try:
-        coe = avaliar_coerencia(classif, nome=nome_urna, genero=genero)
+        coe = resumir_plano(classif, nome=nome_urna, genero=genero)
     except RespostaIlegivel as e:
-        # A coerência não tinha segunda chance, e é a última chamada do
+        # O resumo não tinha segunda chance, e é a última chamada do
         # candidato: cair aqui jogava fora a classificação inteira, já paga.
-        print(f"(coerência ilegível, tentando de novo: {e})", end=" ", flush=True)
+        print(f"(resumo ilegível, tentando de novo: {e})", end=" ", flush=True)
         time.sleep(3)
-        coe = avaliar_coerencia(classif, nome=nome_urna, genero=genero)
+        coe = resumir_plano(classif, nome=nome_urna, genero=genero)
 
     # Data em que esta análise foi feita. Sem ela, olhando a planilha ou o painel
     # não dá para saber se o que está lá é de hoje ou de duas semanas atrás.
@@ -531,17 +534,13 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
                    verificacao=verificar_trecho(paginas_norm, res["trecho"]))
               for tema, res in classif.items()]
     linha_coe = dict(comum, versao=VERSAO_COERENCIA,
-                     score_coerencia=coe["score"],
-                     justificativa_coerencia=coe["justificativa"],
-                     # As ligações que sustentaram a nota, gravadas para o
-                     # painel mostrar a evidência ao lado do número: sem elas,
-                     # um 5 frouxo e um 5 bem amarrado são o mesmo algarismo.
-                     ligacoes=coe.get("ligacoes_texto", ""))
+                     resumo=coe["resumo"],
+                     pontes=coe.get("pontes_texto", ""))
     return linhas, linha_coe, ""
 
 
 def refazer_coerencia(sh, uf: str = "", limite: int = 0, sq: str = "") -> int:
-    """Refaz só a linha de coerência, a partir da análise já gravada.
+    """Refaz só o resumo do plano, a partir da análise já gravada.
 
     Por que existe: mudar a régua da coerência custava um reprocessamento
     inteiro, porque a fila só tem um caminho e ele baixa o PDF, roda OCR e
@@ -549,7 +548,7 @@ def refazer_coerencia(sh, uf: str = "", limite: int = 0, sq: str = "") -> int:
     régua nova saiu com 19 dos 40 planos em nota 5, e corrigir o degrau ia
     custar outras três horas de Gemini pela classificação que já estava boa.
 
-    A coerência não lê o plano: avaliar_coerencia recebe a classificação, que
+    O resumo não lê o plano: resumir_plano recebe a classificação, que
     está na aba de análise. Então dá para remontar o dicionário do que já foi
     gravado e refazer só a chamada da coerência. São 79 chamadas, minutos, sem
     download e sem OCR.
@@ -603,8 +602,8 @@ def refazer_coerencia(sh, uf: str = "", limite: int = 0, sq: str = "") -> int:
                              "publico_alvo": str(l.get("publico_alvo", "")),
                              "programa_nome": str(l.get("programa_nome", ""))}
         try:
-            coe = avaliar_coerencia(classif, nome=nome,
-                                    genero=genero_de.get(sq_cand, ""))
+            coe = resumir_plano(classif, nome=nome,
+                                genero=genero_de.get(sq_cand, ""))
         except Exception as e:
             print(f"ERRO: {type(e).__name__}: {e}")
             erros.append(nome)
@@ -615,14 +614,13 @@ def refazer_coerencia(sh, uf: str = "", limite: int = 0, sq: str = "") -> int:
             "ano": ANO, "sq_candidato": sq_cand, "candidato": nome,
             "partido": primeira.get("partido", ""), "uf": primeira.get("uf", ""),
             "cargo": primeira.get("cargo", ""), "link": primeira.get("link", ""),
-            "score_coerencia": coe["score"],
-            "justificativa_coerencia": coe["justificativa"],
-            "ligacoes": coe.get("ligacoes_texto", ""),
+            "resumo": coe["resumo"],
+            "pontes": coe.get("pontes_texto", ""),
             "chars": primeira.get("chars", ""),
             "chars_analisados": primeira.get("chars_analisados", ""),
             "versao": VERSAO_COERENCIA, "analisado_em": agora,
         })
-        print(f"ok (coerência {coe['score']})")
+        print("ok (resumo escrito)")
         if len(buffer) >= LOTE:
             gravar(sh, COERENCIA_ABA, COLS_COE, ["sq_candidato"], buffer)
             buffer = []
@@ -846,7 +844,7 @@ def main() -> int:
         feitos += 1
         niveis = sum(1 for l in linhas if l["nivel"] != "Não menciona")
         print(f"ok ({niveis}/{len(linhas)} temas com conteúdo, "
-              f"coerência {coe['score_coerencia']})")
+              f"{len(coe.get('pontes', {}))} programas atravessando temas)")
 
         if feitos % LOTE == 0:
             descarrega()
