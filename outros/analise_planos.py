@@ -246,8 +246,13 @@ TERMOS_ANCORA = {
                               "urgencia e emergencia"],
     "Saúde Mental": ["saude mental", "caps", "suicidio", "dependencia quimica",
                      "ludopatia", "bets", "imposto seletivo"],
+    # "desmilitarizacao" e "policias" entraram em 10/08/2026: o plano da Samara
+    # Martins pede "Desmilitarização das polícias!" e o tema ficou em "Não
+    # menciona". Nenhuma âncora casava com o plural nem com a palavra, então a
+    # guarda de ausência nem chegou a perguntar.
     "Policiamento e Efetivo": ["efetivo policial", "policia militar", "videomonitoramento",
                                "policiamento", "seguranca ostensiva", "policial", "policia civil",
+                               "policias", "desmilitariza*",
                                "forcas de seguranca", "camera corporal", "viatura"],
     "Enfrentamento ao Crime Organizado": ["faccao*", "crime organizado", "trafico*",
                                           "inteligencia policial"],

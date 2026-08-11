@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from analise_planos import (  # noqa: E402
     NIVEIS, NIVEIS_LEGADO, TEMAS, PlanoIndisponivel, RespostaIlegivel,
-    _norm_busca, avaliar_coerencia, citacao_sustenta, classificar_plano,
+    _norm_busca, _sem_espaco, avaliar_coerencia, citacao_sustenta, classificar_plano,
     contexto_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
     normalizar_responsavel, tem_alvo_mensuravel, tema_e_item_de_enumeracao,
@@ -313,7 +313,8 @@ def conferir_classificacao(classif: dict, texto: str,
     classif = _conferir_citacao_generica(classif, texto, texto_norm, paginas_norm)
     classif = _conferir_enumeracao(classif, texto, texto_norm, paginas_norm)
     classif = _conferir_subclassificacao(classif, texto, texto_norm, paginas_norm)
-    return _conferir_meta(classif)
+    classif = _conferir_meta(classif)
+    return _conferir_nivel_por_citacao(classif)
 
 
 # A partir de quantas ocorrências do termo o tema deixa de ser menção de
@@ -633,6 +634,40 @@ def refazer_coerencia(sh, uf: str = "", limite: int = 0, sq: str = "") -> int:
         print(f"\n{len(erros)} com erro: {', '.join(erros)}")
     print("Coerência refeita.")
     return 1 if erros else 0
+
+
+def _conferir_nivel_por_citacao(classif: dict) -> dict:
+    """Alinha o nível dos temas que se apoiam na MESMA citação.
+
+    O texto é um só, então o degrau tem que ser um só: o que muda de tema para
+    tema é se aquela frase trata do tema, não o quanto ela promete. A regra
+    entrou no prompt na versão 12 e continuou furando: em 10/08/2026, 21 das
+    3.412 citações da base saíram com níveis diferentes, como o plano do Saulo
+    Arcangeli, em que "Realizaremos um amplo plano de investimentos para
+    recuperar, modernizar..." valeu Propõe ação em Média e Alta Complexidade e
+    Menciona vagamente em Saúde Mental.
+
+    Alinha pelo MENOR, como todas as outras guardas daqui: elas só rebaixam.
+    Subir espalharia para um tema o que a frase promete a outro.
+    """
+    por_citacao = {}
+    for tema, item in classif.items():
+        trecho = _sem_espaco(_norm_busca(str((item or {}).get("trecho", ""))))
+        if not trecho or (item or {}).get("nivel") == "Não menciona":
+            continue
+        por_citacao.setdefault(trecho, []).append(tema)
+
+    for temas in por_citacao.values():
+        if len(temas) < 2:
+            continue
+        niveis = {classif[t]["nivel"] for t in temas}
+        if len(niveis) < 2:
+            continue
+        menor = min(niveis, key=lambda n: NIVEIS.index(n) if n in NIVEIS else 0)
+        for t in temas:
+            if classif[t]["nivel"] != menor:
+                classif[t] = dict(classif[t], nivel=menor, score=NIVEIS.index(menor))
+    return classif
 
 
 def preencher_paginas(sh, uf: str = "", limite: int = 0) -> int:
