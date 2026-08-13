@@ -855,12 +855,19 @@ def linhas_pendentes(aba: gspread.Worksheet) -> list[dict]:
         return linha[i].strip() if i < len(linha) else ""
 
     pendentes = []
+    orfas = 0
     for numero, linha in enumerate(valores[1:], start=2):
         if celula(linha, COLUNA_PENDENTE):
             continue
         midia = celula(linha, "URL da mídia")
         post_id = celula(linha, "ID do post")
         if not midia or not post_id:
+            # Sem URL não há o que baixar, mas essa linha também nunca mais
+            # entra na fila: ela fica sem análise para sempre e não aparece
+            # como erro em rodada nenhuma. Foi assim que os 638 posts de
+            # 06/08/2026 ficaram parados. Contar e avisar é o que separa
+            # "não dá para fazer agora" de "some daqui em silêncio".
+            orfas += 1
             continue
         pendentes.append({
             "linha": numero,
@@ -871,6 +878,11 @@ def linhas_pendentes(aba: gspread.Worksheet) -> list[dict]:
             "publicado": celula(linha, "Data de publicação")[:10],
             "candidato": celula(linha, "Candidato") if "Candidato" in idx else "",
         })
+
+    if orfas:
+        print(f"Aviso: {orfas} linha(s) sem análise e sem URL da mídia na aba "
+              f"'{aba.title}'. A fase 2 não alcança essas linhas; rode "
+              f"outros/instagram_backfill.py para recoletar a mídia pelo link.")
     return pendentes
 
 
