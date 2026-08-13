@@ -162,6 +162,15 @@ def baixar_audio(url, destino):
         "yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "5",
         "--no-playlist", "--newline", "-o", str(destino / "debate.%(ext)s"), url,
     ]
+
+    # O YouTube exige resolver um desafio em JavaScript para liberar os
+    # formatos. O yt-dlp não baixa o solucionador por padrão, e sem ele o erro
+    # que aparece é "Requested format is not available", que não diz nada sobre
+    # a causa. Precisa também de um runtime JS (deno) no PATH.
+    ajuda = subprocess.run(["yt-dlp", "--help"], capture_output=True, text=True).stdout
+    if "--remote-components" in ajuda:
+        cmd[1:1] = ["--remote-components", "ejs:github"]
+        log("solucionador de desafio JS habilitado")
     # O runner do Actions cai no anti-bot do YouTube com alguma frequência. O
     # cookie resolve, e sem ele o download simplesmente volta erro.
     cookies = os.getenv("YTDLP_COOKIES", "").strip()
