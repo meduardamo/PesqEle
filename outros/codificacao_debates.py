@@ -122,12 +122,12 @@ seguindo um codebook fixo. Cada fala recebe um tipo e um tema.
 # Regras
 - Escolha para cada fala EXATAMENTE UM tipo e EXATAMENTE UM tema, escritos
   igual à lista, sem reformular o nome.
-- O tipo vem primeiro: veja o que a fala está fazendo antes de ver do que ela
-  trata.
-- Fala de tipo "Procedimental" ou "Ataque pessoal" recebe tema "{sem_tema}".
-- Fala de tipo "Proposta", "Balanço" ou "Contestação" recebe um tema da lista,
-  o da política pública em jogo. Use "{sem_tema}" apenas se realmente não
-  houver política pública nenhuma na fala.
+- As duas dimensões são independentes: o tipo é o que a fala está fazendo, o
+  tema é do que ela trata. Atacar o adversário sobre segurança é tipo "Ataque
+  pessoal" e tema "Policiamento e Efetivo".
+- Fala de tipo "Procedimental" recebe tema "{sem_tema}".
+- Nos demais tipos, use "{sem_tema}" apenas quando não houver política pública
+  nenhuma na fala, nem de passagem.
 - Se a fala cruzar dois temas, escolha aquele em que o falante gasta mais
   tempo. Não invente tema fora da lista.
 - O campo "trecho" deve ser copiado LITERALMENTE da fala, entre 4 e 25
@@ -194,9 +194,15 @@ def conferir(fala, tipo, tema, trecho):
     if tipo not in TIPOS:
         return "Procedimental", SEM_TEMA, "", f"tipo fora da lista: {tipo!r}"
 
-    # Regra mecânica, não julgamento: o que fecha a fronteira do Sem tema, que
-    # era a maior fonte de desacordo entre as passadas.
-    if tipo in ("Procedimental", "Ataque pessoal"):
+    # Só Procedimental força Sem tema, e por definição: cumprimento e regra de
+    # tempo não tratam de política pública.
+    #
+    # 'Ataque pessoal' já forçou Sem tema aqui, e foi erro. As duas dimensões
+    # são independentes: atacar o adversário sobre segurança é ataque E é
+    # segurança. Acoplar as duas fazia a oscilação do tipo (acordo de 78%)
+    # virar divergência de tema por construção, e respondia por 16 das 45
+    # divergências medidas no debate da Band de 09/08.
+    if tipo == "Procedimental":
         return tipo, SEM_TEMA, "", ""
 
     if tema == SEM_TEMA:
