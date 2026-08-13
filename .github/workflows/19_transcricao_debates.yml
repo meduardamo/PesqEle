@@ -66,6 +66,14 @@ jobs:
         # versão rodou, em vez de a falha aparecer só no meio do corte.
         run: ffmpeg -version | head -1 && ffprobe -version | head -1
 
+      - name: Runtime JavaScript para o yt-dlp
+        # O yt-dlp descontinuou extração do YouTube sem runtime JS: sem isso ele
+        # avisa "No supported JavaScript runtime" e pode perder formatos. O deno
+        # é o único habilitado por padrão.
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - run: pip install google-genai yt-dlp gspread google-auth google-api-python-client
 
       - name: Escrever credentials.json
