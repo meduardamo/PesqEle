@@ -348,7 +348,7 @@ SCORE_INSTITUTO = {
 }
 
 MEIA_VIDA_AGREGADORES_DIAS = 30
-COLUNA_CONTROLE_ABC = "media_controle_abc_30d"
+COLUNA_MODELO_AMOSTRAL = "media_amostral_30d"
 COLUNA_MODELO_HIBRIDO = "media_hibrida_30d"
 
 
@@ -1815,8 +1815,8 @@ def agregar_resultados_bi_diario(df: pd.DataFrame) -> pd.DataFrame:
 def selecionar_cenario_principal(df_resultados: pd.DataFrame) -> pd.DataFrame:
     """Seleciona um cenário por pesquisa para os agregadores de controle.
 
-    A regra pública do ABC usa o cenário principal/mais amplo para evitar que
-    uma mesma rodada acumule peso. Aqui, "mais amplo" é o cenário com o maior
+    Para evitar que uma mesma rodada acumule peso, o modelo usa apenas o
+    cenário principal/mais amplo. Aqui, "mais amplo" é o cenário com o maior
     número de candidatos. Empates são resolvidos de forma determinística pelo
     rótulo e pelo id do cenário.
     """
@@ -1972,9 +1972,9 @@ def calcular_agregadores_paralelos_resultados_bi(
     df_resultados: pd.DataFrame,
     df_pesquisas: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Gera o controle ABC e o modelo híbrido sem substituir a série oficial.
+    """Gera os modelos amostral e híbrido sem substituir a série oficial.
 
-    Controle ABC: cenário mais amplo, pesquisas presidenciais nacionais de 1º
+    Modelo amostral: cenário mais amplo, pesquisas presidenciais nacionais de 1º
     turno que testam Lula, Flávio Bolsonaro e Ronaldo Caiado simultaneamente,
     peso sqrt(amostra) e meia-vida de 30 dias.
 
@@ -2003,7 +2003,7 @@ def calcular_agregadores_paralelos_resultados_bi(
     fim = pd.to_datetime(principal["data_campo"], errors="coerce")
     # A pesquisa só passa a compor a série quando o campo termina, evitando
     # vazamento retrospectivo. A idade do peso, porém, é contada desde o início
-    # do campo, como na fórmula publicada pelo ABC.
+    # do campo, conforme a definição do modelo amostral.
     principal["_data_peso"] = inicio.fillna(fim)
     principal["_data_disponivel"] = fim
     principal["_score_instituto"] = principal["classificacao_instituto"].apply(score_instituto)
@@ -2050,7 +2050,7 @@ def calcular_agregadores_paralelos_resultados_bi(
     abc_base = abc_base[abc_base["poll_id"].isin(poll_ids_abc)]
     abc = _calcular_serie_agregada_30d(
         abc_base,
-        COLUNA_CONTROLE_ABC,
+        COLUNA_MODELO_AMOSTRAL,
         ponderar_instituto=False,
         datas_finais_escopo=datas_finais_escopo,
     )
@@ -2080,7 +2080,7 @@ def construir_resultados_bi(
         "uf", "cargo", "turno", "disputa", "data_campo",
         "candidato_partido", "tipo",
         "percentual_base", "media_movel_13d",
-        COLUNA_CONTROLE_ABC, COLUNA_MODELO_HIBRIDO,
+        COLUNA_MODELO_AMOSTRAL, COLUNA_MODELO_HIBRIDO,
         "qtd_pesquisas_dia",
         "cenario_usado_no_calculo",
         "eh_lider", "eh_segundo",
@@ -2746,7 +2746,7 @@ def reconstruir_resultados_bi(gc, sheet_id: str):
 
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "percentual_base")
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "media_movel_13d")
-    corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_CONTROLE_ABC)
+    corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_AMOSTRAL)
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_HIBRIDO)
 
 
@@ -2834,7 +2834,7 @@ def salvar_tudo(gc, spreadsheet_id: str, df_p: pd.DataFrame, df_r: pd.DataFrame)
     corrigir_coluna_numerica_na_aba(aba_resultados, "percentual_media_cenarios")
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "percentual_base")
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "media_movel_13d")
-    corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_CONTROLE_ABC)
+    corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_AMOSTRAL)
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_HIBRIDO)
 
 

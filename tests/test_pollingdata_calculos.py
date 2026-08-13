@@ -3,7 +3,7 @@ import unittest
 import pandas as pd
 
 from compartilhado.pollingdata_scraper import (
-    COLUNA_CONTROLE_ABC,
+    COLUNA_MODELO_AMOSTRAL,
     COLUNA_MODELO_HIBRIDO,
     adicionar_media_movel_13d_resultados_bi,
     adicionar_metricas_media_cenarios,
@@ -165,7 +165,7 @@ class CalculosPollingDataTest(unittest.TestCase):
         self.assertEqual(principal["scenario_label"].unique().tolist(), ["2"])
         self.assertEqual(set(principal["candidato"]), {"A", "B", "C"})
 
-    def test_controle_abc_aplica_raiz_amostra_e_meia_vida_30_dias(self):
+    def test_modelo_amostral_aplica_raiz_amostra_e_meia_vida_30_dias(self):
         resultados = pd.DataFrame(
             linhas_cenario("antiga", "2026-01-01", 50)
             + linhas_cenario("nova", "2026-01-31", 30)
@@ -182,7 +182,7 @@ class CalculosPollingDataTest(unittest.TestCase):
         ].iloc[0]
 
         # antiga: sqrt(400) * 0,5 = 10; nova: sqrt(1600) = 40
-        self.assertAlmostEqual(linha[COLUNA_CONTROLE_ABC], (50 * 10 + 30 * 40) / 50)
+        self.assertAlmostEqual(linha[COLUNA_MODELO_AMOSTRAL], (50 * 10 + 30 * 40) / 50)
 
     def test_hibrido_multiplica_score_e_nao_avaliado_permanece_025(self):
         resultados = pd.DataFrame(
@@ -211,7 +211,7 @@ class CalculosPollingDataTest(unittest.TestCase):
         self.assertEqual(calculado["data_campo"].min(), "2026-02-05")
         self.assertEqual(calculado["data_campo"].max(), "2026-02-05")
 
-    def test_controle_abc_exclui_pesquisa_sem_trio_obrigatorio(self):
+    def test_modelo_amostral_exclui_pesquisa_sem_trio_obrigatorio(self):
         completas = linhas_cenario("completa", "2026-03-01", 40)
         incompletas = [
             row for row in linhas_cenario("incompleta", "2026-03-02", 10)
@@ -231,7 +231,7 @@ class CalculosPollingDataTest(unittest.TestCase):
             & calculado["data_campo"].eq("2026-03-02")
         ].iloc[0]
 
-        self.assertAlmostEqual(linha[COLUNA_CONTROLE_ABC], 40.0)
+        self.assertAlmostEqual(linha[COLUNA_MODELO_AMOSTRAL], 40.0)
         self.assertNotAlmostEqual(linha[COLUNA_MODELO_HIBRIDO], 40.0)
 
 
