@@ -94,7 +94,7 @@ igual, e qualquer ranking tirado dali é chute.
 | `Nº de posts` | em quantos posts o tema aparece |
 | `% dos posts em que aparece` | sobre o total analisado; os temas podem se sobrepor |
 | `Temas brutos agrupados` | o que entrou em cada tema, para conferir |
-| `Resumo da conta` | três frases sobre o que o perfil vem publicando |
+| `Resumo da conta` | duas ou três frases factuais sobre o que o perfil publica |
 
 A coluna de temas brutos é a que permite auditar. Se um rótulo parecer estranho,
 ela mostra exatamente quais temas o alimentaram.
