@@ -61,8 +61,11 @@ COL = {
     "id": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
     "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
     "status": 10, "link_transcricao": 11, "link_csv": 12,
-    "processado_em": 13, "observacoes": 14, "id_fonte": 15,
+    "processado_em": 13, "observacoes": 14, "id_fonte": 15, "link_audio": 16,
 }
+# Subpasta de Debates onde o mp3 fica guardado. Procurada pelo nome em vez de
+# ir para outro secret: é filha de uma pasta que já está em secret.
+SUBPASTA_AUDIOS = "audios"
 # Onde o script escreve de volta: link_transcricao até observacoes.
 FAIXA_SAIDA = "L{i}:O{i}"
 
@@ -291,7 +294,7 @@ def clientes_google():
     return gspread.authorize(creds), build("drive", "v3", credentials=creds)
 
 
-def enviar_drive(drive, caminho, nome, mime_destino=None):
+def enviar_drive(drive, caminho, nome, mime_destino=None, pasta=None):
     """Sobe um arquivo para a pasta Debates do drive compartilhado.
 
     supportsAllDrives é obrigatório: sem ele a API responde 404 na pasta,
@@ -299,15 +302,37 @@ def enviar_drive(drive, caminho, nome, mime_destino=None):
     """
     from googleapiclient.http import MediaFileUpload
 
-    corpo = {"name": nome, "parents": [PASTA_DRIVE]}
+    corpo = {"name": nome, "parents": [pasta or PASTA_DRIVE]}
     if mime_destino:
         corpo["mimeType"] = mime_destino
-    midia = MediaFileUpload(str(caminho), resumable=False)
+    # mp3 de debate passa dos 60 MB, e upload de uma vez só nesse tamanho é o
+    # que estoura em conexão instável. Acima de 10 MB vai em pedaços.
+    grande = Path(caminho).stat().st_size > 10e6
+    midia = MediaFileUpload(str(caminho), resumable=grande)
     arq = drive.files().create(
         body=corpo, media_body=midia,
         supportsAllDrives=True, fields="id,webViewLink",
     ).execute()
     return arq["webViewLink"]
+
+
+def pasta_audios(drive):
+    """Id da subpasta 'audios', criada na primeira vez que for preciso."""
+    q = (f"'{PASTA_DRIVE}' in parents and name='{SUBPASTA_AUDIOS}' "
+         "and mimeType='application/vnd.google-apps.folder' and trashed=false")
+    achou = drive.files().list(
+        q=q, includeItemsFromAllDrives=True, supportsAllDrives=True,
+        fields="files(id)",
+    ).execute().get("files", [])
+    if achou:
+        return achou[0]["id"]
+    nova = drive.files().create(
+        body={"name": SUBPASTA_AUDIOS, "parents": [PASTA_DRIVE],
+              "mimeType": "application/vnd.google-apps.folder"},
+        supportsAllDrives=True, fields="id",
+    ).execute()
+    log(f"subpasta '{SUBPASTA_AUDIOS}' criada no Drive")
+    return nova["id"]
 
 
 def contexto_da_linha(linha):
@@ -557,7 +582,7 @@ def sincronizar(gc, ws):
 
         if idf not in por_fonte:
             ident = gerar_id(l, usados)
-            linha = [""] * 16
+            linha = [""] * len(COL)
             linha[COL["id"]] = ident
             for nome, valor in zip(DA_FONTE, campos):
                 linha[COL[nome]] = valor
@@ -641,6 +666,17 @@ def rodar_fila(args):
                 log(f"  | {l_}")
 
             audio = baixar_audio(url, saida / "_trabalho")
+
+            # O mp3 sobe antes de transcrever, e não depois: se a transcrição
+            # falhar, o áudio já está guardado e a segunda tentativa não
+            # precisa baixar de novo do YouTube, que é a parte que trava.
+            secao("ÁUDIO NO DRIVE")
+            link_audio = enviar_drive(
+                drive, audio, f"{ident}.mp3", pasta=pasta_audios(drive)
+            )
+            ws.update_cell(i, COL["link_audio"] + 1, link_audio)
+            log(f"{ident}.mp3 ({audio.stat().st_size / 1e6:.0f} MB) -> {link_audio}")
+
             caminhos, avisos = processar(
                 audio, contexto, saida, ident, args.inicio, args.duracao
             )
