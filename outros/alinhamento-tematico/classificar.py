@@ -108,6 +108,9 @@ RUIDO = {
     "presenca politica", "conexao com o povo", "voz do povo", "povo",
     "identidade regional", "identidade local", "regionalismo", "nostalgia",
     "humor", "descontracao", "entusiasmo", "recomeco", "dignidade", "respeito",
+    # avaliação genérica sem área de política pública identificada
+    "critica politica", "criticas politicas", "critica governamental",
+    "critica a gestao atual", "descaso governamental", "critica ao governo",
 }
 
 
@@ -349,7 +352,10 @@ Tarefa 1. Agrupe as variações do mesmo assunto e devolva, em "temas", os grupo
 Regras do agrupamento:
 - "brutos" só pode conter texto copiado exatamente da lista abaixo, sem alterar uma letra. Não invente item.
 - Cada bruto entra em um grupo só.
-- O rótulo carrega o que o candidato fala de concreto. Use também os nomes da seção "Vocabulário específico" quando eles detalharem um dos grupos. Esses nomes servem apenas para enriquecer o rótulo: não os inclua em "brutos" e não crie grupo só para eles.
+- Cada grupo representa UMA área de política pública. Não junte áreas diferentes no mesmo grupo: Segurança e Infraestrutura são dois grupos, Saúde e Educação são dois grupos.
+- O rótulo carrega o que o candidato fala de concreto. Use também os nomes da seção "Vocabulário específico" quando eles detalharem um dos grupos. A indicação "coaparece com" mostra a qual pauta o nome está ligado.
+- Se houver programa, obra ou indicador relacionado a um grupo, inclua pelo menos um no rótulo. Exemplo: "Saúde: PIX Saúde e Sistema Corujão", não apenas "Acesso à Saúde".
+- Os nomes específicos servem apenas para enriquecer o rótulo: não os inclua em "brutos" e não crie grupo só para eles.
 - Rótulo curto, até oito palavras.
 - Deixe de fora o que é só processo de campanha, nome de lugar, de partido ou de político, e elogio sem pauta atrás.
 - Não force: se um assunto não aparece na lista, ele não existe.
@@ -386,7 +392,8 @@ def _parece_especifico(texto: str) -> bool:
 
 
 def classificar(gem: genai.Client, candidato: str, contagem: Counter,
-                canonico: dict[str, str]) -> tuple[list[dict], str, dict]:
+                canonico: dict[str, str],
+                posts_por_tema: dict[str, set[int]]) -> tuple[list[dict], str, dict]:
     entrada = [(canonico[c], n) for c, n in contagem.most_common() if n >= MINIMO_POSTS_POR_TEMA]
     if not entrada:
         return [], "", {"entrada": 0, "saida": 0, "pensamento": 0}
@@ -394,10 +401,25 @@ def classificar(gem: genai.Client, candidato: str, contagem: Counter,
     lista = "\n".join(f"- {rotulo} ({n} posts)" for rotulo, n in entrada)
     abaixo = [(canonico[c], n) for c, n in contagem.most_common()
               if n < MINIMO_POSTS_POR_TEMA]
-    vocabulario = [(rotulo, n) for rotulo, n in abaixo if _parece_especifico(rotulo)]
+    chaves_principais = [c for c, n in contagem.most_common()
+                         if n >= MINIMO_POSTS_POR_TEMA]
+    vocabulario = []
+    for chave, n in contagem.most_common():
+        if n >= MINIMO_POSTS_POR_TEMA or not _parece_especifico(canonico[chave]):
+            continue
+        relacionados = []
+        posts_raro = posts_por_tema.get(chave, set())
+        for principal in chaves_principais:
+            intersecao = len(posts_raro & posts_por_tema.get(principal, set()))
+            if intersecao:
+                relacionados.append((intersecao, contagem[principal], canonico[principal]))
+        relacionados.sort(reverse=True)
+        if relacionados:
+            vocabulario.append((canonico[chave], n, [r[2] for r in relacionados[:3]]))
     # Limites mantêm o prompt pequeno e tornam a regra de ausência auditável.
-    texto_vocabulario = "\n".join(f"- {r} ({n} post{'s' if n != 1 else ''})"
-                                    for r, n in vocabulario[:40]) or "(vazio)"
+    texto_vocabulario = "\n".join(
+        f"- {r} ({n} post{'s' if n != 1 else ''}; coaparece com: {', '.join(rel)})"
+        for r, n, rel in vocabulario[:40]) or "(vazio)"
     texto_abaixo = "\n".join(f"- {r} ({n} post{'s' if n != 1 else ''})"
                                for r, n in abaixo[:30]) or "(vazio)"
     prompt = PROMPT.format(candidato=candidato, lista=lista,
@@ -680,7 +702,8 @@ def main() -> None:
             continue
 
         try:
-            grupos, resumo_modelo, uso = classificar(gem, candidato, contagem, canonico)
+            grupos, resumo_modelo, uso = classificar(
+                gem, candidato, contagem, canonico, posts_por_tema)
         except Exception as erro:
             print(f"[{i}/{len(alvos)}] {candidato}: falhou ({str(erro)[:160]}), pulando.")
             continue
