@@ -111,6 +111,13 @@ RUIDO = {
     # avaliação genérica sem área de política pública identificada
     "critica politica", "criticas politicas", "critica governamental",
     "critica a gestao atual", "descaso governamental", "critica ao governo",
+    # participação e linguagem política sem pauta concreta
+    "escuta ativa", "dialogo", "engajamento popular", "participacao civica",
+    "participacao cidada", "comunidade", "participacao social",
+    "propostas de governo", "promessas eleitorais", "plano de governo",
+    # termos institucionais genéricos; só entram quando há área ou ação nomeada
+    "governo", "gestao publica", "governanca", "politicas publicas",
+    "oportunidades", "futuro da bahia", "desenvolvimento", "progresso",
 }
 
 
