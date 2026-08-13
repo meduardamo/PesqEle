@@ -1824,7 +1824,7 @@ def selecionar_cenario_principal(df_resultados: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = df_resultados.copy()
-    for col in ["poll_id", "scenario_id", "scenario_label", "tipo", "candidato"]:
+    for col in ["poll_id", "scenario_id", "scenario_label", "tipo", "candidato", "turno", "disputa"]:
         if col not in df.columns:
             df[col] = ""
 
@@ -1843,8 +1843,9 @@ def selecionar_cenario_principal(df_resultados: pd.DataFrame) -> pd.DataFrame:
         + df.loc[scenario_id_vazio, "scenario_label"].astype(str)
     )
 
+    chaves_escopo = ["poll_id", "turno", "disputa"]
     contagens = (
-        df.groupby(["poll_id", "scenario_id", "scenario_label"], dropna=False)["candidato"]
+        df.groupby(chaves_escopo + ["scenario_id", "scenario_label"], dropna=False)["candidato"]
         .nunique()
         .reset_index(name="_qtd_candidatos")
     )
@@ -1854,13 +1855,13 @@ def selecionar_cenario_principal(df_resultados: pd.DataFrame) -> pd.DataFrame:
     contagens["_cenario_ordem_txt"] = contagens["scenario_label"].fillna("").astype(str)
     escolhidos = (
         contagens.sort_values(
-            ["poll_id", "_qtd_candidatos", "_cenario_ordem_num", "_cenario_ordem_txt", "scenario_id"],
-            ascending=[True, False, True, True, True],
+            chaves_escopo + ["_qtd_candidatos", "_cenario_ordem_num", "_cenario_ordem_txt", "scenario_id"],
+            ascending=[True] * len(chaves_escopo) + [False, True, True, True],
             na_position="last",
         )
-        .drop_duplicates("poll_id", keep="first")[["poll_id", "scenario_id"]]
+        .drop_duplicates(chaves_escopo, keep="first")[chaves_escopo + ["scenario_id"]]
     )
-    return df.merge(escolhidos, on=["poll_id", "scenario_id"], how="inner")
+    return df.merge(escolhidos, on=chaves_escopo + ["scenario_id"], how="inner")
 
 
 def _normalizar_candidato_agregador(valor) -> str:
@@ -2069,8 +2070,8 @@ def construir_resultados_bi(
 ) -> pd.DataFrame:
     """
     Gera uma base consolidada para BI no grão diário por candidato_partido.
-    Primeiro consolida cada pesquisa usando a média dos cenários; depois
-    agrega por dia e só então calcula a média móvel.
+    Primeiro seleciona o cenário principal (o mais amplo) de cada pesquisa;
+    depois agrega por dia e só então calcula as médias móveis.
     """
     # Apenas colunas consumidas pelo painel Streamlit. Para auditoria detalhada
     # (poll_ids, registros TSE, fontes, peso de cada dia, origem do cálculo,
@@ -2121,44 +2122,14 @@ def construir_resultados_bi(
     if df.empty:
         return pd.DataFrame(columns=cols)
 
-    df = adicionar_metricas_media_cenarios(df)
-    df["eh_cenario_media"] = df["scenario_label"].apply(eh_cenario_media)
-
-    chaves = ["poll_id", "tipo", "candidato"]
-    df_qtd = (
-        df[~df["eh_cenario_media"]]
-        .groupby(chaves, dropna=False)["scenario_label"]
-        .nunique()
-        .reset_index(name="qtd_cenarios_considerados")
-    )
-
-    df_media_lbl = (
-        df[df["eh_cenario_media"]]
-        .sort_values(chaves + ["scenario_label"])
-        .drop_duplicates(subset=chaves, keep="first")[chaves + ["scenario_label"]]
-        .rename(columns={"scenario_label": "cenario_usado_no_calculo"})
-    )
-
-    df_pref = df.copy()
-    df_pref["_ordem_escolha"] = df_pref["eh_cenario_media"].astype(int) * -1
-    df_base = (
-        df_pref
-        .sort_values(chaves + ["_ordem_escolha", "scenario_label"])
-        .drop_duplicates(subset=chaves, keep="first")
-        .copy()
-    )
-
-    df_base = df_base.merge(df_qtd, on=chaves, how="left")
-    df_base = df_base.merge(df_media_lbl, on=chaves, how="left")
-
-    df_base["origem_percentual_base"] = df_base["origem_percentual_media"]
-    df_base["percentual_base"] = df_base["percentual_media_cenarios"]
-    df_base["qtd_cenarios_considerados"] = df_base["qtd_cenarios_considerados"].fillna(0).astype(int)
-    df_base["cenario_usado_no_calculo"] = df_base["cenario_usado_no_calculo"].fillna("")
-    df_base.loc[
-        df_base["origem_percentual_base"].eq("media_calculada_no_codigo"),
-        "cenario_usado_no_calculo"
-    ] = "media_calculada_no_codigo"
+    df_base = selecionar_cenario_principal(df)
+    if df_base.empty:
+        return pd.DataFrame(columns=cols)
+    df_base = df_base.copy()
+    df_base["origem_percentual_base"] = "cenario_principal"
+    df_base["percentual_base"] = pd.to_numeric(df_base["percentual"], errors="coerce")
+    df_base["qtd_cenarios_considerados"] = 1
+    df_base["cenario_usado_no_calculo"] = df_base["scenario_label"].fillna("").astype(str)
 
     df_candidatos = df_base[df_base["tipo"].astype(str).str.lower().eq("candidato")].copy()
     df_candidatos = deduplicar_resultados_bi_preferindo_cenario_media(df_candidatos)
