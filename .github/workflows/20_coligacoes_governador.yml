@@ -2,9 +2,8 @@ name: 20 - Coligações para governador
 
 on:
   schedule:
-    # 19h30 em Recife. A última rodada normal é em 17/08/2026; depois dela o
-    # próprio workflow se desativa. Se a rodada atrasar ou falhar, 18/08 funciona
-    # como recuperação e também desativa o agendamento.
+    # 19h30 em Recife. A última rodada é em 17/08/2026; depois da tentativa
+    # final o próprio workflow se desativa, mesmo se a coleta falhar.
     - cron: '30 22 * * *'
   workflow_dispatch:
 
@@ -30,10 +29,10 @@ jobs:
           if [ "$EVENTO" = "workflow_dispatch" ]; then
             echo "executar=true" >> "$GITHUB_OUTPUT"
             echo "finalizar=false" >> "$GITHUB_OUTPUT"
-          elif [[ "$HOJE" > "2026-08-18" ]]; then
+          elif [[ "$HOJE" > "2026-08-17" ]]; then
             echo "executar=false" >> "$GITHUB_OUTPUT"
             echo "finalizar=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$HOJE" == "2026-08-17" || "$HOJE" == "2026-08-18" ]]; then
+          elif [[ "$HOJE" == "2026-08-17" ]]; then
             echo "executar=true" >> "$GITHUB_OUTPUT"
             echo "finalizar=true" >> "$GITHUB_OUTPUT"
           else
@@ -70,7 +69,7 @@ jobs:
 
       - name: Desativar após a última atualização
         if: >-
-          success() &&
+          always() &&
           github.event_name == 'schedule' &&
           steps.janela.outputs.finalizar == 'true'
         env:
