@@ -347,6 +347,10 @@ SCORE_INSTITUTO = {
     "Ainda não foi avaliado": 0.25,
 }
 
+MEIA_VIDA_AGREGADORES_DIAS = 30
+COLUNA_CONTROLE_ABC = "media_controle_abc_30d"
+COLUNA_MODELO_HIBRIDO = "media_hibrida_30d"
+
 
 def score_instituto(classificacao) -> float:
     """Retorna o peso (0–1) de uma classificação de instituto.
@@ -422,6 +426,12 @@ def normalizar_data_campo_segura(valor) -> str:
 def extrair_ultima_data(s: str) -> str:
     datas = re.findall(r"\d{4}-\d{2}-\d{2}", str(s))
     return datas[-1] if datas else _norm_ws(s)
+
+
+def extrair_primeira_data(s: str) -> str:
+    """Extrai o início do campo quando o PollingData fornece uma faixa."""
+    datas = re.findall(r"\d{4}-\d{2}-\d{2}", str(s))
+    return datas[0] if datas else _norm_ws(s)
 
 
 def parse_url_meta(url: str):
@@ -775,7 +785,9 @@ def scrape_novo_layout(driver, url, horario_raspagem, meta):
         amostra_raw = entrevistas[i] if i < len(entrevistas) else None
         registro = _norm_ws(registros[i]) if i < len(registros) else ""
         erro_conf = _strip_html(erros[i]) if i < len(erros) else ""
-        data_campo = extrair_ultima_data(ranges[i]) if i < len(ranges) else ""
+        faixa_campo = ranges[i] if i < len(ranges) else ""
+        data_inicio_campo = extrair_primeira_data(faixa_campo)
+        data_campo = extrair_ultima_data(faixa_campo)
 
         registro_norm = "" if registro.lower().startswith("sem") else registro
 
@@ -811,6 +823,7 @@ def scrape_novo_layout(driver, url, horario_raspagem, meta):
                 "instituto": instituto,
                 "classificacao_instituto": classificacao,
                 "registro_tse": registro,
+                "data_inicio_campo": data_inicio_campo,
                 "data_campo": data_campo,
                 "modo": modo,
                 "amostra": amostra,
@@ -978,6 +991,7 @@ def scrape_antigo_layout(driver, url, horario_raspagem, meta):
     parsed = df_raw[col_pesquisa].apply(parsear_pesquisa)
     df_raw["instituto"] = parsed.apply(lambda x: x[0])
     df_raw["registro_tse"] = parsed.apply(lambda x: x[1])
+    df_raw["data_inicio_campo"] = parsed.apply(lambda x: extrair_primeira_data(x[2]))
     df_raw["data_campo"] = parsed.apply(lambda x: extrair_ultima_data(x[2]))
     df_raw["_block_hash"] = df_raw[col_pesquisa].apply(lambda x: _sha1_short(_norm_ws(x), 10))
     df_raw = df_raw.drop(columns=[col_pesquisa])
@@ -986,7 +1000,7 @@ def scrape_antigo_layout(driver, url, horario_raspagem, meta):
         df_raw["Cenários"] = ""
 
     cols_meta = [c for c in df_raw.columns if c in {"Modo Pesquisa", "Entrevistas", "Erro (Confiança)", "Cenários"}]
-    cols_meta += ["instituto", "registro_tse", "data_campo", "_block_hash", "_link_fonte"]
+    cols_meta += ["instituto", "registro_tse", "data_inicio_campo", "data_campo", "_block_hash", "_link_fonte"]
     cols_meta = [c for c in cols_meta if c in df_raw.columns]
 
     cols_cand = [c for c in df_raw.columns if c not in cols_meta]
@@ -1001,6 +1015,7 @@ def scrape_antigo_layout(driver, url, horario_raspagem, meta):
     for _, row in df_raw.iterrows():
         instituto = normalizar_instituto(row.get("instituto", ""))
         registro_tse = _norm_ws(row.get("registro_tse", ""))
+        data_inicio_campo = _norm_ws(row.get("data_inicio_campo", ""))
         data_campo = _norm_ws(row.get("data_campo", ""))
         modo = _norm_ws(row.get("Modo Pesquisa", ""))
         entrevistas_raw = _norm_ws(row.get("Entrevistas", ""))
@@ -1032,6 +1047,7 @@ def scrape_antigo_layout(driver, url, horario_raspagem, meta):
             "instituto": instituto,
             "classificacao_instituto": classificacao,
             "registro_tse": registro_tse,
+            "data_inicio_campo": data_inicio_campo,
             "data_campo": data_campo,
             "modo": modo,
             "amostra": amostra,
@@ -1796,7 +1812,261 @@ def agregar_resultados_bi_diario(df: pd.DataFrame) -> pd.DataFrame:
     return df_diario.drop(columns=["_peso_total", "_pct_x_peso_sum"])
 
 
-def construir_resultados_bi(df_resultados: pd.DataFrame) -> pd.DataFrame:
+def selecionar_cenario_principal(df_resultados: pd.DataFrame) -> pd.DataFrame:
+    """Seleciona um cenário por pesquisa para os agregadores de controle.
+
+    A regra pública do ABC usa o cenário principal/mais amplo para evitar que
+    uma mesma rodada acumule peso. Aqui, "mais amplo" é o cenário com o maior
+    número de candidatos. Empates são resolvidos de forma determinística pelo
+    rótulo e pelo id do cenário.
+    """
+    if df_resultados is None or df_resultados.empty:
+        return pd.DataFrame()
+
+    df = df_resultados.copy()
+    for col in ["poll_id", "scenario_id", "scenario_label", "tipo", "candidato"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df = df[
+        df["poll_id"].astype(str).str.strip().ne("")
+        & df["tipo"].astype(str).str.strip().str.lower().eq("candidato")
+        & ~df["scenario_label"].apply(eh_cenario_media)
+    ].copy()
+    if df.empty:
+        return df
+
+    scenario_id_vazio = df["scenario_id"].astype(str).str.strip().eq("")
+    df.loc[scenario_id_vazio, "scenario_id"] = (
+        df.loc[scenario_id_vazio, "poll_id"].astype(str)
+        + "|cenario|"
+        + df.loc[scenario_id_vazio, "scenario_label"].astype(str)
+    )
+
+    contagens = (
+        df.groupby(["poll_id", "scenario_id", "scenario_label"], dropna=False)["candidato"]
+        .nunique()
+        .reset_index(name="_qtd_candidatos")
+    )
+    contagens["_cenario_ordem_num"] = pd.to_numeric(
+        contagens["scenario_label"], errors="coerce"
+    )
+    contagens["_cenario_ordem_txt"] = contagens["scenario_label"].fillna("").astype(str)
+    escolhidos = (
+        contagens.sort_values(
+            ["poll_id", "_qtd_candidatos", "_cenario_ordem_num", "_cenario_ordem_txt", "scenario_id"],
+            ascending=[True, False, True, True, True],
+            na_position="last",
+        )
+        .drop_duplicates("poll_id", keep="first")[["poll_id", "scenario_id"]]
+    )
+    return df.merge(escolhidos, on=["poll_id", "scenario_id"], how="inner")
+
+
+def _normalizar_candidato_agregador(valor) -> str:
+    txt = unicodedata.normalize("NFKD", _norm_ws(valor))
+    return "".join(ch for ch in txt if not unicodedata.combining(ch)).lower()
+
+
+def _anexar_metadados_pesquisa(
+    df_resultados: pd.DataFrame,
+    df_pesquisas: pd.DataFrame | None,
+) -> pd.DataFrame:
+    """Anexa amostra e início do campo às linhas de resultado."""
+    df = df_resultados.copy()
+    for col in ["amostra", "data_inicio_campo"]:
+        if col not in df.columns:
+            df[col] = pd.NA
+
+    if df_pesquisas is None or df_pesquisas.empty:
+        return df
+
+    meta = df_pesquisas.copy()
+    for col in ["scenario_id", "poll_id", "amostra", "data_inicio_campo"]:
+        if col not in meta.columns:
+            meta[col] = pd.NA
+
+    if "scenario_id" in df.columns:
+        por_cenario = (
+            meta[["scenario_id", "amostra", "data_inicio_campo"]]
+            .dropna(subset=["scenario_id"])
+            .drop_duplicates("scenario_id", keep="first")
+            .rename(columns={
+                "amostra": "_amostra_meta",
+                "data_inicio_campo": "_data_inicio_meta",
+            })
+        )
+        df = df.merge(por_cenario, on="scenario_id", how="left")
+        df["amostra"] = df["amostra"].where(df["amostra"].notna(), df["_amostra_meta"])
+        df["data_inicio_campo"] = df["data_inicio_campo"].where(
+            df["data_inicio_campo"].notna(), df["_data_inicio_meta"]
+        )
+        df = df.drop(columns=["_amostra_meta", "_data_inicio_meta"])
+
+    faltam_meta = df["amostra"].isna() | df["data_inicio_campo"].isna()
+    if faltam_meta.any() and "poll_id" in df.columns:
+        por_poll = (
+            meta[["poll_id", "amostra", "data_inicio_campo"]]
+            .dropna(subset=["poll_id"])
+            .drop_duplicates("poll_id", keep="first")
+            .rename(columns={
+                "amostra": "_amostra_poll",
+                "data_inicio_campo": "_data_inicio_poll",
+            })
+        )
+        df = df.merge(por_poll, on="poll_id", how="left")
+        df["amostra"] = df["amostra"].where(df["amostra"].notna(), df["_amostra_poll"])
+        df["data_inicio_campo"] = df["data_inicio_campo"].where(
+            df["data_inicio_campo"].notna(), df["_data_inicio_poll"]
+        )
+        df = df.drop(columns=["_amostra_poll", "_data_inicio_poll"])
+
+    return df
+
+
+def _calcular_serie_agregada_30d(
+    df: pd.DataFrame,
+    coluna_saida: str,
+    *,
+    ponderar_instituto: bool,
+    datas_finais_escopo: dict | None = None,
+) -> pd.DataFrame:
+    """Calcula a média diária com amostra e decaimento de meia-vida 30 dias."""
+    chaves_escopo = ["ano", "uf", "cargo", "turno", "disputa", "tipo"]
+    chaves_serie = chaves_escopo + ["candidato_partido"]
+    chaves_saida = chaves_serie + ["data_campo"]
+    if df.empty:
+        return pd.DataFrame(columns=chaves_saida + [coluna_saida])
+
+    datas_finais = datas_finais_escopo or (
+        df.groupby(chaves_escopo, dropna=False)["_data_disponivel"].max().to_dict()
+    )
+    linhas = []
+    for chave, grupo in df.groupby(chaves_serie, dropna=False):
+        grupo = grupo.sort_values("_data_disponivel").copy()
+        if grupo.empty:
+            continue
+        chave_escopo = chave[:len(chaves_escopo)]
+        data_final = datas_finais.get(chave_escopo, grupo["_data_disponivel"].max())
+        for data_ref in pd.date_range(grupo["_data_disponivel"].min(), data_final, freq="D"):
+            disponiveis = grupo[grupo["_data_disponivel"].le(data_ref)].copy()
+            idade = (data_ref - disponiveis["_data_peso"]).dt.days.clip(lower=0)
+            peso = disponiveis["_amostra_num"].pow(0.5) * (
+                2.0 ** (-idade / MEIA_VIDA_AGREGADORES_DIAS)
+            )
+            if ponderar_instituto:
+                peso = peso * disponiveis["_score_instituto"]
+            denominador = peso.sum()
+            if denominador <= 0:
+                continue
+            valor = (disponiveis["_percentual_num"] * peso).sum() / denominador
+            linha = dict(zip(chaves_serie, chave))
+            linha["data_campo"] = data_ref.strftime("%Y-%m-%d")
+            linha[coluna_saida] = float(valor)
+            linhas.append(linha)
+
+    return pd.DataFrame(linhas, columns=chaves_saida + [coluna_saida])
+
+
+def calcular_agregadores_paralelos_resultados_bi(
+    df_resultados: pd.DataFrame,
+    df_pesquisas: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Gera o controle ABC e o modelo híbrido sem substituir a série oficial.
+
+    Controle ABC: cenário mais amplo, pesquisas presidenciais nacionais de 1º
+    turno que testam Lula, Flávio Bolsonaro e Ronaldo Caiado simultaneamente,
+    peso sqrt(amostra) e meia-vida de 30 dias.
+
+    Híbrido: mesmo cenário principal e componentes de amostra/recência, com o
+    score de qualidade do instituto multiplicando o peso. Instituto não
+    avaliado continua recebendo 0,25, sem exceções por nome.
+    """
+    principal = selecionar_cenario_principal(df_resultados)
+    if principal.empty:
+        return pd.DataFrame()
+    principal = _anexar_metadados_pesquisa(principal, df_pesquisas)
+
+    for col in [
+        "ano", "uf", "cargo", "turno", "disputa", "tipo", "candidato",
+        "partido", "candidato_partido", "classificacao_instituto",
+        "registro_tse", "data_campo",
+    ]:
+        if col not in principal.columns:
+            principal[col] = ""
+    vazio_cp = principal["candidato_partido"].fillna("").astype(str).str.strip().eq("")
+    principal.loc[vazio_cp, "candidato_partido"] = principal.loc[vazio_cp, "candidato"].astype(str)
+
+    principal["_percentual_num"] = pd.to_numeric(principal.get("percentual"), errors="coerce")
+    principal["_amostra_num"] = pd.to_numeric(principal["amostra"], errors="coerce")
+    inicio = pd.to_datetime(principal["data_inicio_campo"], errors="coerce")
+    fim = pd.to_datetime(principal["data_campo"], errors="coerce")
+    # A pesquisa só passa a compor a série quando o campo termina, evitando
+    # vazamento retrospectivo. A idade do peso, porém, é contada desde o início
+    # do campo, como na fórmula publicada pelo ABC.
+    principal["_data_peso"] = inicio.fillna(fim)
+    principal["_data_disponivel"] = fim
+    principal["_score_instituto"] = principal["classificacao_instituto"].apply(score_instituto)
+    principal = principal[
+        principal["_percentual_num"].notna()
+        & principal["_amostra_num"].gt(0)
+        & principal["_data_peso"].notna()
+        & principal["_data_disponivel"].notna()
+    ].copy()
+    if principal.empty:
+        return pd.DataFrame()
+
+    # Uma linha por pesquisa/candidato: candidato ausente não entra no seu
+    # denominador, em vez de ser imputado como zero.
+    principal = principal.sort_values(["poll_id", "scenario_id", "candidato_partido"])
+    principal = principal.drop_duplicates(["poll_id", "candidato_partido"], keep="first")
+
+    chaves_escopo = ["ano", "uf", "cargo", "turno", "disputa", "tipo"]
+    datas_finais_escopo = (
+        principal.groupby(chaves_escopo, dropna=False)["_data_disponivel"].max().to_dict()
+    )
+
+    hibrido = _calcular_serie_agregada_30d(
+        principal,
+        COLUNA_MODELO_HIBRIDO,
+        ponderar_instituto=True,
+        datas_finais_escopo=datas_finais_escopo,
+    )
+
+    scope_abc = (
+        principal["uf"].astype(str).str.strip().str.upper().eq("BR")
+        & principal["cargo"].astype(str).str.lower().str.contains("president", na=False)
+        & principal["turno"].astype(str).str.strip().str.lower().eq("t1")
+        & principal["registro_tse"].fillna("").astype(str).str.strip().ne("")
+        & ~principal["registro_tse"].fillna("").astype(str).str.lower().str.startswith("sem")
+        & principal["_data_disponivel"].ge(pd.Timestamp("2026-01-01"))
+    )
+    abc_base = principal[scope_abc].copy()
+    poll_ids_abc = []
+    for poll_id, grupo in abc_base.groupby("poll_id", dropna=False):
+        nomes = " | ".join(grupo["candidato"].map(_normalizar_candidato_agregador))
+        if all(nome in nomes for nome in ("lula", "flavio", "caiado")):
+            poll_ids_abc.append(poll_id)
+    abc_base = abc_base[abc_base["poll_id"].isin(poll_ids_abc)]
+    abc = _calcular_serie_agregada_30d(
+        abc_base,
+        COLUNA_CONTROLE_ABC,
+        ponderar_instituto=False,
+        datas_finais_escopo=datas_finais_escopo,
+    )
+
+    chaves = ["ano", "uf", "cargo", "turno", "disputa", "tipo", "candidato_partido", "data_campo"]
+    if abc.empty:
+        return hibrido
+    if hibrido.empty:
+        return abc
+    return hibrido.merge(abc, on=chaves, how="outer")
+
+
+def construir_resultados_bi(
+    df_resultados: pd.DataFrame,
+    df_pesquisas: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """
     Gera uma base consolidada para BI no grão diário por candidato_partido.
     Primeiro consolida cada pesquisa usando a média dos cenários; depois
@@ -1810,6 +2080,7 @@ def construir_resultados_bi(df_resultados: pd.DataFrame) -> pd.DataFrame:
         "uf", "cargo", "turno", "disputa", "data_campo",
         "candidato_partido", "tipo",
         "percentual_base", "media_movel_13d",
+        COLUNA_CONTROLE_ABC, COLUNA_MODELO_HIBRIDO,
         "qtd_pesquisas_dia",
         "cenario_usado_no_calculo",
         "eh_lider", "eh_segundo",
@@ -1905,6 +2176,18 @@ def construir_resultados_bi(df_resultados: pd.DataFrame) -> pd.DataFrame:
     df_candidatos["eh_lider"] = df_candidatos["posicao_candidato"].eq(1)
     df_candidatos["eh_segundo"] = df_candidatos["posicao_candidato"].eq(2)
     df_candidatos = adicionar_media_movel_13d_resultados_bi(df_candidatos)
+
+    df_paralelos = calcular_agregadores_paralelos_resultados_bi(df, df_pesquisas)
+    if not df_paralelos.empty:
+        chaves_paralelos = [
+            "ano", "uf", "cargo", "turno", "disputa", "tipo",
+            "candidato_partido", "data_campo",
+        ]
+        df_candidatos = df_candidatos.merge(
+            df_paralelos,
+            on=chaves_paralelos,
+            how="left",
+        )
 
     for col in cols:
         if col not in df_candidatos.columns:
@@ -2452,15 +2735,19 @@ def reconstruir_resultados_bi(gc, sheet_id: str):
         raise ultimo_erro
 
     aba_resultados = garantir_aba(sh, "resultados", rows=20000, cols=35)
+    aba_pesquisas = garantir_aba(sh, "pesquisas", rows=50000, cols=35)
     aba_resultados_bi = garantir_aba(sh, "resultados_bi", rows=20000, cols=40)
 
     df_resultados_all = carregar_df_da_aba(aba_resultados)
-    df_resultados_bi = construir_resultados_bi(df_resultados_all)
+    df_pesquisas_all = carregar_df_da_aba(aba_pesquisas)
+    df_resultados_bi = construir_resultados_bi(df_resultados_all, df_pesquisas_all)
     sobrescrever_aba(aba_resultados_bi, df_resultados_bi)
     print(f"[+] resultados_bi: {len(df_resultados_bi)} linhas consolidadas para Looker")
 
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "percentual_base")
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "media_movel_13d")
+    corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_CONTROLE_ABC)
+    corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_HIBRIDO)
 
 
 def salvar_tudo(gc, spreadsheet_id: str, df_p: pd.DataFrame, df_r: pd.DataFrame):
@@ -2538,7 +2825,8 @@ def salvar_tudo(gc, spreadsheet_id: str, df_p: pd.DataFrame, df_r: pd.DataFrame)
     preencher_posicao_pesquisa_na_aba(aba_resultados)
 
     df_resultados_all = carregar_df_da_aba(aba_resultados)
-    df_resultados_bi = construir_resultados_bi(df_resultados_all)
+    df_pesquisas_all = carregar_df_da_aba(aba_pesquisas)
+    df_resultados_bi = construir_resultados_bi(df_resultados_all, df_pesquisas_all)
     sobrescrever_aba(aba_resultados_bi, df_resultados_bi)
     print(f"[+] resultados_bi: {len(df_resultados_bi)} linhas consolidadas para Looker")
 
@@ -2546,6 +2834,8 @@ def salvar_tudo(gc, spreadsheet_id: str, df_p: pd.DataFrame, df_r: pd.DataFrame)
     corrigir_coluna_numerica_na_aba(aba_resultados, "percentual_media_cenarios")
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "percentual_base")
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "media_movel_13d")
+    corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_CONTROLE_ABC)
+    corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_HIBRIDO)
 
 
 def _buscar_urls_no_json(obj, urls: set, pattern: str):
