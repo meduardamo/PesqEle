@@ -509,10 +509,18 @@ def compactar_rotulo(rotulo: str, limite: int = 8) -> str:
     Preserva primeiro a categoria antes dos dois-pontos e depois os primeiros
     descritores completos, sem deixar vírgula ou conjunção pendurada.
     """
+    # Remove conectores editoriais antes de cortar; assim nomes compostos como
+    # "Primeiro Emprego" permanecem inteiros dentro do limite.
+    rotulo = re.sub(r",?\s+(com foco em|incluindo|com destaque para)\s+", ": ",
+                    rotulo, flags=re.IGNORECASE)
+    rotulo = re.sub(r":\s*:\s*", ": ", rotulo)
     palavras = rotulo.split()
     if len(palavras) <= limite:
         return rotulo
-    curto = " ".join(palavras[:limite]).rstrip(" ,;:-")
+    limite_real = limite
+    if limite < len(palavras) and palavras[limite - 1].lower() in {"primeiro", "sistema"}:
+        limite_real += 1
+    curto = " ".join(palavras[:limite_real]).rstrip(" ,;:-")
     curto = re.sub(r"\s+(e|ou|com|de|da|do|das|dos)$", "", curto,
                    flags=re.IGNORECASE).rstrip(" ,;:-")
     return curto
