@@ -61,10 +61,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Conferir ffmpeg
-        # Vem no runner do ubuntu-latest. O check é para o log dizer qual
-        # versão rodou, em vez de a falha aparecer só no meio do corte.
-        run: ffmpeg -version | head -1 && ffprobe -version | head -1
+      - name: Instalar ffmpeg
+        # O ubuntu-latest não traz mais ffmpeg. Sem ele o yt-dlp baixa o vídeo
+        # e morre no pós-processamento, com uma mensagem que não diz de quem é
+        # a culpa. O `command -v` no fim é o que de fato falha se faltar: um
+        # `ffmpeg -version | head -1` devolve o código de saída do head, e
+        # passa verde mesmo sem ffmpeg nenhum.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          command -v ffmpeg && command -v ffprobe
+          ffmpeg -version | head -1
 
       - name: Runtime JavaScript para o yt-dlp
         # O yt-dlp descontinuou extração do YouTube sem runtime JS: sem isso ele
