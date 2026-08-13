@@ -6,6 +6,14 @@ name: 19 - Transcrição de Debates
 on:
   workflow_dispatch:
     inputs:
+      url:
+        description: 'Teste avulso: transcreve essa URL sem tocar na planilha nem no Drive (vazio = roda a fila normal)'
+        required: false
+        default: ''
+      contexto:
+        description: 'Participantes, só no teste avulso (vazio = o padrão do script)'
+        required: false
+        default: ''
       so_sync:
         description: 'Só puxa o calendário do monitoramento, sem transcrever nada'
         type: boolean
@@ -79,12 +87,25 @@ jobs:
           # É de lá que o calendário vem; sem isso o sync é pulado e a fila
           # roda só com o que já estiver na nossa planilha.
           SPREADSHEET_ID_INTERNO: ${{ secrets.SPREADSHEET_ID_INTERNO }}
+          URL: ${{ inputs.url }}
+          # Vai por env, e não por argumento, porque contexto tem quebra de
+          # linha e no shell isso vira barra-n literal dentro do prompt.
+          DEBATE_CONTEXTO: ${{ inputs.contexto }}
         run: |
-          python -m outros.transcricao_debates --fila \
-            ${{ inputs.so_sync == true && '--so-sync' || '' }} \
-            ${{ inputs.id && format('--id {0}', inputs.id) || '' }} \
-            ${{ inputs.inicio && format('--inicio {0}', inputs.inicio) || '' }} \
-            ${{ inputs.duracao && format('--duracao {0}', inputs.duracao) || '' }}
+          RECORTE=""
+          ${{ inputs.inicio && format('RECORTE="$RECORTE --inicio {0}"', inputs.inicio) || 'true' }}
+          ${{ inputs.duracao && format('RECORTE="$RECORTE --duracao {0}"', inputs.duracao) || 'true' }}
+
+          if [ -n "$URL" ]; then
+            # Teste avulso: não sincroniza, não escreve na planilha, não sobe
+            # para o Drive. Só o artefato do run, para conferir qualidade.
+            echo "modo avulso: planilha e Drive intocados"
+            python -m outros.transcricao_debates --url "$URL" --nome teste $RECORTE
+          else
+            python -m outros.transcricao_debates --fila $RECORTE \
+              ${{ inputs.so_sync == true && '--so-sync' || '' }} \
+              ${{ inputs.id && format('--id {0}', inputs.id) || '' }}
+          fi
 
       - name: Resumo na página do run
         if: always()
@@ -94,10 +115,10 @@ jobs:
             echo ""
             echo "Fila e links de saída na planilha Mapeamento de Debates (drive Eleições 2026 > Debates)."
             echo ""
-            if compgen -G "transcricoes/*/*.txt" > /dev/null; then
+            if compgen -G "transcricoes/**/*.txt" > /dev/null || compgen -G "transcricoes/*.txt" > /dev/null; then
               echo "| arquivo | tamanho | falas |"
               echo "|---|---|---|"
-              for f in transcricoes/*/*.txt; do
+              for f in $(find transcricoes -name '*.txt' 2>/dev/null); do
                 echo "| $(basename "$f") | $(du -h "$f" | cut -f1) | $(wc -l < "$f") |"
               done
             else
