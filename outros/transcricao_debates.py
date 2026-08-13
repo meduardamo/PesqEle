@@ -11,7 +11,14 @@ de chute, e o log mostra bloco a bloco onde a identificação afrouxou.
 O áudio vai em blocos de 10 min e não inteiro: em arquivo longo o modelo
 começa a resumir em vez de transcrever, e o corte é o que segura isso.
 
+A fila vem da planilha "Mapeamento de Debates", no drive compartilhado
+Eleições 2026. Quem quiser transcrever um debate cola o link do YouTube lá e
+põe o status em 'pendente'; o script devolve os links da transcrição na
+própria linha.
+
 Uso:
+    python -m outros.transcricao_debates --fila
+    python -m outros.transcricao_debates --fila --id 2026-band-sp-gov-t1
     python -m outros.transcricao_debates --url "https://youtube.com/watch?v=..."
     python -m outros.transcricao_debates --audio debate.mp3 --inicio 00:30:00 --duracao 00:10:00
 """
@@ -24,12 +31,32 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from google import genai
 from google.genai import types
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+# Drive compartilhado "Eleições 2026" > Debates, e a planilha de mapeamento que
+# fica dentro dela. Sem valor padrão no código: este repo é público, e o resto
+# dele já guarda id de planilha em secret.
+PASTA_DRIVE = os.getenv("PASTA_DRIVE_DEBATES", "").strip()
+PLANILHA = os.getenv("SPREADSHEET_ID_DEBATES", "").strip()
+ABA = "debates"
+
+ESCOPOS = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets",
+]
+
+# Ordem das colunas da aba 'debates'. Mexeu na planilha, mexe aqui.
+COL = {
+    "id": 0, "data": 1, "cargo": 2, "uf": 3, "turno": 4, "emissora": 5,
+    "url_youtube": 6, "mediador": 7, "participantes": 8, "status": 9,
+    "link_transcricao": 10, "link_csv": 11, "processado_em": 12, "observacoes": 13,
+}
 
 BLOCO_SEG = 600          # 10 min de conteúdo por bloco
 SOBREPOSICAO_SEG = 20    # o bloco vai 20s além, para não cortar frase na borda
@@ -40,14 +67,9 @@ TENTATIVAS = 3
 LINHAS_POR_MIN_SUSPEITO = 4.0
 
 CONTEXTO_PADRAO = """\
-Debate ao governo de São Paulo, TV Bandeirantes, eleições de 2026.
+Debate eleitoral brasileiro das eleições de 2026.
 
-Participantes:
-- Rodolfo Schneider, mediador do debate
-- Tarcísio de Freitas (REPUBLICANOS)
-- Fernando Haddad (PT)
-- Jornalistas da bancada, que fazem perguntas aos candidatos
-
+Participantes: mediador, candidatos e jornalistas da bancada.
 Marque jornalista da bancada como JORNALISTA quando não der para saber o nome."""
 
 PROMPT = """Você está transcrevendo o áudio de um debate eleitoral brasileiro.
@@ -77,6 +99,8 @@ RE_LINHA = re.compile(r"^\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*([^:]{1,60}?)\s*:\
 _T0 = time.time()
 
 
+# ---------------------------------------------------------------- log
+
 def log(msg=""):
     """Print com relógio, para acompanhar rodada longa no log do Actions."""
     if msg == "":
@@ -99,18 +123,23 @@ def hhmmss(seg):
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
+def agora_brt():
+    return datetime.now(timezone(timedelta(hours=-3))).strftime("%Y-%m-%d %H:%M")
+
+
 def exige(binario):
     if not shutil.which(binario):
         sys.exit(f"'{binario}' não encontrado no PATH.")
 
 
+# ---------------------------------------------------------------- áudio
+
 def baixar_audio(url, destino):
     exige("yt-dlp")
     log(f"baixando áudio de {url}")
-    saida = destino / "debate.%(ext)s"
     cmd = [
         "yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "5",
-        "--no-playlist", "--newline", "-o", str(saida), url,
+        "--no-playlist", "--newline", "-o", str(destino / "debate.%(ext)s"), url,
     ]
     # O runner do Actions cai no anti-bot do YouTube com alguma frequência. O
     # cookie resolve, e sem ele o download simplesmente volta erro.
@@ -127,11 +156,11 @@ def baixar_audio(url, destino):
             log(f"  {linha.strip()}")
     if proc.returncode != 0:
         log((proc.stderr or "").strip()[-1500:])
-        sys.exit("yt-dlp falhou. Se for bloqueio do YouTube, popule o secret YTDLP_COOKIES.")
+        raise RuntimeError("yt-dlp falhou (se for bloqueio do YouTube, popule o secret YTDLP_COOKIES)")
 
     mp3 = destino / "debate.mp3"
     if not mp3.exists():
-        sys.exit("yt-dlp terminou sem gerar debate.mp3.")
+        raise RuntimeError("yt-dlp terminou sem gerar debate.mp3")
     log(f"áudio salvo: {mp3.name} ({mp3.stat().st_size / 1e6:.1f} MB)")
     return mp3
 
@@ -157,7 +186,9 @@ def recortar(origem, destino, inicio, dur):
     return destino
 
 
-def subir(client, caminho):
+# ---------------------------------------------------------------- gemini
+
+def subir_gemini(client, caminho):
     arq = client.files.upload(file=str(caminho))
     esperou = 0
     while arq.state.name == "PROCESSING":
@@ -227,74 +258,109 @@ def parsear(texto, offset, limite):
     return linhas, ignoradas, fora
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Transcreve debate com quem falou o quê")
-    fonte = ap.add_mutually_exclusive_group(required=True)
-    fonte.add_argument("--url", help="URL do vídeo (YouTube)")
-    fonte.add_argument("--audio", help="arquivo de áudio local")
-    ap.add_argument("--inicio", default=None, help="HH:MM:SS, recorta o áudio antes de processar")
-    ap.add_argument("--duracao", default=None, help="HH:MM:SS, recorta o áudio antes de processar")
-    ap.add_argument("--contexto", default=None, help="participantes do debate; sobrescreve o padrão")
-    ap.add_argument("--saida", default="transcricoes", help="pasta de saída")
-    ap.add_argument("--nome", default="debate", help="prefixo dos arquivos gerados")
-    args = ap.parse_args()
+# ---------------------------------------------------------------- google
 
-    chave = os.getenv("GEMINI_API_KEY", "").strip()
-    if not chave:
-        sys.exit("GEMINI_API_KEY não definido.")
+def clientes_google():
+    """gspread e Drive v3 a partir da credencial da conta de serviço."""
+    from google.oauth2.service_account import Credentials
+    from googleapiclient.discovery import build
+    import gspread
 
-    # O workflow passa por env var, não por argumento: contexto tem quebra de
-    # linha, e no shell isso vira barra-n literal dentro do prompt.
-    contexto = (args.contexto or os.getenv("DEBATE_CONTEXTO", "")).strip() or CONTEXTO_PADRAO
-    saida = Path(args.saida)
-    saida.mkdir(parents=True, exist_ok=True)
+    caminho = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
+    if not Path(caminho).exists():
+        sys.exit(f"credencial não encontrada em '{caminho}'.")
+    creds = Credentials.from_service_account_file(caminho, scopes=ESCOPOS)
+    return gspread.authorize(creds), build("drive", "v3", credentials=creds)
+
+
+def enviar_drive(drive, caminho, nome, mime_destino=None):
+    """Sobe um arquivo para a pasta Debates do drive compartilhado.
+
+    supportsAllDrives é obrigatório: sem ele a API responde 404 na pasta,
+    porque drive compartilhado não aparece na visão padrão da conta.
+    """
+    from googleapiclient.http import MediaFileUpload
+
+    corpo = {"name": nome, "parents": [PASTA_DRIVE]}
+    if mime_destino:
+        corpo["mimeType"] = mime_destino
+    midia = MediaFileUpload(str(caminho), resumable=False)
+    arq = drive.files().create(
+        body=corpo, media_body=midia,
+        supportsAllDrives=True, fields="id,webViewLink",
+    ).execute()
+    return arq["webViewLink"]
+
+
+def contexto_da_linha(linha):
+    """Monta o bloco de participantes que vai no prompt, a partir da planilha."""
+    def campo(nome):
+        i = COL[nome]
+        return (linha[i] if i < len(linha) else "").strip()
+
+    cargo, uf, turno = campo("cargo"), campo("uf"), campo("turno")
+    emissora, mediador = campo("emissora"), campo("mediador")
+
+    cabecalho = "Debate eleitoral brasileiro das eleições de 2026"
+    if cargo:
+        cabecalho = f"Debate ao cargo de {cargo}"
+        if uf:
+            cabecalho += f" por {uf}"
+    if emissora:
+        cabecalho += f", {emissora}"
+    if turno:
+        cabecalho += f", {turno}º turno"
+    cabecalho += ", eleições de 2026."
+
+    pessoas = []
+    if mediador:
+        pessoas.append(f"- {mediador}, mediador do debate")
+    for p in campo("participantes").split(";"):
+        if p.strip():
+            pessoas.append(f"- {p.strip()}")
+    if not pessoas:
+        return CONTEXTO_PADRAO
+
+    return (
+        f"{cabecalho}\n\nParticipantes:\n" + "\n".join(pessoas)
+        + "\n- Jornalistas da bancada, que fazem perguntas aos candidatos\n\n"
+        "Marque jornalista da bancada como JORNALISTA quando não der para saber o nome."
+    )
+
+
+# ---------------------------------------------------------------- núcleo
+
+def processar(origem, contexto, saida, nome, inicio=None, dur=None):
+    """Transcreve um áudio inteiro e grava txt, csv e bruto. Devolve os caminhos."""
     trabalho = saida / "_trabalho"
-    trabalho.mkdir(exist_ok=True)
-
-    secao("CONFIGURAÇÃO")
-    log(f"modelo          : {GEMINI_MODEL}")
-    log(f"bloco           : {BLOCO_SEG}s + {SOBREPOSICAO_SEG}s de sobreposição")
-    log(f"fonte           : {args.url or args.audio}")
-    log(f"recorte         : {args.inicio or 'do início'} por {args.duracao or 'tudo'}")
-    log(f"saída           : {saida.resolve()}")
-    log("contexto informado ao modelo:")
-    for linha in contexto.splitlines():
-        log(f"  | {linha}")
-
-    secao("ÁUDIO")
-    origem = baixar_audio(args.url, trabalho) if args.url else Path(args.audio).resolve()
-    if not origem.exists():
-        sys.exit(f"arquivo não encontrado: {origem}")
+    trabalho.mkdir(parents=True, exist_ok=True)
 
     total_bruto = duracao(origem)
     log(f"duração original: {hhmmss(total_bruto)}")
-
-    if args.inicio or args.duracao:
-        ini = args.inicio or "00:00:00"
-        log(f"recortando de {ini}" + (f" por {args.duracao}" if args.duracao else " até o fim"))
-        origem = recortar(origem, trabalho / "recorte.mp3", ini, args.duracao)
+    if inicio or dur:
+        log(f"recortando de {inicio or '00:00:00'}" + (f" por {dur}" if dur else " até o fim"))
+        origem = recortar(origem, trabalho / "recorte.mp3", inicio or "00:00:00", dur)
 
     total = duracao(origem)
     n_blocos = max(1, -(-int(total) // BLOCO_SEG))
     log(f"duração a processar: {hhmmss(total)} em {n_blocos} bloco(s)")
 
-    client = genai.Client(api_key=chave)
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     linhas, bruto, vazios, suspeitos = [], [], [], []
 
     secao("TRANSCRIÇÃO")
-    inicio = 0
-    n = 0
-    while inicio < total - 1:
+    pos, n = 0, 0
+    while pos < total - 1:
         n += 1
-        ultimo = inicio + BLOCO_SEG >= total
-        dur = min(BLOCO_SEG + SOBREPOSICAO_SEG, total - inicio)
+        ultimo = pos + BLOCO_SEG >= total
+        d = min(BLOCO_SEG + SOBREPOSICAO_SEG, total - pos)
         limite = None if ultimo else BLOCO_SEG
-        log(f"bloco {n}/{n_blocos}  {hhmmss(inicio)} a {hhmmss(inicio + dur)}")
+        log(f"bloco {n}/{n_blocos}  {hhmmss(pos)} a {hhmmss(pos + d)}")
 
-        arq_bloco = recortar(origem, trabalho / f"bloco_{n:03d}.mp3", inicio, int(dur))
+        arq_bloco = recortar(origem, trabalho / f"bloco_{n:03d}.mp3", pos, int(d))
         log(f"    cortado: {arq_bloco.stat().st_size / 1e6:.2f} MB")
 
-        subido, esperou = subir(client, arq_bloco)
+        subido, esperou = subir_gemini(client, arq_bloco)
         log(f"    enviado ({esperou}s de processamento no servidor)")
 
         texto = transcrever(client, subido, contexto)
@@ -303,18 +369,18 @@ def main():
         except Exception:
             pass
 
-        bruto.append(f"### bloco {n} ({hhmmss(inicio)} a {hhmmss(inicio + dur)})\n\n{texto}")
+        bruto.append(f"### bloco {n} ({hhmmss(pos)} a {hhmmss(pos + d)})\n\n{texto}")
 
         if not texto:
             vazios.append(n)
             log(f"    bloco {n} voltou vazio depois de {TENTATIVAS} tentativas, segue")
-            inicio += BLOCO_SEG
+            pos += BLOCO_SEG
             continue
 
-        novas, ignoradas, fora = parsear(texto, inicio, limite)
+        novas, ignoradas, fora = parsear(texto, pos, limite)
         linhas.extend(novas)
 
-        minutos = (limite or dur) / 60
+        minutos = (limite or d) / 60
         densidade = len(novas) / minutos if minutos else 0
         falantes = sorted({r["falante"] for r in novas})
         desconhecidas = sum(1 for r in novas if r["falante"] == "DESCONHECIDO")
@@ -330,51 +396,50 @@ def main():
             log(f"    {fora} linha(s) da sobreposição, cobertas pelo bloco seguinte")
         if densidade < LINHAS_POR_MIN_SUSPEITO:
             suspeitos.append(n)
-            log(f"    ATENÇÃO: densidade baixa, o modelo pode ter resumido este bloco")
+            log("    ATENÇÃO: densidade baixa, o modelo pode ter resumido este bloco")
         for r in novas[:2]:
             log(f"    > [{r['tempo']}] {r['falante']}: {r['fala'][:90]}")
 
-        inicio += BLOCO_SEG
+        pos += BLOCO_SEG
 
     if not linhas:
-        sys.exit("nenhuma fala transcrita.")
+        raise RuntimeError("nenhuma fala transcrita")
 
     secao("SAÍDA")
     linhas.sort(key=lambda r: r["segundos"])
-    base = saida / args.nome
+    base = saida / nome
 
     with open(f"{base}.txt", "w", encoding="utf-8") as f:
         for r in linhas:
             f.write(f"[{r['tempo']}] {r['falante']}: {r['fala']}\n")
-
     with open(f"{base}.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["segundos", "tempo", "falante", "fala"])
         w.writeheader()
         w.writerows(linhas)
-
     with open(f"{base}_bruto.md", "w", encoding="utf-8") as f:
         f.write("\n\n".join(bruto))
 
-    for p in (f"{base}.txt", f"{base}.csv", f"{base}_bruto.md"):
-        log(f"{p}  ({Path(p).stat().st_size / 1024:.0f} KB)")
+    caminhos = [Path(f"{base}.txt"), Path(f"{base}.csv"), Path(f"{base}_bruto.md")]
+    for p in caminhos:
+        log(f"{p}  ({p.stat().st_size / 1024:.0f} KB)")
 
     secao("RESUMO POR FALANTE")
     agg = {}
     for r in linhas:
-        d = agg.setdefault(r["falante"], {"falas": 0, "palavras": 0})
-        d["falas"] += 1
-        d["palavras"] += len(r["fala"].split())
-    tot_palavras = sum(d["palavras"] for d in agg.values()) or 1
+        d_ = agg.setdefault(r["falante"], {"falas": 0, "palavras": 0})
+        d_["falas"] += 1
+        d_["palavras"] += len(r["fala"].split())
+    tot = sum(v["palavras"] for v in agg.values()) or 1
 
     log(f"{'falante':<26} {'falas':>7} {'palavras':>10} {'share':>7}")
     log("-" * 54)
-    for nome, d in sorted(agg.items(), key=lambda x: -x[1]["palavras"]):
-        log(f"{nome:<26} {d['falas']:>7} {d['palavras']:>10} {d['palavras'] / tot_palavras:>6.1%}")
+    for f_, v in sorted(agg.items(), key=lambda x: -x[1]["palavras"]):
+        log(f"{f_:<26} {v['falas']:>7} {v['palavras']:>10} {v['palavras'] / tot:>6.1%}")
     log("-" * 54)
-    log(f"{'TOTAL':<26} {len(linhas):>7} {tot_palavras:>10}")
+    log(f"{'TOTAL':<26} {len(linhas):>7} {tot:>10}")
 
     secao("O QUE CONFERIR ANTES DE USAR")
-    desc = agg.get("DESCONHECIDO", {}).get("palavras", 0) / tot_palavras
+    desc = agg.get("DESCONHECIDO", {}).get("palavras", 0) / tot
     log(f"cobertura: {hhmmss(linhas[-1]['segundos'])} de {hhmmss(total)} de áudio")
     log(f"DESCONHECIDO: {desc:.1%} das palavras")
     if vazios:
@@ -387,6 +452,139 @@ def main():
     log("trocas de bloco e os apartes contra o vídeo antes de citar em entrega")
 
     shutil.rmtree(trabalho, ignore_errors=True)
+    avisos = []
+    if vazios:
+        avisos.append(f"blocos vazios: {vazios}")
+    if suspeitos:
+        avisos.append(f"densidade baixa: {suspeitos}")
+    if desc >= 0.05:
+        avisos.append(f"DESCONHECIDO em {desc:.0%} das palavras")
+    return caminhos, "; ".join(avisos)
+
+
+# ---------------------------------------------------------------- fila
+
+def rodar_fila(args):
+    if not PLANILHA or not PASTA_DRIVE:
+        sys.exit("defina SPREADSHEET_ID_DEBATES e PASTA_DRIVE_DEBATES (secrets do repo).")
+    gc, drive = clientes_google()
+    ws = gc.open_by_key(PLANILHA).worksheet(ABA)
+    todas = ws.get_all_values()
+    log(f"planilha: {len(todas) - 1} linha(s) na aba '{ABA}'")
+
+    fila = []
+    for i, linha in enumerate(todas[1:], start=2):
+        if not linha or not linha[COL["url_youtube"]].strip():
+            continue
+        status = (linha[COL["status"]] if COL["status"] < len(linha) else "").strip().lower()
+        ident = linha[COL["id"]].strip()
+        if args.id and ident != args.id:
+            continue
+        if not args.id and status != "pendente":
+            continue
+        fila.append((i, linha))
+
+    if not fila:
+        log("nada pendente. Ponha o status de uma linha em 'pendente' e rode de novo.")
+        return
+
+    log(f"fila: {len(fila)} debate(s) -> {', '.join(l[COL['id']] or f'linha {i}' for i, l in fila)}")
+
+    for i, linha in fila:
+        ident = linha[COL["id"]].strip() or f"linha{i}"
+        url = linha[COL["url_youtube"]].strip()
+        secao(f"DEBATE {ident}  (linha {i})")
+
+        ws.update_cell(i, COL["status"] + 1, "processando")
+        saida = Path(args.saida) / ident
+        saida.mkdir(parents=True, exist_ok=True)
+        try:
+            contexto = contexto_da_linha(linha)
+            log("contexto montado a partir da planilha:")
+            for l_ in contexto.splitlines():
+                log(f"  | {l_}")
+
+            audio = baixar_audio(url, saida / "_trabalho")
+            caminhos, avisos = processar(
+                audio, contexto, saida, ident, args.inicio, args.duracao
+            )
+
+            secao("DRIVE")
+            links = {}
+            for p in caminhos:
+                # txt vira Doc e csv vira Sheets: é como a equipe lê e cruza
+                # depois. O bruto fica como arquivo, que é material de conferência.
+                destino = {".txt": "application/vnd.google-apps.document",
+                           ".csv": "application/vnd.google-apps.spreadsheet"}.get(p.suffix)
+                links[p.suffix] = enviar_drive(drive, p, p.name, destino)
+                log(f"{p.name} -> {links[p.suffix]}")
+
+            ws.update(
+                values=[[links.get(".txt", ""), links.get(".csv", ""),
+                         agora_brt(), avisos]],
+                range_name=f"K{i}:N{i}",
+            )
+            ws.update_cell(i, COL["status"] + 1, "pronto")
+            log(f"linha {i} marcada como 'pronto'")
+        except Exception as e:
+            log(f"ERRO em {ident}: {e}")
+            ws.update_cell(i, COL["status"] + 1, "erro")
+            ws.update_cell(i, COL["observacoes"] + 1, str(e)[:400])
+        finally:
+            shutil.rmtree(saida / "_trabalho", ignore_errors=True)
+
+
+# ---------------------------------------------------------------- main
+
+def main():
+    ap = argparse.ArgumentParser(description="Transcreve debate com quem falou o quê")
+    fonte = ap.add_mutually_exclusive_group(required=True)
+    fonte.add_argument("--fila", action="store_true", help="processa os 'pendente' da planilha")
+    fonte.add_argument("--url", help="URL avulsa do vídeo (YouTube)")
+    fonte.add_argument("--audio", help="arquivo de áudio local")
+    ap.add_argument("--id", default=None, help="com --fila, roda só esse id (ignora o status)")
+    ap.add_argument("--inicio", default=None, help="HH:MM:SS, recorta o áudio antes de processar")
+    ap.add_argument("--duracao", default=None, help="HH:MM:SS, recorta o áudio antes de processar")
+    ap.add_argument("--contexto", default=None, help="participantes; só nos modos avulsos")
+    ap.add_argument("--saida", default="transcricoes", help="pasta de saída local")
+    ap.add_argument("--nome", default="debate", help="prefixo dos arquivos, nos modos avulsos")
+    args = ap.parse_args()
+
+    if not os.getenv("GEMINI_API_KEY", "").strip():
+        sys.exit("GEMINI_API_KEY não definido.")
+
+    secao("CONFIGURAÇÃO")
+    log(f"modelo   : {GEMINI_MODEL}")
+    log(f"bloco    : {BLOCO_SEG}s + {SOBREPOSICAO_SEG}s de sobreposição")
+    log(f"modo     : {'fila' if args.fila else ('url' if args.url else 'áudio local')}")
+    log(f"recorte  : {args.inicio or 'do início'} por {args.duracao or 'tudo'}")
+    log(f"saída    : {Path(args.saida).resolve()}")
+    if args.fila:
+        log(f"planilha : {PLANILHA}")
+        log(f"pasta    : {PASTA_DRIVE}")
+        rodar_fila(args)
+        return
+
+    # Modo avulso: não toca na planilha nem no Drive, serve para teste rápido.
+    contexto = (args.contexto or os.getenv("DEBATE_CONTEXTO", "")).strip() or CONTEXTO_PADRAO
+    log("contexto informado ao modelo:")
+    for l_ in contexto.splitlines():
+        log(f"  | {l_}")
+
+    saida = Path(args.saida)
+    saida.mkdir(parents=True, exist_ok=True)
+
+    secao("ÁUDIO")
+    if args.url:
+        trabalho = saida / "_trabalho"
+        trabalho.mkdir(exist_ok=True)
+        origem = baixar_audio(args.url, trabalho)
+    else:
+        origem = Path(args.audio).resolve()
+        if not origem.exists():
+            sys.exit(f"arquivo não encontrado: {origem}")
+
+    processar(origem, contexto, saida, args.nome, args.inicio, args.duracao)
 
 
 if __name__ == "__main__":

@@ -1,18 +1,15 @@
 name: 19 - Transcrição de Debates
 
-# Sob demanda, não agendado: debate tem data marcada e transcrição de vídeo
-# errado é dinheiro de API gasto à toa. Quem dispara escolhe a URL.
+# Sob demanda, não agendado: debate tem data marcada, e a fila só anda quando
+# alguém põe uma linha em 'pendente' na planilha "Mapeamento de Debates"
+# (drive compartilhado Eleições 2026 > Debates).
 on:
   workflow_dispatch:
     inputs:
-      url:
-        description: 'URL do vídeo (YouTube)'
-        required: true
-        default: 'https://www.youtube.com/watch?v=MlkbHbt9F7w'
-      nome:
-        description: 'Prefixo dos arquivos gerados'
+      id:
+        description: 'Roda só esse id da planilha, ignorando o status (vazio = todos os pendentes)'
         required: false
-        default: 'debate'
+        default: ''
       inicio:
         description: 'Recorte, início em HH:MM:SS (vazio = do começo)'
         required: false
@@ -21,17 +18,21 @@ on:
         description: 'Recorte, duração em HH:MM:SS (vazio = tudo). Use 00:10:00 para testar barato'
         required: false
         default: ''
-      contexto:
-        description: 'Participantes do debate (vazio = o padrão do script)'
-        required: false
-        default: ''
       modelo:
         description: 'Modelo Gemini'
         required: false
         default: 'gemini-2.5-flash'
 
-# Duas rodadas ao mesmo tempo brigam pela cota da API e embaralham os
-# artefatos. Não cancela a corrente para não jogar fora bloco já pago.
+  # Disparo externo pelo mesmo agendador que já chama os workflows 06, 08 e 15:
+  # POST /repos/meduardamo/eixo-eleicoes/dispatches com
+  # {"event_type": "transcrever-debates"}. Rodar duas vezes não duplica nada: a
+  # fila é só quem está em 'pendente', e o script move para 'processando'
+  # assim que pega a linha.
+  repository_dispatch:
+    types: [transcrever-debates]
+
+# Duas rodadas ao mesmo tempo brigam pela cota da API e pelas mesmas linhas da
+# planilha. Não cancela a corrente para não jogar fora bloco já pago.
 concurrency:
   group: transcricao-debates
   cancel-in-progress: false
@@ -39,7 +40,7 @@ concurrency:
 jobs:
   transcrever:
     runs-on: ubuntu-latest
-    timeout-minutes: 180    # debate de 2h dá ~12 blocos; sobra folga para retry
+    timeout-minutes: 330    # debate de 2h dá ~12 blocos; a fila pode ter vários
     steps:
       - uses: actions/checkout@v4
 
@@ -52,25 +53,26 @@ jobs:
         # versão rodou, em vez de a falha aparecer só no meio do corte.
         run: ffmpeg -version | head -1 && ffprobe -version | head -1
 
-      - run: pip install google-genai yt-dlp
+      - run: pip install google-genai yt-dlp gspread google-auth google-api-python-client
 
-      - name: Transcrever
+      - name: Escrever credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+
+      - name: Transcrever a fila
         env:
           PYTHONUNBUFFERED: "1"     # sem isso o log só aparece quando o job acaba
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ inputs.modelo }}
-          # Vai por env, e não por argumento, porque contexto tem quebra de
-          # linha e no shell isso vira barra-n literal dentro do prompt.
-          DEBATE_CONTEXTO: ${{ inputs.contexto }}
+          GEMINI_MODEL: ${{ inputs.modelo || 'gemini-2.5-flash' }}
           # Opcional. O YouTube às vezes barra o IP do runner como bot; com o
           # conteúdo de um cookies.txt neste secret o yt-dlp passa.
           YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
-          URL: ${{ inputs.url }}
-          NOME: ${{ inputs.nome }}
+          # Repo público: id de planilha e de pasta ficam em secret, como o
+          # SPREADSHEET_ID_TSE dos outros workflows.
+          SPREADSHEET_ID_DEBATES: ${{ secrets.SPREADSHEET_ID_DEBATES }}
+          PASTA_DRIVE_DEBATES: ${{ secrets.PASTA_DRIVE_DEBATES }}
         run: |
-          python -m outros.transcricao_debates \
-            --url "$URL" \
-            --nome "$NOME" \
+          python -m outros.transcricao_debates --fila \
+            ${{ inputs.id && format('--id {0}', inputs.id) || '' }} \
             ${{ inputs.inicio && format('--inicio {0}', inputs.inicio) || '' }} \
             ${{ inputs.duracao && format('--duracao {0}', inputs.duracao) || '' }}
 
@@ -78,26 +80,28 @@ jobs:
         if: always()
         run: |
           {
-            echo "## Transcrição: ${{ inputs.nome }}"
+            echo "## Transcrição de debates"
             echo ""
-            echo "Fonte: ${{ inputs.url }}"
+            echo "Fila e links de saída na planilha Mapeamento de Debates (drive Eleições 2026 > Debates)."
             echo ""
-            if [ -f "transcricoes/${{ inputs.nome }}.txt" ]; then
-              echo "Primeiras 30 falas:"
-              echo ""
-              echo '```'
-              head -30 "transcricoes/${{ inputs.nome }}.txt"
-              echo '```'
+            if compgen -G "transcricoes/*/*.txt" > /dev/null; then
+              echo "| arquivo | tamanho | falas |"
+              echo "|---|---|---|"
+              for f in transcricoes/*/*.txt; do
+                echo "| $(basename "$f") | $(du -h "$f" | cut -f1) | $(wc -l < "$f") |"
+              done
             else
               echo "Nenhuma transcrição gerada. Veja o log do passo anterior."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publicar arquivos
+        # Cópia de segurança do que já foi para o Drive, com o _bruto.md para
+        # conferência. Some em 30 dias; o que fica é o Drive.
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: transcricao-${{ inputs.nome }}-${{ github.run_number }}
+          name: transcricoes-${{ github.run_number }}
           path: transcricoes/
           retention-days: 30
           if-no-files-found: warn
