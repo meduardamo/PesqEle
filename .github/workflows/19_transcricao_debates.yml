@@ -1,0 +1,103 @@
+name: 19 - Transcrição de Debates
+
+# Sob demanda, não agendado: debate tem data marcada e transcrição de vídeo
+# errado é dinheiro de API gasto à toa. Quem dispara escolhe a URL.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL do vídeo (YouTube)'
+        required: true
+        default: 'https://www.youtube.com/watch?v=MlkbHbt9F7w'
+      nome:
+        description: 'Prefixo dos arquivos gerados'
+        required: false
+        default: 'debate'
+      inicio:
+        description: 'Recorte, início em HH:MM:SS (vazio = do começo)'
+        required: false
+        default: ''
+      duracao:
+        description: 'Recorte, duração em HH:MM:SS (vazio = tudo). Use 00:10:00 para testar barato'
+        required: false
+        default: ''
+      contexto:
+        description: 'Participantes do debate (vazio = o padrão do script)'
+        required: false
+        default: ''
+      modelo:
+        description: 'Modelo Gemini'
+        required: false
+        default: 'gemini-2.5-flash'
+
+# Duas rodadas ao mesmo tempo brigam pela cota da API e embaralham os
+# artefatos. Não cancela a corrente para não jogar fora bloco já pago.
+concurrency:
+  group: transcricao-debates
+  cancel-in-progress: false
+
+jobs:
+  transcrever:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180    # debate de 2h dá ~12 blocos; sobra folga para retry
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Conferir ffmpeg
+        # Vem no runner do ubuntu-latest. O check é para o log dizer qual
+        # versão rodou, em vez de a falha aparecer só no meio do corte.
+        run: ffmpeg -version | head -1 && ffprobe -version | head -1
+
+      - run: pip install google-genai yt-dlp
+
+      - name: Transcrever
+        env:
+          PYTHONUNBUFFERED: "1"     # sem isso o log só aparece quando o job acaba
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ inputs.modelo }}
+          # Vai por env, e não por argumento, porque contexto tem quebra de
+          # linha e no shell isso vira barra-n literal dentro do prompt.
+          DEBATE_CONTEXTO: ${{ inputs.contexto }}
+          # Opcional. O YouTube às vezes barra o IP do runner como bot; com o
+          # conteúdo de um cookies.txt neste secret o yt-dlp passa.
+          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
+          URL: ${{ inputs.url }}
+          NOME: ${{ inputs.nome }}
+        run: |
+          python -m outros.transcricao_debates \
+            --url "$URL" \
+            --nome "$NOME" \
+            ${{ inputs.inicio && format('--inicio {0}', inputs.inicio) || '' }} \
+            ${{ inputs.duracao && format('--duracao {0}', inputs.duracao) || '' }}
+
+      - name: Resumo na página do run
+        if: always()
+        run: |
+          {
+            echo "## Transcrição: ${{ inputs.nome }}"
+            echo ""
+            echo "Fonte: ${{ inputs.url }}"
+            echo ""
+            if [ -f "transcricoes/${{ inputs.nome }}.txt" ]; then
+              echo "Primeiras 30 falas:"
+              echo ""
+              echo '```'
+              head -30 "transcricoes/${{ inputs.nome }}.txt"
+              echo '```'
+            else
+              echo "Nenhuma transcrição gerada. Veja o log do passo anterior."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar arquivos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcricao-${{ inputs.nome }}-${{ github.run_number }}
+          path: transcricoes/
+          retention-days: 30
+          if-no-files-found: warn
