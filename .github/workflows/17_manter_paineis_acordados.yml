@@ -35,3 +35,7 @@ jobs:
           PAINEIS: |
             https://candidaturas-2026.streamlit.app/
             https://eleitorado-2026.streamlit.app/
+            https://painel-isg.streamlit.app/
+            https://painel-itau.streamlit.app/
+            https://painel-lemann.streamlit.app/
+            https://painel-eixo.streamlit.app/
