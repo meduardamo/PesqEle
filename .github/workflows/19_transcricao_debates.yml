@@ -6,6 +6,11 @@ name: 19 - Transcrição de Debates
 on:
   workflow_dispatch:
     inputs:
+      so_sync:
+        description: 'Só puxa o calendário do monitoramento, sem transcrever nada'
+        type: boolean
+        required: false
+        default: false
       id:
         description: 'Roda só esse id da planilha, ignorando o status (vazio = todos os pendentes)'
         required: false
@@ -70,8 +75,13 @@ jobs:
           # SPREADSHEET_ID_TSE dos outros workflows.
           SPREADSHEET_ID_DEBATES: ${{ secrets.SPREADSHEET_ID_DEBATES }}
           PASTA_DRIVE_DEBATES: ${{ secrets.PASTA_DRIVE_DEBATES }}
+          # Aba 'Debates' da [interno] ELEIÇÕES 2026, mantida pelo monitoramento.
+          # É de lá que o calendário vem; sem isso o sync é pulado e a fila
+          # roda só com o que já estiver na nossa planilha.
+          SPREADSHEET_ID_INTERNO: ${{ secrets.SPREADSHEET_ID_INTERNO }}
         run: |
           python -m outros.transcricao_debates --fila \
+            ${{ inputs.so_sync == true && '--so-sync' || '' }} \
             ${{ inputs.id && format('--id {0}', inputs.id) || '' }} \
             ${{ inputs.inicio && format('--inicio {0}', inputs.inicio) || '' }} \
             ${{ inputs.duracao && format('--duracao {0}', inputs.duracao) || '' }}

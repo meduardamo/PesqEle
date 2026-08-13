@@ -51,15 +51,25 @@ ESCOPOS = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
+# Aba 'Debates' da planilha [interno] ELEIÇÕES 2026, mantida pelo monitoramento.
+# É de lá que vem o calendário; aqui ninguém digita debate na mão.
+FONTE_PLANILHA = os.getenv("SPREADSHEET_ID_INTERNO", "").strip()
+FONTE_ABA = os.getenv("ABA_FONTE_DEBATES", "Debates")
+
 # Ordem das colunas da aba 'debates'. Mexeu na planilha, mexe aqui.
 COL = {
     "id": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
     "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
     "status": 10, "link_transcricao": 11, "link_csv": 12,
-    "processado_em": 13, "observacoes": 14,
+    "processado_em": 13, "observacoes": 14, "id_fonte": 15,
 }
 # Onde o script escreve de volta: link_transcricao até observacoes.
 FAIXA_SAIDA = "L{i}:O{i}"
+
+# Campos que vêm da fonte, na ordem em que ficam na nossa planilha (B até J).
+DA_FONTE = ["data", "horario", "cargo", "uf", "turno", "emissora",
+            "url_youtube", "mediador", "participantes"]
+FAIXA_FONTE = "B{i}:J{i}"
 
 BLOCO_SEG = 600          # 10 min de conteúdo por bloco
 SOBREPOSICAO_SEG = 20    # o bloco vai 20s além, para não cortar frase na borda
@@ -467,11 +477,127 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
 
 # ---------------------------------------------------------------- fila
 
+def slug(texto, tamanho=16):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]", "", t.lower())[:tamanho] or "sem"
+
+
+def gerar_id(linha_fonte, usados):
+    """Rótulo legível do debate. A chave de verdade é o id_fonte; este aqui só
+    nomeia o arquivo no Drive, então pode repetir sufixo sem drama."""
+    def c(nome):
+        i = COL_FONTE[nome]
+        return (linha_fonte[i] if i < len(linha_fonte) else "").strip()
+
+    emissora = c("emissora")
+    # Consórcio de emissoras não cabe no rótulo, e o nome de uma só engana.
+    marca = "consorcio" if emissora.count("/") >= 2 else slug(emissora.split("/")[0])
+    cargo = {"presidente": "pres", "governador": "gov", "senador": "sen"}.get(
+        c("cargo").lower(), slug(c("cargo"), 6))
+    ano = (c("data") or "2026")[:4]
+    base = f"{ano}-{marca}-{slug(c('uf'), 8) or 'br'}-{cargo}-t{c('turno') or '1'}"
+
+    ident, n = base, 1
+    while ident in usados:
+        n += 1
+        ident = f"{base}-{n}"
+    usados.add(ident)
+    return ident
+
+
+COL_FONTE = {
+    "id_debate": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
+    "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
+    "observacoes": 10,
+}
+
+
+def sincronizar(gc, ws):
+    """Traz o calendário da aba do monitoramento para a nossa planilha.
+
+    Casa por id_fonte, que é a coluna estável de lá. Debate novo entra; debate
+    já sincronizado só recebe campo que veio preenchido, para não apagar o que
+    alguém completou na mão. Linha em 'processando' ou 'pronto' não tem o
+    status mexido: transcrição já feita não volta para a fila.
+    """
+    if not FONTE_PLANILHA:
+        log("SPREADSHEET_ID_INTERNO não definido, sync pulado")
+        return
+
+    secao("SYNC COM O MONITORAMENTO")
+    fonte = gc.open_by_key(FONTE_PLANILHA).worksheet(FONTE_ABA)
+    de_la = fonte.get_all_values()[1:]
+    nossas = ws.get_all_values()
+    log(f"fonte '{FONTE_ABA}': {len(de_la)} linha(s) | nossa: {len(nossas) - 1} linha(s)")
+
+    por_fonte = {}
+    usados = set()
+    for i, l in enumerate(nossas[1:], start=2):
+        if l and l[COL["id"]].strip():
+            usados.add(l[COL["id"]].strip())
+        idf = (l[COL["id_fonte"]] if COL["id_fonte"] < len(l) else "").strip()
+        if idf:
+            por_fonte[idf] = (i, l)
+
+    novas, edicoes, promovidas = [], [], []
+    for l in de_la:
+        idf = (l[COL_FONTE["id_debate"]] if l else "").strip()
+        if not idf:
+            continue
+        campos = [(l[COL_FONTE[c]] if COL_FONTE[c] < len(l) else "").strip() for c in DA_FONTE]
+        tem_url = bool(campos[DA_FONTE.index("url_youtube")])
+
+        if idf not in por_fonte:
+            ident = gerar_id(l, usados)
+            linha = [""] * 16
+            linha[COL["id"]] = ident
+            for nome, valor in zip(DA_FONTE, campos):
+                linha[COL[nome]] = valor
+            linha[COL["status"]] = "pendente" if tem_url else "agendado"
+            linha[COL["observacoes"]] = (l[COL_FONTE["observacoes"]]
+                                         if COL_FONTE["observacoes"] < len(l) else "")
+            linha[COL["id_fonte"]] = idf
+            novas.append(linha)
+            log(f"  novo   {idf} -> {ident} ({linha[COL['status']]})")
+            continue
+
+        i, atual = por_fonte[idf]
+        status = (atual[COL["status"]] if COL["status"] < len(atual) else "").strip().lower()
+        # Campo vazio na fonte não apaga o que já está preenchido aqui.
+        merge = [
+            novo or (atual[COL[nome]] if COL[nome] < len(atual) else "")
+            for nome, novo in zip(DA_FONTE, campos)
+        ]
+        if merge != [(atual[COL[n]] if COL[n] < len(atual) else "") for n in DA_FONTE]:
+            edicoes.append({"range": FAIXA_FONTE.format(i=i), "values": [merge]})
+            log(f"  atualiza {idf} (linha {i})")
+        if tem_url and status == "agendado":
+            promovidas.append({"range": f"K{i}", "values": [["pendente"]]})
+            log(f"  {idf} ganhou link -> pendente")
+
+    if edicoes or promovidas:
+        ws.batch_update(edicoes + promovidas)
+    if novas:
+        ws.append_rows(novas, table_range="A1")
+
+    log(f"sync: {len(novas)} novo(s), {len(edicoes)} atualizado(s), "
+        f"{len(promovidas)} promovido(s) para 'pendente'")
+
+
 def rodar_fila(args):
     if not PLANILHA or not PASTA_DRIVE:
         sys.exit("defina SPREADSHEET_ID_DEBATES e PASTA_DRIVE_DEBATES (secrets do repo).")
     gc, drive = clientes_google()
     ws = gc.open_by_key(PLANILHA).worksheet(ABA)
+
+    if not args.sem_sync:
+        sincronizar(gc, ws)
+    if args.so_sync:
+        log("--so-sync: parando antes da transcrição")
+        return
+
+    secao("FILA")
     todas = ws.get_all_values()
     log(f"planilha: {len(todas) - 1} linha(s) na aba '{ABA}'")
 
@@ -546,6 +672,10 @@ def main():
     fonte.add_argument("--url", help="URL avulsa do vídeo (YouTube)")
     fonte.add_argument("--audio", help="arquivo de áudio local")
     ap.add_argument("--id", default=None, help="com --fila, roda só esse id (ignora o status)")
+    ap.add_argument("--sem-sync", action="store_true",
+                    help="não puxa o calendário do monitoramento antes da fila")
+    ap.add_argument("--so-sync", action="store_true",
+                    help="só sincroniza o calendário e sai, sem transcrever nada")
     ap.add_argument("--inicio", default=None, help="HH:MM:SS, recorta o áudio antes de processar")
     ap.add_argument("--duracao", default=None, help="HH:MM:SS, recorta o áudio antes de processar")
     ap.add_argument("--contexto", default=None, help="participantes; só nos modos avulsos")
@@ -553,7 +683,8 @@ def main():
     ap.add_argument("--nome", default="debate", help="prefixo dos arquivos, nos modos avulsos")
     args = ap.parse_args()
 
-    if not os.getenv("GEMINI_API_KEY", "").strip():
+    # --so-sync só mexe em planilha, não chama o modelo.
+    if not args.so_sync and not os.getenv("GEMINI_API_KEY", "").strip():
         sys.exit("GEMINI_API_KEY não definido.")
 
     secao("CONFIGURAÇÃO")
