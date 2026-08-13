@@ -75,9 +75,14 @@ BLOCO_SEG = 600          # 10 min de conteúdo por bloco
 SOBREPOSICAO_SEG = 20    # o bloco vai 20s além, para não cortar frase na borda
 TENTATIVAS = 3
 
-# Linhas por minuto abaixo disso é sinal de que o modelo resumiu em vez de
-# transcrever. Medido no debate Band SP: bloco normal fica entre 8 e 20.
-LINHAS_POR_MIN_SUSPEITO = 4.0
+# Palavras por minuto abaixo disso é sinal de que o modelo resumiu em vez de
+# transcrever. Fala corrida em português fica entre 130 e 160; medido no debate
+# Band SP de 09/08, num trecho de 10 min, deu 185, que é ritmo de bate-boca.
+#
+# A primeira versão contava turnos por minuto e disparava alarme falso: naquele
+# mesmo trecho deram 2,6 turnos/min, porque réplica e tréplica são longas. Ritmo
+# de fala não depende do formato do bloco; contagem de turnos depende.
+PALAVRAS_POR_MIN_SUSPEITO = 80.0
 
 CONTEXTO_PADRAO = """\
 Debate eleitoral brasileiro das eleições de 2026.
@@ -394,12 +399,14 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
         linhas.extend(novas)
 
         minutos = (limite or d) / 60
-        densidade = len(novas) / minutos if minutos else 0
         falantes = sorted({r["falante"] for r in novas})
         desconhecidas = sum(1 for r in novas if r["falante"] == "DESCONHECIDO")
         palavras = sum(len(r["fala"].split()) for r in novas)
+        ritmo = palavras / minutos if minutos else 0
+        turnos_min = len(novas) / minutos if minutos else 0
 
-        log(f"    {len(novas)} falas, {palavras} palavras, {densidade:.1f} falas/min")
+        log(f"    {len(novas)} falas, {palavras} palavras, "
+            f"{ritmo:.0f} palavras/min, {turnos_min:.1f} turnos/min")
         log(f"    falantes: {', '.join(falantes) or 'nenhum'}")
         if desconhecidas:
             log(f"    DESCONHECIDO em {desconhecidas} fala(s) ({desconhecidas / len(novas):.0%})")
@@ -407,9 +414,9 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
             log(f"    {ignoradas} linha(s) fora do formato, descartadas")
         if fora:
             log(f"    {fora} linha(s) da sobreposição, cobertas pelo bloco seguinte")
-        if densidade < LINHAS_POR_MIN_SUSPEITO:
+        if ritmo < PALAVRAS_POR_MIN_SUSPEITO:
             suspeitos.append(n)
-            log("    ATENÇÃO: densidade baixa, o modelo pode ter resumido este bloco")
+            log(f"    ATENÇÃO: {ritmo:.0f} palavras/min, o modelo pode ter resumido este bloco")
         for r in novas[:2]:
             log(f"    > [{r['tempo']}] {r['falante']}: {r['fala'][:90]}")
 
@@ -458,7 +465,7 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     if vazios:
         log(f"blocos vazios: {vazios} (esses trechos NÃO estão na transcrição)")
     if suspeitos:
-        log(f"blocos com densidade baixa: {suspeitos} (confira contra o vídeo)")
+        log(f"blocos com ritmo de fala baixo: {suspeitos} (confira contra o vídeo)")
     if not vazios and not suspeitos and desc < 0.05:
         log("nenhum bloco vazio, nenhum bloco suspeito de resumo")
     log("a identificação de falante vem do conteúdo, não da voz: confira as")
@@ -469,7 +476,7 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     if vazios:
         avisos.append(f"blocos vazios: {vazios}")
     if suspeitos:
-        avisos.append(f"densidade baixa: {suspeitos}")
+        avisos.append(f"ritmo de fala baixo: {suspeitos}")
     if desc >= 0.05:
         avisos.append(f"DESCONHECIDO em {desc:.0%} das palavras")
     return caminhos, "; ".join(avisos)
