@@ -53,10 +53,13 @@ ESCOPOS = [
 
 # Ordem das colunas da aba 'debates'. Mexeu na planilha, mexe aqui.
 COL = {
-    "id": 0, "data": 1, "cargo": 2, "uf": 3, "turno": 4, "emissora": 5,
-    "url_youtube": 6, "mediador": 7, "participantes": 8, "status": 9,
-    "link_transcricao": 10, "link_csv": 11, "processado_em": 12, "observacoes": 13,
+    "id": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
+    "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
+    "status": 10, "link_transcricao": 11, "link_csv": 12,
+    "processado_em": 13, "observacoes": 14,
 }
+# Onde o script escreve de volta: link_transcricao até observacoes.
+FAIXA_SAIDA = "L{i}:O{i}"
 
 BLOCO_SEG = 600          # 10 min de conteúdo por bloco
 SOBREPOSICAO_SEG = 20    # o bloco vai 20s além, para não cortar frase na borda
@@ -522,7 +525,7 @@ def rodar_fila(args):
             ws.update(
                 values=[[links.get(".txt", ""), links.get(".csv", ""),
                          agora_brt(), avisos]],
-                range_name=f"K{i}:N{i}",
+                range_name=FAIXA_SAIDA.format(i=i),
             )
             ws.update_cell(i, COL["status"] + 1, "pronto")
             log(f"linha {i} marcada como 'pronto'")
