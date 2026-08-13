@@ -46,6 +46,41 @@ TEMAS = {tema: desc for temas in EIXOS.values() for tema, desc in temas.items()}
 EIXO_DO_TEMA = {tema: eixo for eixo, temas in EIXOS.items() for tema in temas}
 SEM_TEMA = "Sem tema"
 
+# Eixos que o debate precisa e o plano de governo não tem. Plano é programa de
+# futuro; debate é disputa sobre o presente, e passa o tempo todo por dívida e
+# por privatização, que em plano aparecem no máximo de passagem.
+#
+# Medido no debate da Band de 09/08 (153 falas): dívida e finanças em 27 falas,
+# privatização em 13. Sem eles, 'Eficiência e Gasto Público' virava ímã e
+# puxava tudo que mencionasse dinheiro, inclusive o que era de Economia.
+EIXOS_EXTRA = {
+    "Finanças estaduais e dívida": (
+        "dívida do estado e seu serviço, renegociação, Propague e programas de "
+        "equilíbrio fiscal, empréstimo e financiamento (Banco Mundial, BID, "
+        "Banco Europeu de Investimento), ICMS e outros tributos estaduais, "
+        "precatório, e a negociação fiscal com a União e com outros estados"
+    ),
+    "Privatizações e concessões": (
+        "privatização de estatal, concessão e parceria público-privada, leilão, "
+        "venda de participação acionária, e o efeito disso sobre tarifa e "
+        "qualidade do serviço (Sabesp, rodovias, linhas de metrô e trem)"
+    ),
+}
+
+
+def vocabulario(nivel):
+    """{rótulo: definição} do nível pedido.
+
+    No nível 'eixo' a definição de cada eixo é a lista dos temas que ele já
+    contém nos planos: mantém o vínculo com a taxonomia dos planos sem pedir
+    ao modelo a distinção fina, que é onde as duas passadas discordavam.
+    """
+    if nivel == "tema":
+        return dict(TEMAS)
+    v = {eixo: "abrange " + ", ".join(temas) for eixo, temas in EIXOS.items()}
+    v.update(EIXOS_EXTRA)
+    return v
+
 # Segunda dimensão, que a taxonomia dos planos não precisava ter. Plano é só
 # proposta; debate é proposta, defesa de gestão, contestação de número e
 # acusação, e a maior parte do tempo não é proposta.
@@ -96,18 +131,33 @@ def norm(texto):
     return re.sub(r"\s+", " ", t.lower()).strip()
 
 
-# Nome normalizado -> nome canônico, para o casamento tolerante em conferir().
-_POR_NOME_NORM = {norm(t): t for t in list(TEMAS) + [SEM_TEMA]}
 _POR_TIPO_NORM = {norm(t): t for t in TIPOS}
 
 
-def montar_codebook():
-    linhas = []
-    for eixo, temas in EIXOS.items():
-        linhas.append(f"\n## {eixo}")
-        for tema, desc in temas.items():
-            linhas.append(f"- {tema}: {desc}")
-    return "\n".join(linhas)
+def por_nome_norm(vocab):
+    """Nome normalizado -> nome canônico, para o casamento tolerante."""
+    return {norm(r): r for r in list(vocab) + [SEM_TEMA]}
+
+
+def eixo_de(rotulo):
+    """Eixo de um rótulo. No nível 'eixo' o rótulo já é o próprio eixo, e os
+    dois eixos de debate não estão no mapa dos planos."""
+    if rotulo in ("", SEM_TEMA):
+        return ""
+    return EIXO_DO_TEMA.get(rotulo, rotulo)
+
+
+def montar_codebook(nivel):
+    """No nível 'tema', agrupa por eixo para o modelo ver a vizinhança. No
+    nível 'eixo', é uma lista rasa: não há hierarquia a mostrar."""
+    if nivel == "tema":
+        linhas = []
+        for eixo, temas in EIXOS.items():
+            linhas.append(f"\n## {eixo}")
+            for tema, desc in temas.items():
+                linhas.append(f"- {tema}: {desc}")
+        return "\n".join(linhas)
+    return "\n".join(f"- {r}: {d}" for r, d in vocabulario("eixo").items())
 
 
 PROMPT = """Você está codificando as falas de um debate eleitoral brasileiro,
@@ -177,7 +227,7 @@ def classificar_lote(client, falas, codebook):
     return {}
 
 
-def conferir(fala, tipo, tema, trecho):
+def conferir(fala, tipo, tema, trecho, vocab, por_nome):
     """Guardas antes de aceitar a classificação. Devolve (tipo, tema, trecho, nota).
 
     Mesma disciplina das guardas dos planos: o que o modelo devolve só entra
@@ -189,7 +239,7 @@ def conferir(fala, tipo, tema, trecho):
     perdido é jogar fora classificação boa.
     """
     tipo = _POR_TIPO_NORM.get(norm(tipo), tipo)
-    tema = _POR_NOME_NORM.get(norm(tema), tema)
+    tema = por_nome.get(norm(tema), tema)
 
     if tipo not in TIPOS:
         return "Procedimental", SEM_TEMA, "", f"tipo fora da lista: {tipo!r}"
@@ -207,8 +257,8 @@ def conferir(fala, tipo, tema, trecho):
 
     if tema == SEM_TEMA:
         return tipo, SEM_TEMA, "", ""
-    if tema not in TEMAS:
-        return tipo, SEM_TEMA, "", f"tema fora do codebook: {tema!r}"
+    if tema not in vocab:
+        return tipo, SEM_TEMA, "", f"rótulo fora do codebook: {tema!r}"
     if not trecho:
         return tipo, tema, "", "sem trecho de apoio"
     if norm(trecho) not in norm(fala):
@@ -216,7 +266,7 @@ def conferir(fala, tipo, tema, trecho):
     return tipo, tema, trecho, ""
 
 
-def codificar(client, falas, codebook, ordem):
+def codificar(client, falas, codebook, ordem, vocab, por_nome):
     """Uma passada completa. `ordem` é a lista de índices em que os lotes são
     montados: passadas com agrupamento diferente é o que dá independência de
     verdade entre elas, porque o modelo é sensível à ordem e à vizinhança."""
@@ -239,7 +289,8 @@ def codificar(client, falas, codebook, ordem):
             log(f"    lote {i}: faltaram {len(faltando)} fala(s), ficaram sem código")
         for f in lote:
             tipo, tema, trecho = bruto.get(f["id"], ("", SEM_TEMA, ""))
-            tipo, tema, trecho, nota = conferir(f["fala"], tipo, tema, trecho)
+            tipo, tema, trecho, nota = conferir(
+                f["fala"], tipo, tema, trecho, vocab, por_nome)
             if nota:
                 avisos.append(f'fala {f["id"]}: {nota}')
             resultado[f["id"]] = (tipo, tema, trecho)
@@ -253,6 +304,8 @@ def main():
     ap.add_argument("--saida", default=None, help="CSV de saída (padrão: <entrada>_temas.csv)")
     ap.add_argument("--passada-unica", action="store_true",
                     help="codifica uma vez só, sem medir acordo")
+    ap.add_argument("--nivel", choices=("eixo", "tema"), default="eixo",
+                    help="granularidade do rótulo (padrão: eixo)")
     args = ap.parse_args()
 
     if not os.getenv("GEMINI_API_KEY", "").strip():
@@ -272,19 +325,25 @@ def main():
     if not falas:
         sys.exit("CSV sem falas.")
 
-    codebook = montar_codebook()
+    vocab = vocabulario(args.nivel)
+    por_nome = por_nome_norm(vocab)
+    codebook = montar_codebook(args.nivel)
 
     secao("CONFIGURAÇÃO")
     log(f"modelo   : {GEMINI_MODEL}")
     log(f"entrada  : {entrada}  ({len(falas)} falas)")
-    log(f"codebook : {len(EIXOS)} eixos, {len(TEMAS)} temas")
+    log(f"nível    : {args.nivel}  ({len(vocab)} rótulos)")
+    if args.nivel == "eixo":
+        log(f"           {len(EIXOS)} eixos dos planos + {len(EIXOS_EXTRA)} próprios de debate: "
+            f"{', '.join(EIXOS_EXTRA)}")
     log(f"passadas : {'1' if args.passada_unica else '2 (mede acordo)'}")
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     grandes = [f for f in falas if len(f["fala"].split()) >= MIN_PALAVRAS]
 
     secao("PASSADA 1")
-    p1, av1 = codificar(client, falas, codebook, list(range(len(grandes))))
+    p1, av1 = codificar(client, falas, codebook, list(range(len(grandes))),
+                        vocab, por_nome)
 
     p2, av2, acordo_tema, acordo_eixo = {}, [], None, None
     if not args.passada_unica:
@@ -293,11 +352,10 @@ def main():
         # modelo vê cada fala com vizinhos diferentes.
         ordem = list(range(len(grandes)))
         random.Random(20260813).shuffle(ordem)
-        p2, av2 = codificar(client, falas, codebook, ordem)
+        p2, av2 = codificar(client, falas, codebook, ordem, vocab, por_nome)
 
         secao("ACORDO ENTRE AS PASSADAS")
         comparaveis = [f["id"] for f in falas if f["id"] in p1 and f["id"] in p2]
-        eixo_de = lambda t: EIXO_DO_TEMA.get(t, t)
         igual_tipo = sum(1 for i in comparaveis if p1[i][0] == p2[i][0])
         igual_tema = sum(1 for i in comparaveis if p1[i][1] == p2[i][1])
         igual_eixo = sum(1 for i in comparaveis if eixo_de(p1[i][1]) == eixo_de(p2[i][1]))
@@ -331,7 +389,7 @@ def main():
                 "palavras": len(fa["fala"].split()),
                 "tipo": tipo,
                 "tema": tema,
-                "eixo": EIXO_DO_TEMA.get(tema, "" if tema == SEM_TEMA else "?"),
+                "eixo": eixo_de(tema),
                 "trecho": trecho,
                 "tema_passada2": t2,
                 "conferir": "sim" if (t2 and t2 != tema) else "",
@@ -360,7 +418,7 @@ def main():
         tema = p1.get(fa["id"], ("", SEM_TEMA, ""))[1]
         if tema == SEM_TEMA:
             continue
-        eixo = EIXO_DO_TEMA.get(tema, "?")
+        eixo = eixo_de(tema)
         d = por.setdefault(fa["falante"], {})
         d[eixo] = d.get(eixo, 0) + len(fa["fala"].split())
 
