@@ -518,7 +518,7 @@ def compactar_rotulo(rotulo: str, limite: int = 8) -> str:
     if len(palavras) <= limite:
         return rotulo
     limite_real = limite
-    if limite < len(palavras) and palavras[limite - 1].lower() in {"primeiro", "sistema"}:
+    if limite < len(palavras) and palavras[limite - 1].lower() in {"primeiro", "sistema", "pix"}:
         limite_real += 1
     curto = " ".join(palavras[:limite_real]).rstrip(" ,;:-")
     curto = re.sub(r"\s+(e|ou|com|de|da|do|das|dos)$", "", curto,
@@ -540,6 +540,14 @@ def montar_resumo(candidato: str, resumo_modelo: str, temas: list[dict],
     abertura = (f"Dos {total_posts} posts de julho e agosto, {analisados} têm temas analisados, "
                 f"e o tema mais recorrente é {temas[0]['rotulo'].lower()}, "
                 f"em {temas[0]['posts']} deles.")
+    complemento = ""
+    if len(temas) > 1:
+        seguintes = [t["rotulo"] for t in temas[1:4]]
+        if len(seguintes) == 1:
+            lista_seguintes = seguintes[0]
+        else:
+            lista_seguintes = ", ".join(seguintes[:-1]) + " e " + seguintes[-1]
+        complemento = f"As outras pautas mais recorrentes são {lista_seguintes}."
 
     # Nome próprio citado no resumo tem que existir na lista que o modelo
     # recebeu. Se não existir, a frase sai. É a mesma checagem que o
@@ -568,7 +576,7 @@ def montar_resumo(candidato: str, resumo_modelo: str, temas: list[dict],
                 continue
         frases.append(frase.strip())
 
-    return " ".join([abertura] + frases).strip()
+    return " ".join([abertura, complemento] + frases).strip()
 
 
 def garantir_colunas(aba: gspread.Worksheet, cabecalho: list[str]) -> dict[str, int]:
