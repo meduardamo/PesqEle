@@ -367,9 +367,8 @@ Regras do agrupamento:
 - Deixe de fora o que é só processo de campanha, nome de lugar, de partido ou de político, e elogio sem pauta atrás.
 - Não force: se um assunto não aparece na lista, ele não existe.
 
-Tarefa 2. Escreva em "resumo" duas frases sobre o que este perfil vem publicando:
-- Frase 1: as pautas concretas mais recorrentes, citando o que há de específico (nome de programa, obra, indicador).
-- Frase 2: o que quase não aparece, usando somente a seção "Assuntos abaixo do corte". Se ela estiver vazia, omita esta frase.
+Tarefa 2. Escreva em "resumo" uma frase sobre as pautas concretas mais recorrentes,
+citando o que há de específico (nome de programa, obra ou indicador).
 
 Regras do resumo:
 - Não escreva número nenhum. Nem contagem, nem porcentagem, nem data.
@@ -563,17 +562,12 @@ def montar_resumo(candidato: str, resumo_modelo: str, temas: list[dict],
         if re.search(r"\d", frase):
             print("    frase cortada do resumo, o modelo escreveu número.")
             continue
-        # Frases de baixa presença não podem contradizer o próprio ranking.
+        # A cauda da distribuição é instável e frequentemente traz ruído de
+        # rotulação. O resumo descreve o que a conta publica, não ausências.
         if re.search(r"quase nao|pouco apare|raramente|baixa presenca|menos present|nao apare",
                      normalizar(frase)):
-            citados_top = []
-            for tema in temas:
-                categoria = normalizar(tema["rotulo"].split(":", 1)[0])
-                if len(categoria) >= 4 and categoria in normalizar(frase):
-                    citados_top.append(tema["rotulo"])
-            if citados_top:
-                print(f"    frase cortada do resumo, contradiz o ranking: {citados_top}")
-                continue
+            print("    frase cortada do resumo, descreve ausência/baixa presença.")
+            continue
         frases.append(frase.strip())
 
     return " ".join([abertura, complemento] + frases).strip()
