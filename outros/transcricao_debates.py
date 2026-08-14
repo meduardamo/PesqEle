@@ -87,6 +87,32 @@ TENTATIVAS = 3
 # de fala não depende do formato do bloco; contagem de turnos depende.
 PALAVRAS_POR_MIN_SUSPEITO = 80.0
 
+# Preço da API por 1 milhão de tokens, em dólar, para o modelo pago. Debate de
+# 2h dá ~12 blocos e cada bloco reenvia o áudio inteiro do trecho, então a
+# entrada é quase toda áudio: sem essa conta ninguém sabe quanto custou até a
+# fatura chegar. Modelo fora da tabela transcreve igual, só não estima gasto.
+PRECO_POR_MILHAO = {
+    "gemini-3.6-flash": (0.75, 3.75),
+    "gemini-2.5-flash": (0.30, 2.50),
+}
+# Só para dar a ordem de grandeza em real no log. Não é câmbio do dia nem a
+# taxa que o Google usou na fatura; o número em dólar é o que vale.
+USD_BRL = float(os.getenv("USD_BRL", "5.40"))
+
+
+def custo(uso):
+    """Devolve (dólar, texto) do uso acumulado. Dólar é None se o modelo
+    não estiver na tabela de preço."""
+    preco = PRECO_POR_MILHAO.get(GEMINI_MODEL)
+    # O ponto de milhar sai do format e é trocado em cada número, e não na
+    # frase pronta: no texto inteiro o replace comeria a vírgula da lista.
+    milhar = lambda v: f"{v:,}".replace(",", ".")
+    tokens = f"{milhar(uso['in'])} tokens de entrada, {milhar(uso['out'])} de saída"
+    if not preco:
+        return None, f"{tokens} (sem preço em tabela para {GEMINI_MODEL})"
+    dolar = uso["in"] / 1e6 * preco[0] + uso["out"] / 1e6 * preco[1]
+    return dolar, f"US$ {dolar:.2f} (~R$ {dolar * USD_BRL:.2f}), {tokens}"
+
 CONTEXTO_PADRAO = """\
 Debate eleitoral brasileiro das eleições de 2026.
 
@@ -230,7 +256,31 @@ def subir_gemini(client, caminho):
     return arq, esperou
 
 
-def transcrever(client, arq, contexto):
+def contar(resp, uso):
+    """Soma o uso desta resposta no acumulador e devolve o texto do log.
+
+    Tentativa que voltou vazia também entrou na conta do Google, então o
+    acumulador é alimentado antes de decidir se o texto serve.
+    """
+    u = getattr(resp, "usage_metadata", None)
+    if not u:
+        uso["chamadas"] += 1
+        return "sem contagem"
+    entrada = getattr(u, "prompt_token_count", 0) or 0
+    # thoughts_token_count é cobrado como saída e não vem dentro do
+    # candidates_token_count: sem somar, a conta sai menor que a fatura.
+    pensamento = getattr(u, "thoughts_token_count", 0) or 0
+    saida = (getattr(u, "candidates_token_count", 0) or 0) + pensamento
+    uso["in"] += entrada
+    uso["out"] += saida
+    uso["chamadas"] += 1
+    detalhe = f"{entrada} in / {saida} out"
+    if pensamento:
+        detalhe += f" ({pensamento} de raciocínio)"
+    return detalhe
+
+
+def transcrever(client, arq, contexto, uso):
     prompt = PROMPT.format(contexto=contexto.strip())
     for n in range(1, TENTATIVAS + 1):
         t = time.time()
@@ -241,11 +291,7 @@ def transcrever(client, arq, contexto):
                 config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=32000),
             )
             texto = (resp.text or "").strip()
-            u = getattr(resp, "usage_metadata", None)
-            tokens = (
-                f"{getattr(u, 'prompt_token_count', 0) or 0} in / "
-                f"{getattr(u, 'candidates_token_count', 0) or 0} out"
-            ) if u else "sem contagem"
+            tokens = contar(resp, uso)
             if texto:
                 log(f"    resposta em {time.time() - t:.1f}s, {tokens}")
                 return texto
@@ -399,6 +445,7 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     linhas, bruto, vazios, suspeitos = [], [], [], []
+    uso = {"in": 0, "out": 0, "chamadas": 0}
 
     secao("TRANSCRIÇÃO")
     pos, n = 0, 0
@@ -415,7 +462,7 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
         subido, esperou = subir_gemini(client, arq_bloco)
         log(f"    enviado ({esperou}s de processamento no servidor)")
 
-        texto = transcrever(client, subido, contexto)
+        texto = transcrever(client, subido, contexto, uso)
         try:
             client.files.delete(name=subido.name)
         except Exception:
@@ -492,6 +539,14 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     log("-" * 54)
     log(f"{'TOTAL':<26} {len(linhas):>7} {tot:>10}")
 
+    secao("GASTO NA API")
+    dolar, resumo_custo = custo(uso)
+    log(f"modelo   : {GEMINI_MODEL}")
+    log(f"chamadas : {uso['chamadas']} em {n_blocos} bloco(s) (retentativa conta)")
+    log(f"gasto    : {resumo_custo}")
+    if dolar is not None and total:
+        log(f"por hora de áudio: US$ {dolar / (total / 3600):.2f}")
+
     secao("O QUE CONFERIR ANTES DE USAR")
     desc = agg.get("DESCONHECIDO", {}).get("palavras", 0) / tot
     log(f"cobertura: {hhmmss(linhas[-1]['segundos'])} de {hhmmss(total)} de áudio")
@@ -506,7 +561,9 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     log("trocas de bloco e os apartes contra o vídeo antes de citar em entrega")
 
     shutil.rmtree(trabalho, ignore_errors=True)
-    avisos = []
+    # O gasto entra em observacoes junto com os avisos: é por linha da planilha
+    # que dá para somar quanto custou cada debate depois.
+    avisos = [f"gasto: {resumo_custo}"]
     if vazios:
         avisos.append(f"blocos vazios: {vazios}")
     if suspeitos:
