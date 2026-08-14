@@ -65,9 +65,8 @@ COLUNA_PERCENTUAL = "% dos posts em que aparece"
 COLUNA_PERCENTUAL_ANTIGA = "% dos posts"
 COLUNA_TEMAS_BRUTOS = "Temas"
 # A ordem aqui é a ordem das colunas na aba: primeiro o que se lê de cara
-# (ranking, resumo, imprensa e contraponto), depois o material de conferência.
-COLUNAS_SAIDA = ["Temas Principais", "Resumo da conta", "Temas na Imprensa",
-                 "Contraponto (Redes vs Imprensa)", "Nº de posts",
+# (ranking e resumo), depois o material de conferência.
+COLUNAS_SAIDA = ["Temas Principais", "Resumo da conta", "Nº de posts",
                  COLUNA_PERCENTUAL, "Temas brutos agrupados"]
 # Colunas que existem para conferência, não para leitura. Ficam no fim da aba,
 # ocultas, e o ranking legível não depende de nenhuma delas.
@@ -422,21 +421,15 @@ ESQUEMA = {
             },
         },
         "resumo": {"type": "string"},
-        "temas_imprensa": {"type": "string"},
-        "contraponto": {"type": "string"},
     },
-    "required": ["temas", "resumo", "temas_imprensa", "contraponto"],
+    "required": ["temas", "resumo"],
 }
 
-PROMPT = """Você é um analista político sênior encarregado de organizar o monitoramento eleitoral e o contraponto entre o discurso nas redes e a cobertura na imprensa.
+PROMPT = """Você organiza o monitoramento de redes de pré-candidatos.
 
-Abaixo estão:
-1. Os temas que apareceram nos posts de Instagram de {candidato} em julho e agosto de 2026, com o número de posts em que cada um aparece.
-2. Uma amostra das manchetes recentes da imprensa tradicional sobre o candidato.
+Abaixo estão os temas que apareceram nos posts de Instagram de {candidato} em julho e agosto de 2026, com o número de posts em que cada um aparece. O mesmo assunto está escrito de várias formas.
 
----
-
-Tarefa 1. Agrupe as variações do mesmo assunto do Instagram e devolva, em "temas", os grupos que são pauta de política pública ou projeto concreto: o que o candidato defende, promete, critica ou está executando nas redes.
+Tarefa 1. Agrupe as variações do mesmo assunto e devolva, em "temas", os grupos que são pauta de política pública ou projeto concreto: o que o candidato defende, promete, critica ou está executando.
 
 Regras do agrupamento:
 - "brutos" só pode conter texto copiado exatamente da lista abaixo, sem alterar uma letra. Não invente item.
@@ -451,29 +444,22 @@ Regras do agrupamento:
 - Deixe de fora o que é só processo de campanha, nome de lugar, de partido ou de político, e elogio sem pauta atrás.
 - Não force: se um assunto não aparece na lista, ele não existe.
 
-Tarefa 2. Escreva em "resumo" uma frase sobre as pautas concretas mais recorrentes no Instagram, citando o que há de específico (nome de programa, obra ou indicador).
+Tarefa 2. Escreva em "resumo" uma frase sobre as pautas concretas mais recorrentes,
+citando o que há de específico (nome de programa, obra ou indicador).
 
 Regras do resumo:
 - Não escreva número nenhum. Nem contagem, nem porcentagem, nem data.
 - Não escreva o que o candidato "busca", "pretende", "sinaliza" ou "se posiciona". Só o que ele publica.
 - Só cite nome próprio que esteja escrito na lista abaixo.
 
-Tarefa 3. Analise as notícias da imprensa tradicional e devolva:
-- "temas_imprensa": Uma lista numerada (1 a 4, uma por linha) com as principais pautas da cobertura jornalística (ex: 1. Articulações e Alianças Partidárias; 2. Pesquisas Eleitorais; 3. Críticas da Oposição; etc.). Se não houver notícias suficientes na amostra, devolva "Cobertura concentrada em pesquisas e agenda local.".
-- "contraponto": Um parágrafo curto (2 a 3 frases factuais e analíticas) contrastando o que o candidato prioriza em suas próprias redes versus o que a imprensa tradicional mais noticia sobre ele.
-
----
-Temas de {candidato} no Instagram, com o número de posts:
+Temas de {candidato}, com o número de posts:
 {lista}
 
-Vocabulário específico do Instagram abaixo do corte, apenas para detalhar rótulos:
+Vocabulário específico abaixo do corte, apenas para detalhar rótulos:
 {vocabulario}
 
-Assuntos do Instagram abaixo do corte:
+Assuntos abaixo do corte, únicos que podem ser descritos como pouco presentes:
 {abaixo_corte}
-
-Manchetes recentes na Imprensa Tradicional ({total_noticias} notícias coletadas):
-{manchetes_imprensa}
 """
 
 
@@ -534,11 +520,10 @@ def _gerar_classificacao(gem: genai.Client, prompt: str):
 
 def classificar(gem: genai.Client, candidato: str, contagem: Counter,
                 canonico: dict[str, str],
-                posts_por_tema: dict[str, set[int]],
-                noticias: list[dict] | None = None) -> tuple[list[dict], str, str, str, dict]:
+                posts_por_tema: dict[str, set[int]]) -> tuple[list[dict], str, dict]:
     entrada = [(canonico[c], n) for c, n in contagem.most_common() if n >= MINIMO_POSTS_POR_TEMA]
     if not entrada:
-        return [], "", "", "", {"entrada": 0, "saida": 0, "pensamento": 0}
+        return [], "", {"entrada": 0, "saida": 0, "pensamento": 0}
 
     lista = "\n".join(f"- {rotulo} ({n} posts)" for rotulo, n in entrada)
     abaixo = [(canonico[c], n) for c, n in contagem.most_common()
@@ -565,19 +550,8 @@ def classificar(gem: genai.Client, candidato: str, contagem: Counter,
     texto_abaixo = "\n".join(f"- {r} ({n} post{'s' if n != 1 else ''})"
                                for r, n in abaixo[:30]) or "(vazio)"
 
-    noticias = noticias or []
-    manchetes = []
-    for n in noticias[:25]:
-        fonte = n.get("fonte", "")
-        tipo = n.get("tipo", "")
-        titulo = n.get("titulo", "")
-        manchetes.append(f"- [{fonte} | {tipo}] {titulo}")
-    texto_manchetes = "\n".join(manchetes) or "(Nenhuma notícia relevante encontrada na base recente)"
-
     prompt = PROMPT.format(candidato=candidato, lista=lista,
-                           vocabulario=texto_vocabulario, abaixo_corte=texto_abaixo,
-                           total_noticias=len(noticias),
-                           manchetes_imprensa=texto_manchetes)
+                           vocabulario=texto_vocabulario, abaixo_corte=texto_abaixo)
 
     resp = com_retry(
         lambda: _gerar_classificacao(gem, prompt),
@@ -595,11 +569,7 @@ def classificar(gem: genai.Client, candidato: str, contagem: Counter,
     }
 
     dados = json.loads(resp.text)
-    return (dados.get("temas", []),
-            (dados.get("resumo") or "").strip(),
-            (dados.get("temas_imprensa") or "").strip(),
-            (dados.get("contraponto") or "").strip(),
-            tokens)
+    return dados.get("temas", []), (dados.get("resumo") or "").strip(), tokens
 
 
 def consolidar(grupos: list[dict], contagem: Counter, canonico: dict[str, str],
@@ -855,10 +825,8 @@ def garantir_colunas(aba: gspread.Worksheet, cabecalho: list[str]) -> dict[str, 
 
 LARGURA_COLUNA = {
     COLUNA_CANDIDATO: 170,
-    "Temas Principais": 480,
-    "Resumo da conta": 380,
-    "Temas na Imprensa": 420,
-    "Contraponto (Redes vs Imprensa)": 450,
+    "Temas Principais": 520,
+    "Resumo da conta": 430,
 }
 
 
@@ -877,8 +845,7 @@ def formatar_aba(sh: gspread.Spreadsheet, aba: gspread.Worksheet,
         }
     }]
 
-    visiveis = [COLUNA_CANDIDATO, "Temas Principais", "Resumo da conta",
-                "Temas na Imprensa", "Contraponto (Redes vs Imprensa)"]
+    visiveis = [COLUNA_CANDIDATO, "Temas Principais", "Resumo da conta"]
     for nome in visiveis:
         indice = indices.get(nome, cabecalho.index(nome) if nome in cabecalho else None)
         if indice is None:
@@ -971,25 +938,6 @@ def garantir_aba(sh: gspread.Spreadsheet, roster: list[str],
     return aba
 
 
-def ler_noticias(gc: gspread.Client) -> dict[str, list[dict]]:
-    """Carrega as notícias da planilha de imprensa para gerar o contraponto."""
-    id_noticias = os.getenv("SPREADSHEET_ID_TSE", "1Vo-2oa11JpPaYC051Z0UYNR1yJZdhYW4RJeylHfX-bA")
-    try:
-        sh_not = gc.open_by_key(id_noticias)
-        ws_not = sh_not.worksheet("noticias")
-        noticias = ws_not.get_all_records()
-        print(f"{len(noticias)} notícias lidas da base de imprensa.")
-        por_cand = defaultdict(list)
-        for n in noticias:
-            c = str(n.get("candidato", "")).strip()
-            if c:
-                por_cand[normalizar(c)].append(n)
-        return por_cand
-    except Exception as e:
-        print(f"Aviso: não foi possível carregar notícias ({e}).")
-        return defaultdict(list)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidato", default=None, help="roda um candidato só")
@@ -1004,7 +952,6 @@ def main() -> None:
 
     posts_por_candidato = ler_posts(sh)
     uf_por_candidato = ler_uf(sh)
-    noticias_por_candidato = ler_noticias(gc)
     print(f"{sum(len(v) for v in posts_por_candidato.values())} posts lidos "
           f"de {len(posts_por_candidato)} candidato(s).")
 
@@ -1051,25 +998,15 @@ def main() -> None:
             escritas.extend(escritas_da_linha(indices, numero, {
                 "Temas Principais": "",
                 "Resumo da conta": "Base pequena demais para ranquear.",
-                "Temas na Imprensa": "",
-                "Contraponto (Redes vs Imprensa)": "",
                 "Nº de posts": analisados,
                 COLUNA_PERCENTUAL: "",
                 "Temas brutos agrupados": "",
             }))
             continue
 
-        c_norm = normalizar(candidato)
-        noticias_cand = noticias_por_candidato.get(c_norm, [])
-        if not noticias_cand:
-            for k, v in noticias_por_candidato.items():
-                if c_norm in k or k in c_norm:
-                    noticias_cand = v
-                    break
-
         try:
-            grupos, resumo_modelo, temas_imprensa, contraponto, uso = classificar(
-                gem, candidato, contagem, canonico, posts_por_tema, noticias_cand)
+            grupos, resumo_modelo, uso = classificar(
+                gem, candidato, contagem, canonico, posts_por_tema)
         except Exception as erro:
             print(f"[{i}/{len(alvos)}] {candidato}: falhou ({str(erro)[:160]}), pulando.")
             continue
@@ -1086,8 +1023,6 @@ def main() -> None:
         escritas.extend(escritas_da_linha(indices, numero, {
             "Temas Principais": bloco_temas(temas),
             "Resumo da conta": resumo,
-            "Temas na Imprensa": temas_imprensa,
-            "Contraponto (Redes vs Imprensa)": contraponto,
             "Nº de posts": SEPARADOR.join(str(t["posts"]) for t in temas),
             COLUNA_PERCENTUAL: SEPARADOR.join(f"{t['pct']}%" for t in temas),
             "Temas brutos agrupados":
