@@ -200,8 +200,15 @@ def baixar_audio(url, destino):
     log(f"baixando áudio de {url}")
     cmd = [
         "yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "5",
+        "--geo-bypass-country", "BR",
+        "--extractor-args", "youtube:player_client=android,ios,web",
         "--no-playlist", "--newline", "-o", str(destino / "debate.%(ext)s"), url,
     ]
+
+    proxy = os.getenv("YTDLP_PROXY", "").strip() or os.getenv("HTTP_PROXY", "").strip()
+    if proxy:
+        cmd[1:1] = ["--proxy", proxy]
+        log("usando proxy para download")
 
     # O YouTube exige resolver um desafio em JavaScript para liberar os
     # formatos. O yt-dlp não baixa o solucionador por padrão, e sem ele o erro
