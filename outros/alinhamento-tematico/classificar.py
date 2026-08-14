@@ -18,13 +18,20 @@ O script se vira sozinho: a lista de candidatos sai da aba "Instagram", que é o
 cadastro do monitoramento, e a aba "Alinhamento Temático" é criada e preenchida
 se ainda não existir. Não depende de nenhuma outra rodada ter passado antes.
 
-Grava cinco colunas na aba "Alinhamento Temático":
+Grava cinco colunas na aba "Alinhamento Temático". As duas primeiras são as que
+se leem; as outras três ficam ocultas, no fim da aba, para conferência:
 
-    Temas Principais        ranqueado, do mais frequente para o menos
+    Temas Principais        o ranking inteiro em uma célula, uma linha por tema,
+                            com o número de posts e a % ao lado do tema
+    Resumo da conta         três frases sobre o que o perfil vem publicando
     Nº de posts             em quantos posts o tema aparece
     % dos posts em que aparece  sobre o total de posts; temas se sobrepõem
-    Temas brutos agrupados  o que entrou em cada tema, para conferência
-    Resumo da conta         três frases sobre o que o perfil vem publicando
+    Temas brutos agrupados  o que entrou em cada tema
+
+Por que o ranking vai em uma célula só: em três colunas paralelas separadas por
+";" quem lê precisa contar a posição do tema para achar o número dele. Com o
+número junto do tema, na mesma linha, não há nada para contar. As colunas de
+número seguem gravadas para quem for calcular algo em cima.
 
 Uso:
     python classificar.py
@@ -56,8 +63,15 @@ ABAS_MENSAIS = [a.strip() for a in os.getenv("ABAS_MENSAIS", "julho,agosto").spl
 COLUNA_CANDIDATO = "Candidato"
 COLUNA_PERCENTUAL = "% dos posts em que aparece"
 COLUNA_PERCENTUAL_ANTIGA = "% dos posts"
-COLUNAS_SAIDA = ["Temas Principais", "Nº de posts", COLUNA_PERCENTUAL,
-                 "Temas brutos agrupados", "Resumo da conta"]
+COLUNA_TEMAS_BRUTOS = "Temas"
+# A ordem aqui é a ordem das colunas na aba: primeiro o que se lê de cara
+# (ranking e resumo), depois o material de conferência.
+COLUNAS_SAIDA = ["Temas Principais", "Resumo da conta", "Nº de posts",
+                 COLUNA_PERCENTUAL, "Temas brutos agrupados"]
+# Colunas que existem para conferência, não para leitura. Ficam no fim da aba,
+# ocultas, e o ranking legível não depende de nenhuma delas.
+COLUNAS_CONFERENCIA = ["Nº de posts", COLUNA_PERCENTUAL, "Temas brutos agrupados",
+                       COLUNA_TEMAS_BRUTOS]
 SEPARADOR = "; "
 
 # Quantos temas entram no resultado final.
@@ -132,6 +146,39 @@ UF_PARA_NOME = {
     "TO": "tocantins",
 }
 
+# A capital é o topônimo que reaparece no rótulo quando o modelo escorrega
+# ("Educação: Segurança Pública, Minas Gerais e Belo Horizonte"). O estado já sai
+# pela contagem, via ruido_do_candidato; a capital só atrapalha no rótulo, e é
+# lá que ela é removida.
+CAPITAL_DA_UF = {
+    "AC": "rio branco", "AL": "maceio", "AP": "macapa", "AM": "manaus",
+    "BA": "salvador", "CE": "fortaleza", "DF": "brasilia", "ES": "vitoria",
+    "GO": "goiania", "MA": "sao luis", "MT": "cuiaba", "MS": "campo grande",
+    "MG": "belo horizonte", "PA": "belem", "PB": "joao pessoa",
+    "PR": "curitiba", "PE": "recife", "PI": "teresina", "RJ": "rio de janeiro",
+    "RN": "natal", "RS": "porto alegre", "RO": "porto velho",
+    "RR": "boa vista", "SC": "florianopolis", "SP": "sao paulo",
+    "SE": "aracaju", "TO": "palmas",
+}
+
+
+def lugares_do_candidato(candidato: str, uf: str) -> set[str]:
+    """Termos que não podem virar descritor de rótulo sozinhos.
+
+    Só o nome inteiro do candidato, o do estado e o da capital. Não entram os
+    pedaços do nome, ao contrário de ruido_do_candidato: aqui a comparação é
+    com um descritor curto, e derrubar palavra solta cortaria rótulo legítimo.
+    A remoção é por igualdade exata, nunca por "contém", senão "Salvador"
+    levaria junto "Ponte Salvador-Itaparica".
+    """
+    sigla = (uf or "").strip().upper()
+    termos = {normalizar(candidato)}
+    for tabela in (UF_PARA_NOME, CAPITAL_DA_UF):
+        nome = tabela.get(sigla)
+        if nome:
+            termos.add(nome)
+    return {t for t in termos if t}
+
 
 def ruido_do_candidato(candidato: str, uf: str) -> set[str]:
     """Nome do próprio candidato e do estado dele.
@@ -202,6 +249,32 @@ def _letra_coluna(indice: int) -> str:
         indice, resto = divmod(indice - 1, 26)
         letra = chr(65 + resto) + letra
     return letra
+
+
+def bloco_temas(temas: list[dict]) -> str:
+    """O ranking como texto: uma linha por tema, número e % junto do tema.
+
+    A % vai arredondada para inteiro. O valor com casa decimal continua na
+    coluna "% dos posts em que aparece".
+    """
+    linhas = []
+    for posicao, tema in enumerate(temas, start=1):
+        posts = tema["posts"]
+        linhas.append(f"{posicao}. {tema['rotulo']} "
+                      f"({posts} {'post' if posts == 1 else 'posts'}, "
+                      f"{tema['pct']:.0f}%)")
+    return "\n".join(linhas)
+
+
+def escritas_da_linha(indices: dict[str, int], numero: int,
+                      valores: dict[str, str]) -> list[dict]:
+    """Uma entrada de escrita por coluna.
+
+    Escrever coluna a coluna em vez de um intervalo único é o que permite que a
+    ordem das colunas na aba mude sem quebrar a gravação.
+    """
+    return [{"range": f"{_letra_coluna(indices[nome])}{numero}", "values": [[valor]]}
+            for nome, valor in valores.items()]
 
 
 def _e_transitorio(erro: Exception) -> bool:
@@ -363,7 +436,8 @@ Regras do agrupamento:
 - O rótulo carrega o que o candidato fala de concreto. Use também os nomes da seção "Vocabulário específico" quando eles detalharem um dos grupos. A indicação "coaparece com" mostra a qual pauta o nome está ligado.
 - Se houver programa, obra ou indicador relacionado a um grupo, inclua pelo menos um no rótulo. Exemplo: "Saúde: PIX Saúde e Sistema Corujão", não apenas "Acesso à Saúde".
 - Os nomes específicos servem apenas para enriquecer o rótulo: não os inclua em "brutos" e não crie grupo só para eles.
-- Rótulo curto, até oito palavras.
+- Rótulo curto, até oito palavras. Escreva o rótulo como texto corrido, nunca como JSON, chave ou lista.
+- Nome de cidade ou de estado só entra no rótulo colado ao nome de uma obra ou programa ("Ponte Salvador-Itaparica", "Hospital do Barreiro"). Sozinho, não entra.
 - Deixe de fora o que é só processo de campanha, nome de lugar, de partido ou de político, e elogio sem pauta atrás.
 - Não force: se um assunto não aparece na lista, ele não existe.
 
@@ -461,29 +535,33 @@ def classificar(gem: genai.Client, candidato: str, contagem: Counter,
 
 
 def consolidar(grupos: list[dict], contagem: Counter, canonico: dict[str, str],
-               analisados: int, posts_por_tema: dict[str, set[int]]) -> list[dict]:
+               analisados: int, posts_por_tema: dict[str, set[int]],
+               lugares: set[str] | None = None) -> list[dict]:
     """Soma as contagens de cada grupo, no Python, e ordena.
 
     Aqui mora a guarda contra invenção: bruto que o modelo devolveu mas que não
     estava na entrada é descartado, e grupo que ficou sem nenhum bruto válido
     some. Um rótulo só sobrevive se tiver post real embaixo dele.
+
+    O grupo é montado antes do rótulo de propósito. Assim um rótulo ilegível
+    não leva junto o grupo: os posts existem, o que faltou foi o nome, e o nome
+    é recuperado do tema bruto mais frequente do próprio grupo.
     """
     validos = set(contagem)
     usados: set[str] = set()
     resultado = []
 
     for grupo in grupos:
-        rotulo = compactar_rotulo((grupo.get("rotulo") or "").strip())
-        if not rotulo:
-            continue
         membros = []
         for bruto in grupo.get("brutos", []):
             chave = normalizar(bruto)
             if chave in validos and chave not in usados:
                 membros.append(chave)
                 usados.add(chave)
+        membros.sort(key=lambda k: -contagem[k])
+        rotulo_bruto = (grupo.get("rotulo") or "").strip()
         if not membros:
-            print(f"    descartado (nenhum tema real embaixo): {rotulo}")
+            print(f"    descartado (nenhum tema real embaixo): {rotulo_bruto[:60]}")
             continue
         # União, não soma: se um post traz "Saúde" e "Saúde Pública", o grupo
         # Saúde aparece em um post, não em dois.
@@ -491,23 +569,133 @@ def consolidar(grupos: list[dict], contagem: Counter, canonico: dict[str, str],
         for chave in membros:
             posts_do_grupo.update(posts_por_tema.get(chave, set()))
         total = len(posts_do_grupo)
+        # O corte que vale é o do grupo inteiro, não o de cada tema. Sem isso um
+        # grupo montado só com sobras da seção "abaixo do corte" era publicado
+        # com um ou dois posts, e ficava lado a lado com um tema de trinta.
+        if total < MINIMO_POSTS_POR_TEMA:
+            print(f"    descartado ({total} post(s), abaixo do mínimo de "
+                  f"{MINIMO_POSTS_POR_TEMA}): {rotulo_bruto[:60]}")
+            continue
+        rotulo = compactar_rotulo(limpar_rotulo(rotulo_bruto, lugares))
+        if not rotulo:
+            rotulo = canonico[membros[0]]
+            print(f"    rótulo ilegível, usando o tema mais frequente do grupo: {rotulo}")
         resultado.append({
             "rotulo": rotulo,
             "posts": total,
             "pct": round(100 * total / analisados, 1) if analisados else 0.0,
-            "brutos": [canonico[c] for c in sorted(membros, key=lambda k: -contagem[k])][:5],
+            "brutos": [canonico[c] for c in membros][:5],
         })
 
     resultado.sort(key=lambda t: -t["posts"])
     return resultado[:TOP_N]
 
 
+# Sinais de que o modelo devolveu estrutura em vez de texto. Em uma rodada o
+# rótulo gravado foi 'Sa ```json { "temas": [ { "rotulo": "Sa', e a única coisa
+# que existia entre ele e a planilha era o corte de oito palavras.
+SUJEIRA_DE_ROTULO = re.compile(r"```|[{}\[\]]|\"\s*(temas|rotulo|brutos|resumo)\s*\"")
+
+
+def limpar_rotulo(rotulo: str, lugares: set[str] | None = None) -> str:
+    """Rejeita rótulo que não é texto e tira topônimo solto de descritor.
+
+    Devolve string vazia quando o rótulo veio inutilizável; quem chama troca
+    pelo tema mais frequente do grupo, então nenhum post se perde no caminho.
+    """
+    rotulo = (rotulo or "").strip()
+    if not rotulo or SUJEIRA_DE_ROTULO.search(rotulo):
+        return ""
+
+    lugares = lugares or set()
+    if ":" in rotulo:
+        categoria, _, cauda = rotulo.partition(":")
+    else:
+        categoria, cauda = "", rotulo
+    categoria = categoria.strip()
+    caiu_categoria = bool(categoria) and normalizar(categoria) in lugares
+    if caiu_categoria:
+        categoria = ""
+
+    # Nome de cidade ou de estado só se sustenta colado a uma obra ou programa
+    # ("Ponte Salvador-Itaparica"). Sozinho, é lugar, não pauta. Por isso a
+    # comparação é com o descritor inteiro.
+    descritores = [d.strip() for d in re.split(r",|\s+e\s+", cauda) if d.strip()]
+    mantidos = [d for d in descritores if normalizar(d) not in lugares]
+    if not mantidos:
+        return _fechar_aspas(categoria)
+    # Só remonta o rótulo se algo saiu. Remontar sempre trocaria a pontuação de
+    # rótulo que estava correto.
+    if len(mantidos) != len(descritores) or caiu_categoria:
+        cauda_nova = mantidos[0] if len(mantidos) == 1 else \
+            ", ".join(mantidos[:-1]) + " e " + mantidos[-1]
+        rotulo = f"{categoria}: {cauda_nova}" if categoria else cauda_nova
+
+    return _fechar_aspas(rotulo.strip(" ,;:-"))
+
+
+def _fechar_aspas(texto: str) -> str:
+    """Corta o trecho pendurado quando sobra aspa aberta.
+
+    Um rótulo que termina em 'Empregos, "Produzir para' saiu de um corte no meio
+    de uma citação. Melhor perder o trecho do que publicar a aspa aberta.
+    """
+    for aspa in ('"', "“", "'"):
+        if texto.count(aspa) % 2 == 1:
+            texto = texto[:texto.rfind(aspa)].rstrip(" ,;:-")
+    # Mesma coisa com parêntese: 'Valores religiosos (Josué' perde o trecho.
+    if texto.count("(") > texto.count(")"):
+        texto = texto[:texto.rfind("(")].rstrip(" ,;:-")
+    return texto
+
+
+CONECTOR_FINAL = re.compile(
+    r"[\s,]+(?:e|ou|com|de|da|do|das|dos|para|ao|aos|à|às|a|o|em|no|na|nos|nas"
+    r"|contra|pelo|pela|entre|sob|sobre|que)$", re.IGNORECASE)
+SEPARADOR_DE_ITEM = re.compile(r",\s*|\s+e\s+|\s+ou\s+")
+
+
+def _aparar_cauda(rotulo: str) -> str:
+    """Tira o item que o corte deixou pela metade.
+
+    O corte por número de palavras cai onde cair, e o que sobrava era rótulo
+    terminado em preposição: "Forças de Segurança e Combate ao", "Sigilo de
+    100". O último item da lista sai inteiro, e o rótulo passa a terminar em
+    unidade completa. Não é reconstrução: o que foi cortado não volta.
+    """
+    texto = rotulo.rstrip(" ,;:-")
+    cortado = False
+    anterior = None
+    while anterior != texto:
+        anterior = texto
+        # Número solto no fim é medida sem unidade ("Sigilo de 100").
+        novo = re.sub(r"[\s,]+\d+$", "", CONECTOR_FINAL.sub("", texto))
+        if novo != texto:
+            cortado, texto = True, novo.rstrip(" ,;:-")
+    if not cortado:
+        return texto
+
+    categoria, _, descritor = texto.partition(":")
+    alvo = descritor.strip() if descritor else texto
+    separadores = list(SEPARADOR_DE_ITEM.finditer(alvo))
+    # Corta na posição do último separador em vez de remontar a lista, para não
+    # trocar o "e" interno por vírgula em "Polícias Civil e Militar".
+    podado = alvo[:separadores[-1].start()].strip() if separadores else ""
+    if descritor:
+        return f"{categoria}: {podado}" if podado else categoria.strip()
+    return (podado or texto).strip(" ,;:-")
+
+
 def compactar_rotulo(rotulo: str, limite: int = 8) -> str:
     """Impõe no Python o limite que o prompt pede ao modelo.
 
     Preserva primeiro a categoria antes dos dois-pontos e depois os primeiros
-    descritores completos, sem deixar vírgula ou conjunção pendurada.
+    descritores completos, sem deixar vírgula, conjunção ou aspa pendurada.
     """
+    # Quebra de linha no meio da palavra ("Saúde P\n\tública") é lixo de geração
+    # e, no ranking em uma célula só, partiria o item em duas linhas.
+    rotulo = re.sub(r"(?<=\w)[\n\r\t]+\s*(?=[a-záàâãéêíóôõúç])", "", rotulo)
+    rotulo = re.sub(r"\s+", " ", rotulo).strip()
     # Remove conectores editoriais antes de cortar; assim nomes compostos como
     # "Primeiro Emprego" permanecem inteiros dentro do limite.
     rotulo = re.sub(r",?\s+(com foco em|incluindo|com destaque para)\s+", ": ",
@@ -515,14 +703,12 @@ def compactar_rotulo(rotulo: str, limite: int = 8) -> str:
     rotulo = re.sub(r":\s*:\s*", ": ", rotulo)
     palavras = rotulo.split()
     if len(palavras) <= limite:
-        return rotulo
+        return _fechar_aspas(rotulo)
     limite_real = limite
     if limite < len(palavras) and palavras[limite - 1].lower() in {"primeiro", "sistema", "pix"}:
         limite_real += 1
     curto = " ".join(palavras[:limite_real]).rstrip(" ,;:-")
-    curto = re.sub(r"\s+(e|ou|com|de|da|do|das|dos)$", "", curto,
-                   flags=re.IGNORECASE).rstrip(" ,;:-")
-    return curto
+    return _aparar_cauda(_fechar_aspas(curto))
 
 
 def montar_resumo(candidato: str, resumo_modelo: str, temas: list[dict],
@@ -600,6 +786,67 @@ def garantir_colunas(aba: gspread.Worksheet, cabecalho: list[str]) -> dict[str, 
     return indices
 
 
+LARGURA_COLUNA = {
+    COLUNA_CANDIDATO: 170,
+    "Temas Principais": 520,
+    "Resumo da conta": 430,
+}
+
+
+def formatar_aba(sh: gspread.Spreadsheet, aba: gspread.Worksheet,
+                 cabecalho: list[str], indices: dict[str, int]) -> None:
+    """Deixa a aba legível: quebra de linha, largura e colunas de conferência ocultas.
+
+    Roda toda vez porque o ranking em uma célula só não se lê sem quebra de
+    linha: sem isso a coluna vira uma linha única cortada na borda.
+    """
+    id_aba = aba.id
+    pedidos: list[dict] = [{
+        "updateSheetProperties": {
+            "properties": {"sheetId": id_aba, "gridProperties": {"frozenRowCount": 1}},
+            "fields": "gridProperties.frozenRowCount",
+        }
+    }]
+
+    visiveis = [COLUNA_CANDIDATO, "Temas Principais", "Resumo da conta"]
+    for nome in visiveis:
+        indice = indices.get(nome, cabecalho.index(nome) if nome in cabecalho else None)
+        if indice is None:
+            continue
+        pedidos.append({
+            "repeatCell": {
+                "range": {"sheetId": id_aba, "startRowIndex": 1,
+                          "startColumnIndex": indice, "endColumnIndex": indice + 1},
+                "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP",
+                                               "verticalAlignment": "TOP"}},
+                "fields": "userEnteredFormat(wrapStrategy,verticalAlignment)",
+            }
+        })
+        pedidos.append({
+            "updateDimensionProperties": {
+                "range": {"sheetId": id_aba, "dimension": "COLUMNS",
+                          "startIndex": indice, "endIndex": indice + 1},
+                "properties": {"pixelSize": LARGURA_COLUNA[nome]},
+                "fields": "pixelSize",
+            }
+        })
+
+    for nome in COLUNAS_CONFERENCIA:
+        indice = indices.get(nome, cabecalho.index(nome) if nome in cabecalho else None)
+        if indice is None:
+            continue
+        pedidos.append({
+            "updateDimensionProperties": {
+                "range": {"sheetId": id_aba, "dimension": "COLUMNS",
+                          "startIndex": indice, "endIndex": indice + 1},
+                "properties": {"hiddenByUser": True},
+                "fields": "hiddenByUser",
+            }
+        })
+
+    sh.batch_update({"requests": pedidos})
+
+
 def garantir_aba(sh: gspread.Spreadsheet, roster: list[str],
                  com_posts: set[str]) -> gspread.Worksheet:
     """Devolve a aba de destino, criando-a e preenchendo os candidatos se preciso.
@@ -675,6 +922,7 @@ def main() -> None:
     valores = aba.get_all_values()
     cabecalho = valores[0]
     indices = garantir_colunas(aba, cabecalho)
+    formatar_aba(sh, aba, cabecalho, indices)
     i_cand = cabecalho.index(COLUNA_CANDIDATO)
     i_feito = cabecalho.index("Temas Principais") if "Temas Principais" in cabecalho else -1
 
@@ -696,8 +944,6 @@ def main() -> None:
 
     entrada = saida = pensamento = 0
     escritas: list[dict] = []
-    letra_ini = _letra_coluna(indices[COLUNAS_SAIDA[0]])
-    letra_fim = _letra_coluna(indices[COLUNAS_SAIDA[-1]])
 
     def descarregar():
         if escritas:
@@ -712,10 +958,13 @@ def main() -> None:
         if analisados < MINIMO_POSTS_CANDIDATO:
             print(f"[{i}/{len(alvos)}] {candidato}: só {analisados} post(s) analisado(s), "
                   f"abaixo do mínimo de {MINIMO_POSTS_CANDIDATO}. Marcado, não classificado.")
-            escritas.append({
-                "range": f"{letra_ini}{numero}:{letra_fim}{numero}",
-                "values": [["", analisados, "", "", "Base pequena demais para ranquear."]],
-            })
+            escritas.extend(escritas_da_linha(indices, numero, {
+                "Temas Principais": "",
+                "Resumo da conta": "Base pequena demais para ranquear.",
+                "Nº de posts": analisados,
+                COLUNA_PERCENTUAL: "",
+                "Temas brutos agrupados": "",
+            }))
             continue
 
         try:
@@ -729,26 +978,26 @@ def main() -> None:
         saida += uso["saida"]
         pensamento += uso["pensamento"]
 
-        temas = consolidar(grupos, contagem, canonico, analisados, posts_por_tema)
+        temas = consolidar(grupos, contagem, canonico, analisados, posts_por_tema,
+                           lugares_do_candidato(candidato, uf_por_candidato.get(candidato, "")))
         resumo = montar_resumo(candidato, resumo_modelo, temas, analisados,
                                len(posts), contagem, canonico)
 
-        escritas.append({
-            "range": f"{letra_ini}{numero}:{letra_fim}{numero}",
-            "values": [[
-                SEPARADOR.join(t["rotulo"] for t in temas),
-                SEPARADOR.join(str(t["posts"]) for t in temas),
-                SEPARADOR.join(f"{t['pct']}%" for t in temas),
+        escritas.extend(escritas_da_linha(indices, numero, {
+            "Temas Principais": bloco_temas(temas),
+            "Resumo da conta": resumo,
+            "Nº de posts": SEPARADOR.join(str(t["posts"]) for t in temas),
+            COLUNA_PERCENTUAL: SEPARADOR.join(f"{t['pct']}%" for t in temas),
+            "Temas brutos agrupados":
                 " | ".join(f"{t['rotulo']}: {', '.join(t['brutos'])}" for t in temas),
-                resumo,
-            ]],
-        })
+        }))
         print(f"[{i}/{len(alvos)}] {candidato}: {len(temas)} tema(s) sobre "
               f"{analisados} post(s) analisado(s).")
         if temas:
             print(f"    1º: {temas[0]['rotulo']} ({temas[0]['posts']} posts, {temas[0]['pct']}%)")
 
-        if len(escritas) >= LOTE_ESCRITA:
+        # Cada candidato gera uma escrita por coluna, não uma só.
+        if len(escritas) >= LOTE_ESCRITA * len(COLUNAS_SAIDA):
             descarregar()
 
     descarregar()

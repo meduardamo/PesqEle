@@ -67,6 +67,10 @@ Sem `--forcar` ele pula quem já tem `Temas Principais`, então dá para
 interromper e continuar depois. Grava de 10 em 10 candidatos: se cair no meio,
 o que já foi feito está na planilha.
 
+**Refazer uma aba já preenchida exige `--forcar`.** Sem a flag, uma segunda
+rodada sobre a aba de 13/08 processaria só os dois candidatos marcados como base
+pequena e deixaria os outros 76 com os números da base antiga.
+
 Rodada completa: 10 a 15 minutos, custo abaixo de US$ 0,50.
 
 ## Como o resultado é montado
@@ -88,13 +92,32 @@ igual, e qualquer ranking tirado dali é chute.
 
 ## As cinco colunas gravadas
 
+Duas ficam à vista, três ficam ocultas no fim da aba:
+
 | Coluna | O que traz |
 |---|---|
-| `Temas Principais` | ranqueado, do mais frequente para o menos |
-| `Nº de posts` | em quantos posts o tema aparece |
-| `% dos posts em que aparece` | sobre o total analisado; os temas podem se sobrepor |
-| `Temas brutos agrupados` | o que entrou em cada tema, para conferir |
+| `Temas Principais` | o ranking inteiro em uma célula, uma linha por tema, com o nº de posts e a % ao lado |
 | `Resumo da conta` | duas ou três frases factuais sobre o que o perfil publica |
+| `Nº de posts` (oculta) | em quantos posts o tema aparece |
+| `% dos posts em que aparece` (oculta) | sobre o total analisado; os temas podem se sobrepor |
+| `Temas brutos agrupados` (oculta) | o que entrou em cada tema, para conferir |
+
+O ranking vai em uma célula só porque, em três colunas paralelas separadas por
+`;`, quem lê tem que contar a posição do tema para achar o número dele:
+
+```
+1. Saúde: PIX Saúde, Sistema Corujão, Fila de Regulação (20 posts, 16%)
+2. Segurança Pública e Valorização Policial (18 posts, 14%)
+3. Educação: IDEB e Primeiro Emprego (12 posts, 10%)
+```
+
+A % no ranking vai arredondada para inteiro; a casa decimal continua na coluna
+`% dos posts em que aparece`, que segue gravada para quem for calcular algo. A
+coluna `Temas`, com o despejo cru do `tematica.py`, também fica oculta no fim.
+
+Quem tira as colunas de conferência da frente é o `formatar_aba`, que roda a
+cada execução junto com a quebra de linha e a largura das colunas. Desocultar na
+mão vale até a próxima rodada.
 
 A coluna de temas brutos é a que permite auditar. Se um rótulo parecer estranho,
 ela mostra exatamente quais temas o alimentaram.
@@ -113,9 +136,16 @@ Programa ou indicador que aparece em apenas um ou dois posts pode enriquecer o
 rótulo, mas não vira tema nem aumenta sua contagem. O rótulo final tem no máximo
 oito palavras; o Python aplica esse limite mesmo se o modelo não obedecer.
 
+O corte de oito palavras cai onde cair, e antes ele deixava rótulo terminando em
+preposição: `Segurança Pública: Forças de Segurança e Combate ao`. Agora o
+`_aparar_cauda` tira o item que ficou pela metade, e sobra `Segurança Pública:
+Forças de Segurança`. Aspa ou parêntese sem fecho leva junto o trecho inteiro,
+em vez de fechar por conta própria e batizar um programa que ninguém disse que
+existe. O que foi cortado não volta: o texto original do modelo não é guardado.
+
 ## As guardas
 
-Cinco checagens rodam antes de qualquer coisa ser gravada.
+Oito checagens rodam antes de qualquer coisa ser gravada.
 
 1. **Tema inventado é descartado.** Todo tema bruto que o modelo devolve é
    conferido contra a lista que ele recebeu. O que não estava lá sai. Grupo que
@@ -135,6 +165,20 @@ Cinco checagens rodam antes de qualquer coisa ser gravada.
 
 5. **Variações no mesmo post contam uma vez.** Se um post traz `Saúde` e
    `Saúde Pública`, o grupo Saúde aparece em um post, não em dois.
+
+6. **O corte de 3 posts vale para o grupo inteiro.** Antes ele era aplicado só na
+   entrada do prompt, e bruto abaixo do corte voltava pelo agrupamento: na rodada
+   de 13/08 dez grupos saíram com 1 ou 2 posts, um deles publicado com um post só.
+
+7. **Rótulo que não é texto é rejeitado.** Uma vez o modelo devolveu o próprio
+   JSON dentro do campo do rótulo e aquilo foi parar em três colunas da planilha.
+   O grupo é montado antes do rótulo, então o rótulo pode cair sem levar os posts
+   junto: entra no lugar o tema bruto mais frequente do grupo, e o log avisa.
+
+8. **Nome de estado ou de capital não vira descritor sozinho.** `Educação:
+   Segurança Pública, Minas Gerais e Belo Horizonte` perde os dois topônimos. A
+   comparação é com o descritor inteiro, nunca por "contém", então
+   `Ponte Salvador-Itaparica` e `Hospital do Barreiro` continuam de pé.
 
 O log mostra o que foi cortado, com o motivo. Vale ler.
 
