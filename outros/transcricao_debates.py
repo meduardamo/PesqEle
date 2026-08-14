@@ -16,6 +16,11 @@ Eleições 2026. Quem quiser transcrever um debate cola o link do YouTube lá e
 põe o status em 'pendente'; o script devolve os links da transcrição na
 própria linha.
 
+No Drive cada debate cai em Debates/UF/ano-mês/dia, com transcrição, csv,
+bruto e mp3 juntos:
+
+    Debates/SP/2026-08/09/2026-band-sp-gov-t1.txt
+
 Uso:
     python -m outros.transcricao_debates --fila
     python -m outros.transcricao_debates --fila --id 2026-band-sp-gov-t1
@@ -64,9 +69,7 @@ COL = {
     "status": 10, "link_transcricao": 11, "link_csv": 12,
     "processado_em": 13, "observacoes": 14, "id_fonte": 15, "link_audio": 16,
 }
-# Subpasta de Debates onde o mp3 fica guardado. Procurada pelo nome em vez de
-# ir para outro secret: é filha de uma pasta que já está em secret.
-SUBPASTA_AUDIOS = "audios"
+PASTA_MIME = "application/vnd.google-apps.folder"
 # Onde o script escreve de volta: link_transcricao até observacoes.
 FAIXA_SAIDA = "L{i}:O{i}"
 
@@ -506,12 +509,18 @@ def enviar_drive(drive, caminho, nome, mime_destino=None, pasta=None):
     return arq["webViewLink"]
 
 
-def pasta_audios(drive):
-    """Id da subpasta 'audios', criada na primeira vez que for preciso."""
-    q = (f"'{PASTA_DRIVE}' in parents and name='{SUBPASTA_AUDIOS}' "
+def garantir_pasta(drive, nome, pai):
+    """Id da subpasta 'nome' dentro de 'pai', criada se ainda não existir.
+
+    A aspa simples é o único caractere que quebra a query da API, e nome de
+    mês ou de UF não tem nenhuma, mas o escape fica porque o nome vem da
+    planilha e planilha aceita qualquer coisa.
+    """
+    seguro = nome.replace("'", "\\'")
+    q = (f"'{pai}' in parents and name='{seguro}' "
          "and mimeType='application/vnd.google-apps.folder' and trashed=false")
     achou = com_retentativa(
-        f"busca da subpasta '{SUBPASTA_AUDIOS}'",
+        f"busca da pasta '{nome}'",
         lambda: drive.files().list(
             q=q, includeItemsFromAllDrives=True, supportsAllDrives=True,
             fields="files(id)",
@@ -520,15 +529,159 @@ def pasta_audios(drive):
     if achou:
         return achou[0]["id"]
     nova = com_retentativa(
-        f"criação da subpasta '{SUBPASTA_AUDIOS}'",
+        f"criação da pasta '{nome}'",
         lambda: drive.files().create(
-            body={"name": SUBPASTA_AUDIOS, "parents": [PASTA_DRIVE],
+            body={"name": nome, "parents": [pai],
                   "mimeType": "application/vnd.google-apps.folder"},
             supportsAllDrives=True, fields="id",
         ).execute(),
     )
-    log(f"subpasta '{SUBPASTA_AUDIOS}' criada no Drive")
+    log(f"pasta '{nome}' criada no Drive")
     return nova["id"]
+
+
+def caminho_do_debate(uf, data):
+    """Os três níveis do debate no Drive: UF, mês e dia.
+
+    A data vem da planilha em ISO ('2026-08-09'), que é de onde o id do debate
+    já tira o ano, mas quem preenche na mão escreve '09/08/2026', e as duas
+    formas entram. O mês fica como '2026-08', e não como 'agosto': o Drive
+    ordena pasta por nome, e nome de mês por extenso põe abril antes de agosto.
+    Debate de presidente não tem UF na planilha e cai em 'BR'.
+    """
+    estado = (uf or "").strip().upper() or "BR"
+    texto = (data or "").strip()
+
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", texto)
+    if m:
+        ano, mes, dia = m.groups()
+    else:
+        m = re.match(r"(\d{2})/(\d{2})/(\d{4})", texto)
+        if not m:
+            # Sem data legível o debate ainda precisa de destino: melhor uma
+            # pasta visível de conferência do que espalhar arquivo na raiz.
+            return [estado, "sem-data"]
+        dia, mes, ano = m.groups()
+    return [estado, f"{ano}-{mes}", dia]
+
+
+def pasta_do_debate(drive, uf, data, cache=None):
+    """Desce UF > mês > dia a partir da pasta Debates, criando o que faltar.
+
+    O cache evita refazer a mesma busca a cada arquivo do mesmo debate: são
+    três chamadas por nível, e a reorganização passa por dezenas de arquivos.
+    """
+    trilha = caminho_do_debate(uf, data)
+    if cache is not None and tuple(trilha) in cache:
+        return cache[tuple(trilha)]
+    pai = PASTA_DRIVE
+    for nivel in trilha:
+        pai = garantir_pasta(drive, nivel, pai)
+    if cache is not None:
+        cache[tuple(trilha)] = pai
+    return pai
+
+
+def listar_filhos(drive, pasta):
+    """Arquivos e subpastas direto dentro de uma pasta, sem descer mais."""
+    itens, token = [], None
+    while True:
+        pagina = com_retentativa(
+            "listagem de pasta do Drive",
+            lambda: drive.files().list(
+                q=f"'{pasta}' in parents and trashed=false",
+                includeItemsFromAllDrives=True, supportsAllDrives=True,
+                fields="nextPageToken, files(id,name,mimeType,parents)",
+                pageSize=1000, pageToken=token,
+            ).execute(),
+        )
+        itens.extend(pagina.get("files", []))
+        token = pagina.get("nextPageToken")
+        if not token:
+            return itens
+
+
+def reorganizar_drive(args):
+    """Move o que já está no Drive para a estrutura UF/ano-mês/dia.
+
+    Só arruma o passado: a fila normal já grava no lugar certo. Mover no Drive
+    preserva o id do arquivo, então os links que a planilha guarda continuam
+    valendo, e rodar duas vezes não faz mal, porque o que já está no destino
+    é ignorado.
+    """
+    if not PLANILHA or not PASTA_DRIVE:
+        sys.exit("defina SPREADSHEET_ID_DEBATES e PASTA_DRIVE_DEBATES (secrets do repo).")
+    gc, drive = clientes_google()
+    ws = com_retentativa(
+        "abertura da planilha de debates",
+        lambda: gc.open_by_key(PLANILHA).worksheet(ABA),
+    )
+    todas = com_retentativa("leitura da planilha", ws.get_all_values)
+
+    # De qual debate é cada arquivo: o nome sempre começa pelo id.
+    debates = {}
+    for linha in todas[1:]:
+        if not linha:
+            continue
+        ident = linha[COL["id"]].strip()
+        if not ident:
+            continue
+        def pega(nome, l=linha):
+            return (l[COL[nome]] if COL[nome] < len(l) else "").strip()
+        debates[ident] = (pega("uf"), pega("data"))
+    log(f"planilha: {len(debates)} debate(s) com id")
+
+    # A raiz e a antiga subpasta 'audios', que é onde os mp3 foram parar.
+    na_raiz = listar_filhos(drive, PASTA_DRIVE)
+    pastas = {f["name"]: f["id"] for f in na_raiz if f["mimeType"] == PASTA_MIME}
+    soltos = [f for f in na_raiz if f["mimeType"] != PASTA_MIME]
+    if "audios" in pastas:
+        soltos += listar_filhos(drive, pastas["audios"])
+        log("subpasta 'audios' entrou na varredura")
+    log(f"arquivos fora da estrutura nova: {len(soltos)}")
+
+    cache, movidos, sem_dono = {}, 0, []
+    for arq in soltos:
+        # Id mais longo primeiro: '...-gov-t1-2' também começa com '...-gov-t1'.
+        dono = max((d for d in debates if arq["name"].startswith(d)),
+                   key=len, default=None)
+        if not dono:
+            sem_dono.append(arq["name"])
+            continue
+
+        uf, data = debates[dono]
+        trilha = " / ".join(caminho_do_debate(uf, data))
+        if args.simular:
+            log(f"  {arq['name']}  ->  {trilha}")
+            movidos += 1
+            continue
+
+        destino = pasta_do_debate(drive, uf, data, cache)
+        antigos = ",".join(arq.get("parents", []))
+        if destino in arq.get("parents", []):
+            continue
+        com_retentativa(
+            f"mover {arq['name']}",
+            lambda: drive.files().update(
+                fileId=arq["id"], addParents=destino, removeParents=antigos,
+                supportsAllDrives=True, fields="id",
+            ).execute(),
+        )
+        log(f"  {arq['name']}  ->  {trilha}")
+        movidos += 1
+
+    secao("RESULTADO")
+    log(f"{movidos} arquivo(s) {'seriam movidos' if args.simular else 'movidos'}")
+    if sem_dono:
+        # Sem id casando, mexer no arquivo é chute: some da vista de quem
+        # deixou ali e não dá para desfazer sozinho.
+        log(f"{len(sem_dono)} arquivo(s) sem debate correspondente, deixados onde estão:")
+        for nome in sem_dono[:20]:
+            log(f"  {nome}")
+        if len(sem_dono) > 20:
+            log(f"  ... e mais {len(sem_dono) - 20}")
+    if args.simular:
+        log("simulação: nada foi movido. Rode sem --simular para valer.")
 
 
 def contexto_da_linha(linha):
@@ -908,6 +1061,17 @@ def rodar_fila(args):
             for l_ in contexto.splitlines():
                 log(f"  | {l_}")
 
+            def campo(nome):
+                j = COL[nome]
+                return (linha[j] if j < len(linha) else "").strip()
+
+            # Uma pasta por dia de debate, dentro do mês, dentro da UF. Fica
+            # pronta antes do download: se o mp3 subir e a pasta não existir,
+            # o áudio vai para a raiz e alguém tem que caçar depois.
+            trilha = caminho_do_debate(campo("uf"), campo("data"))
+            destino_drive = pasta_do_debate(drive, campo("uf"), campo("data"))
+            log(f"destino no Drive: {' / '.join(trilha)}")
+
             link_audio_existente = linha[COL["link_audio"]].strip() if COL.get("link_audio", 999) < len(linha) else ""
             if link_audio_existente:
                 log(f"link_audio já disponível no Drive: {link_audio_existente}")
@@ -931,7 +1095,7 @@ def rodar_fila(args):
             if not link_audio_existente:
                 secao("ÁUDIO NO DRIVE")
                 link_audio = enviar_drive(
-                    drive, audio, f"{ident}.mp3", pasta=pasta_audios(drive)
+                    drive, audio, f"{ident}.mp3", pasta=destino_drive
                 )
                 escrever_celula(ws, i, COL["link_audio"] + 1, link_audio)
                 log(f"{ident}.mp3 ({audio.stat().st_size / 1e6:.0f} MB) -> {link_audio}")
@@ -947,7 +1111,7 @@ def rodar_fila(args):
                 # depois. O bruto fica como arquivo, que é material de conferência.
                 destino = {".txt": "application/vnd.google-apps.document",
                            ".csv": "application/vnd.google-apps.spreadsheet"}.get(p.suffix)
-                links[p.suffix] = enviar_drive(drive, p, p.name, destino)
+                links[p.suffix] = enviar_drive(drive, p, p.name, destino, destino_drive)
                 log(f"{p.name} -> {links[p.suffix]}")
 
             com_retentativa(
@@ -989,6 +1153,10 @@ def main():
     fonte.add_argument("--fila", action="store_true", help="processa os 'pendente' da planilha")
     fonte.add_argument("--url", help="URL avulsa do vídeo (YouTube)")
     fonte.add_argument("--audio", help="arquivo de áudio local")
+    fonte.add_argument("--reorganizar-drive", action="store_true",
+                       help="move o que já está no Drive para UF/ano-mês/dia e sai")
+    ap.add_argument("--simular", action="store_true",
+                    help="com --reorganizar-drive, só mostra o que seria movido")
     ap.add_argument("--id", default=None, help="com --fila, roda só esse id (ignora o status)")
     ap.add_argument("--sem-sync", action="store_true",
                     help="não puxa o calendário do monitoramento antes da fila")
@@ -1000,6 +1168,12 @@ def main():
     ap.add_argument("--saida", default="transcricoes", help="pasta de saída local")
     ap.add_argument("--nome", default="debate", help="prefixo dos arquivos, nos modos avulsos")
     args = ap.parse_args()
+
+    # Arrumar pasta não chama o modelo e não depende de chave nenhuma.
+    if args.reorganizar_drive:
+        secao("REORGANIZAR O DRIVE" + (" (simulação)" if args.simular else ""))
+        reorganizar_drive(args)
+        return
 
     # --so-sync só mexe em planilha, não chama o modelo.
     if not args.so_sync and not os.getenv("GEMINI_API_KEY", "").strip():

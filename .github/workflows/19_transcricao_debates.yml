@@ -19,6 +19,16 @@ on:
         type: boolean
         required: false
         default: false
+      reorganizar:
+        description: 'Só arruma o Drive: move o que já está lá para UF/ano-mês/dia, sem transcrever'
+        type: boolean
+        required: false
+        default: false
+      simular:
+        description: 'Com "reorganizar", só lista o que seria movido, sem mover'
+        type: boolean
+        required: false
+        default: false
       id:
         description: 'Roda só esse id da planilha, ignorando o status (vazio = todos os pendentes)'
         required: false
@@ -121,7 +131,13 @@ jobs:
           ${{ inputs.inicio && format('RECORTE="$RECORTE --inicio {0}"', inputs.inicio) || 'true' }}
           ${{ inputs.duracao && format('RECORTE="$RECORTE --duracao {0}"', inputs.duracao) || 'true' }}
 
-          if [ -n "$URL" ]; then
+          if [ "${{ inputs.reorganizar }}" = "true" ]; then
+            # Só mexe em pasta do Drive: não baixa áudio, não chama o modelo,
+            # não escreve na planilha. Rodar duas vezes não faz mal.
+            echo "reorganizando o Drive"
+            python -m outros.transcricao_debates --reorganizar-drive \
+              ${{ inputs.simular == true && '--simular' || '' }}
+          elif [ -n "$URL" ]; then
             # Teste avulso: não sincroniza, não escreve na planilha, não sobe
             # para o Drive. Só o artefato do run, para conferir qualidade.
             echo "modo avulso: planilha e Drive intocados"
