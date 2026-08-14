@@ -1,0 +1,55 @@
+name: 22 - Medir limiar de vocabulário
+
+# Só manual, e de propósito. Não grava nada: lê a aba de análise, refaz o teste
+# de ausência sobre o texto do plano e repergunta ao modelo só o que a guarda do
+# LIMIAR_VOCABULARIO pegaria, para dizer se o corte ainda se sustenta no modelo
+# que estiver em uso. O corte em 2 foi calibrado no gemini-2.5-flash, que saiu
+# do ar para a chave nova em 14/08/2026.
+
+on:
+  workflow_dispatch:
+    inputs:
+      planos:
+        description: 'Quantos planos medir (0 = todos, base inteira)'
+        required: false
+        default: '40'
+      limiar:
+        description: 'Posições de vocabulário para reperguntar'
+        required: false
+        default: '2'
+      uf:
+        description: 'Restringe a uma UF (vazio = todas)'
+        required: false
+        default: ''
+
+jobs:
+  medir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: OCR (planos digitalizados)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-por
+
+      - run: pip install gspread google-auth google-genai PyMuPDF pillow pytesseract pandas
+
+      - name: Escrever credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+
+      - name: Medir
+        env:
+          PYTHONUNBUFFERED: "1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
+        run: |
+          python -m outros.medir_limiar_vocabulario \
+            --planos ${{ inputs.planos }} \
+            --limiar ${{ inputs.limiar }} \
+            ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }}
