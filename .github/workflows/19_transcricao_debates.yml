@@ -1,9 +1,18 @@
 name: 19 - Transcrição de Debates
 
-# Sob demanda, não agendado: debate tem data marcada, e a fila só anda quando
-# alguém põe uma linha em 'pendente' na planilha "Mapeamento de Debates"
-# (drive compartilhado Eleições 2026 > Debates).
+# Transcrever é sob demanda: debate tem data marcada, custa dinheiro por
+# rodada, e a fila só anda quando alguém põe uma linha em 'pendente' na
+# planilha "Mapeamento de Debates" (drive compartilhado Eleições 2026 >
+# Debates). O que roda no horário é só o sync do calendário, que não gasta API.
 on:
+  schedule:
+    # GitHub Actions usa UTC; Brasil/Recife = UTC-3. Começo e fim do dia de
+    # trabalho, para pegar o que o monitoramento preencheu de manhã e de tarde.
+    # Rodada agendada só sincroniza (veja o --so-sync forçado lá embaixo);
+    # transcrição continua saindo no botão.
+    - cron: '17 12 * * *'   # 09:17 Brasil
+    - cron: '17 21 * * *'   # 18:17 Brasil
+
   workflow_dispatch:
     inputs:
       url:
@@ -143,8 +152,11 @@ jobs:
             echo "modo avulso: planilha e Drive intocados"
             python -m outros.transcricao_debates --url "$URL" --nome teste $RECORTE
           else
+            # A rodada agendada é sempre só sync: 'schedule' não manda input
+            # nenhum, e sem isto ela cairia na fila normal e transcreveria
+            # tudo que estivesse 'pendente', sem ninguém pedir nem conferir.
             python -m outros.transcricao_debates --fila $RECORTE \
-              ${{ inputs.so_sync == true && '--so-sync' || '' }} \
+              ${{ (inputs.so_sync == true || github.event_name == 'schedule') && '--so-sync' || '' }} \
               ${{ inputs.id && format('--id {0}', inputs.id) || '' }}
           fi
 
@@ -162,6 +174,12 @@ jobs:
               for f in $(find transcricoes -name '*.txt' 2>/dev/null); do
                 echo "| $(basename "$f") | $(du -h "$f" | cut -f1) | $(wc -l < "$f") |"
               done
+            elif [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.so_sync }}" = "true" ]; then
+              # Sem isto a rodada agendada de sync escreveria "nenhuma
+              # transcrição gerada" duas vezes por dia, que lê como falha.
+              echo "Rodada de sync: só puxou o calendário do monitoramento, sem transcrever."
+            elif [ "${{ inputs.reorganizar }}" = "true" ]; then
+              echo "Rodada de reorganização do Drive, sem transcrever."
             else
               echo "Nenhuma transcrição gerada. Veja o log do passo anterior."
             fi
