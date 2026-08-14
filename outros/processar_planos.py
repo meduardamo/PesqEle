@@ -344,6 +344,13 @@ def conferir_classificacao(classif: dict, texto: str,
 # próprio tema e a regra reprovou zero dos 12, então não serve como filtro e não
 # está aqui.
 #
+# Remedido em 14/08/2026 no gemini-3.6-flash, que substituiu o 2.5 à força
+# (outros/medir_limiar_vocabulario.py, 40 planos, 290 ausências): as mesmas 12
+# reperguntas, agora 7 voltando com citação verificada e 5 confirmando a
+# ausência. O rendimento caiu de 10 em 12 para 7 em 12; nenhuma foi descartada
+# por citação fora do plano. O corte fica em 2: baixar para 1 dobra as chamadas
+# atrás de ruído, e isso não mudou com o modelo.
+#
 # A VERSAO_ANALISE NÃO subiu junto de propósito. Subir força reprocessar os 91
 # planos com Gemini para mexer em ~23 linhas de 4.186, e a guarda vale a partir
 # do próximo plano que entrar. A base fica com dois critérios convivendo, e é

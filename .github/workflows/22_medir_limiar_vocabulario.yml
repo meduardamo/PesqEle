@@ -21,6 +21,11 @@ on:
         description: 'Restringe a uma UF (vazio = todas)'
         required: false
         default: ''
+      gravar:
+        description: 'Corrige na aba as ausências que a repergunta desmentir'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   medir:
@@ -52,4 +57,5 @@ jobs:
           python -m outros.medir_limiar_vocabulario \
             --planos ${{ inputs.planos }} \
             --limiar ${{ inputs.limiar }} \
-            ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }}
+            ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }} \
+            ${{ inputs.gravar == true && '--gravar' || '' }}

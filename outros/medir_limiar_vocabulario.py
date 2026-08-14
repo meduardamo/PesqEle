@@ -12,9 +12,19 @@ e repergunta ao modelo só o que a guarda pegaria. Não escreve nada em lugar
 nenhum. Serve para decidir se o corte continua em 2, sobe, desce, ou se a guarda
 sai.
 
+Com --gravar, deixa de ser só medição: as ausências que a repergunta desmentir
+são corrigidas na própria aba. Isso existe porque a guarda entrou sem subir a
+VERSAO_ANALISE, então ela nunca passou pelos planos já gravados, e a medição de
+14/08/2026 achou 7 ausências falsas em 40 planos que estão na base agora.
+
+A `versao` NÃO muda na correção, de propósito: pendentes() lê a versão da
+primeira linha do candidato, então mexer nela em algumas linhas faria a fila
+reprocessar o plano inteiro no Gemini. O que marca a correção é o
+`analisado_em`, que é para isso que ele serve.
+
 Uso:
     python -m outros.medir_limiar_vocabulario --planos 40
-    python -m outros.medir_limiar_vocabulario --planos 0 --limiar 1   # base toda
+    python -m outros.medir_limiar_vocabulario --planos 0 --gravar   # corrige
 """
 
 from __future__ import annotations
@@ -25,15 +35,58 @@ import os
 import sys
 import time
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 from analise_planos import (  # noqa: E402
     PlanoIndisponivel, RespostaIlegivel, TEMAS,
     _norm_busca, citacao_sustenta, contexto_do_vocabulario,
-    extrair_paginas_url, ocorrencias_ancora, posicoes_do_tema, reanalisar_tema,
+    extrair_paginas_url, normalizar_responsavel, ocorrencias_ancora,
+    paginas_do_trecho, posicoes_do_tema, reanalisar_tema, verificar_trecho,
 )
 from processar_planos import ANALISE_ABA, cliente, ler_aba  # noqa: E402
+
+
+def _col_a1(n: int) -> str:
+    """0 -> A, 25 -> Z, 26 -> AA."""
+    s = ""
+    n += 1
+    while n:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _linha_corrigida(achado, col: dict, novo: dict, paginas_norm: list) -> dict:
+    """A linha inteira, com os campos da análise trocados pelo que voltou.
+
+    Escreve a linha toda e não célula a célula porque as colunas que mudam não
+    são vizinhas, e um range contíguo por linha é uma chamada só. A `versao`
+    fica como está: ver o cabeçalho do arquivo.
+    """
+    linha, valores = achado
+    v = list(valores)
+    agora = datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y %H:%M")
+    novos = {
+        "nivel": novo["nivel"],
+        "trecho": novo["trecho"],
+        "responsavel": novo.get("responsavel", ""),
+        "entes": normalizar_responsavel(novo.get("responsavel", "")),
+        "prazo": novo.get("prazo", ""),
+        "publico_alvo": novo.get("publico_alvo", ""),
+        "programa_nome": novo.get("programa_nome", ""),
+        "pagina": ", ".join(str(n) for n in paginas_do_trecho(paginas_norm,
+                                                             novo["trecho"])),
+        "verificacao": verificar_trecho(paginas_norm, novo["trecho"]),
+        "analisado_em": agora,
+    }
+    for nome, valor in novos.items():
+        if nome in col:
+            while len(v) <= col[nome]:
+                v.append("")
+            v[col[nome]] = valor
+    return {"range": f"A{linha}:{_col_a1(len(v) - 1)}{linha}", "values": [v]}
 
 
 def main() -> int:
@@ -43,9 +96,20 @@ def main() -> int:
     p.add_argument("--limiar", type=int, default=2,
                    help="posições de vocabulário a partir das quais repergunta")
     p.add_argument("--uf", default="")
+    p.add_argument("--gravar", action="store_true",
+                   help="corrige na aba as ausências que a repergunta desmentir")
     args = p.parse_args()
 
     sh = cliente().open_by_key(os.environ["SPREADSHEET_ID_TSE"])
+    aba = sh.worksheet(ANALISE_ABA)
+    # Valores crus só para saber em que linha da planilha está cada (sq, tema).
+    # O DataFrame perde o número da linha, e é ele que a escrita precisa.
+    valores = aba.get_all_values()
+    cab = valores[0]
+    col = {n: k for k, n in enumerate(cab)}
+    onde = {(v[col["sq_candidato"]], v[col["tema"]]): (n, list(v))
+            for n, v in enumerate(valores[1:], start=2)}
+    correcoes: list[dict] = []
     df = ler_aba(sh, ANALISE_ABA)
     if args.uf:
         df = df[df["uf"] == args.uf]
@@ -120,11 +184,28 @@ def main() -> int:
                 resultado["achou, com citação verificada"] += 1
                 print(f"      {tema}: {novo['nivel']} · "
                       f"\"{novo['trecho'][:90]}\"")
+                achado = onde.get((sq, tema))
+                if achado is None:
+                    print(f"      {tema}: linha não encontrada na aba, não gravo")
+                elif args.gravar:
+                    correcoes.append(_linha_corrigida(achado, col, novo,
+                                                      paginas_norm))
             else:
                 # Voltou com nível mas a citação não está no plano. É o caso que
                 # a guarda descarta: vira "Não menciona" de novo.
                 resultado["citação não confere, descartado"] += 1
                 print(f"      {tema}: descartado, citação fora do plano")
+
+    if correcoes:
+        # Em lotes porque a API recusa payload grande, e uma linha da análise
+        # carrega o trecho citado inteiro.
+        for i in range(0, len(correcoes), 50):
+            aba.batch_update(correcoes[i:i + 50],
+                             value_input_option="USER_ENTERED")
+            time.sleep(1)
+        print(f"\ngravadas {len(correcoes)} correções na aba {ANALISE_ABA}")
+    elif args.gravar:
+        print("\nnada a corrigir")
 
     print(f"\n--- {time.time() - inicio:.0f}s")
     print(f"ausências olhadas: {tot_ausencias}")
