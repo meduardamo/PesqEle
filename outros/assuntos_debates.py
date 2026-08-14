@@ -135,6 +135,24 @@ def assuntos_da_fala(texto, compilados):
     return achados
 
 
+def janela(falas, i, anteriores):
+    """O turno mais os `anteriores` que vieram antes dele.
+
+    Turno curto muitas vezes não tem assunto próprio: "Você deve tá arrependido
+    mesmo" só é sobre segurança porque o turno anterior era. Medido no debate da
+    Band de 09/08, das 24 falas que o dicionário perdia e o modelo pegava, 14
+    tinham menos de 30 palavras.
+
+    A janela é fixa de propósito. A primeira versão agrupava por bloco, cortando
+    a cada fala do mediador, e no trecho de confronto livre o mediador não fala:
+    saiu um bloco de 64 turnos e 7.175 palavras, um terço do debate, marcado com
+    10 dos 12 eixos e propagado para os 64 turnos. A cobertura subiu para 88% e
+    não queria dizer nada.
+    """
+    ini = max(0, i - anteriores)
+    return falas[ini:i + 1]
+
+
 def main():
     ap = argparse.ArgumentParser(description="Marca os assuntos citados em cada fala")
     ap.add_argument("--csv", required=True, help="CSV da transcrição")
@@ -143,6 +161,9 @@ def main():
                     help="usa os 46 temas em vez dos 12 eixos")
     ap.add_argument("--min-palavras", type=int, default=0,
                     help="ignora falas mais curtas que isto na varredura")
+    ap.add_argument("--anteriores", type=int, default=1,
+                    help="turnos anteriores lidos junto com cada turno "
+                         "(0 = turno isolado; padrão 1)")
     args = ap.parse_args()
 
     entrada = Path(args.csv)
@@ -166,27 +187,36 @@ def main():
           f"{sum(len(v) for v in termos.values())} termos)")
     print(f"          {len(TERMOS_EXTRA)} próprios de debate: {', '.join(TERMOS_EXTRA)}")
 
+    print(f"unidade : turno + {args.anteriores} anterior(es)"
+          if args.anteriores else "unidade : turno isolado")
+
     linhas = []
-    for i, r in enumerate(falas, 1):
-        texto = r["fala"]
-        curta = len(texto.split()) < args.min_palavras
-        achados = {} if curta else assuntos_da_fala(texto, compilados)
+    for i, r in enumerate(falas):
+        grupo = janela(falas, i, args.anteriores)
+        texto = " ".join(f["fala"] for f in grupo)
+        achados = ({} if len(texto.split()) < args.min_palavras
+                   else assuntos_da_fala(texto, compilados))
+        # O próprio turno é marcado à parte: separa o que ele diz do que
+        # herdou do turno anterior, e quem for citar em entrega precisa saber
+        # a diferença.
+        proprios = assuntos_da_fala(r["fala"], compilados)
         linhas.append({
-            "id": i,
+            "id": i + 1,
             "segundos": r.get("segundos", ""),
             "tempo": r.get("tempo", ""),
             "falante": r.get("falante", ""),
-            "palavras": len(texto.split()),
+            "palavras": len(r["fala"].split()),
             "assuntos": "; ".join(sorted(achados)),
             "n_assuntos": len(achados),
+            "proprios": "; ".join(sorted(proprios)),
             "termos": "; ".join(f"{k}: {', '.join(v)}" for k, v in sorted(achados.items())),
-            "fala": texto,
+            "fala": r["fala"],
         })
 
     destino = Path(args.saida) if args.saida else entrada.with_name(
         entrada.stem + f"_assuntos_{nivel}.csv")
     campos = ["id", "segundos", "tempo", "falante", "palavras",
-              "assuntos", "n_assuntos", "termos", "fala"]
+              "assuntos", "n_assuntos", "proprios", "termos", "fala"]
     with open(destino, "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=campos)
         w.writeheader()
