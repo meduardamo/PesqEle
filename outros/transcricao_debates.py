@@ -927,11 +927,66 @@ def gerar_id(linha_fonte, usados):
     return ident
 
 
-COL_FONTE = {
+# Ordem das colunas da planilha do monitoramento, como ela está hoje. Serve de
+# ponto de partida: o sync confere o cabeçalho de lá antes de ler qualquer
+# linha e refaz esse mapa a partir do que achar.
+COL_FONTE_PADRAO = {
     "id_debate": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
     "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
     "observacoes": 10,
 }
+COL_FONTE = dict(COL_FONTE_PADRAO)
+
+# Nomes de cabeçalho aceitos para cada campo, já normalizados (sem acento, tudo
+# minúsculo, separador virando '_'). A planilha é de outra equipe, então cabe
+# mais de um nome por campo.
+NOMES_FONTE = {
+    "id_debate": ("id_debate", "id", "id_do_debate"),
+    "data": ("data", "data_do_debate"),
+    "horario": ("horario", "hora"),
+    "cargo": ("cargo",),
+    "uf": ("uf", "estado"),
+    "turno": ("turno",),
+    "emissora": ("emissora", "emissoras", "veiculo"),
+    "url_youtube": ("url_youtube", "url", "link", "link_youtube", "youtube", "url_do_video"),
+    "mediador": ("mediador", "mediadores", "mediacao"),
+    "participantes": ("participantes", "candidatos"),
+    "observacoes": ("observacoes", "observacao", "obs"),
+}
+
+
+def normalizar_titulo(texto):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "_", t.lower()).strip("_")
+
+
+def mapear_fonte(cabecalho):
+    """Em que coluna da planilha do monitoramento está cada campo.
+
+    Ler por posição fixa era o buraco: uma coluna inserida no meio de lá fazia
+    o sync gravar participante no lugar de mediador, sem erro nenhum, e só
+    aparecia quando alguém lesse a transcrição. Aqui a posição sai do
+    cabeçalho, e campo que não for encontrado para o run em vez de chutar.
+    """
+    titulos = [normalizar_titulo(c) for c in cabecalho]
+    achados = {}
+    for campo, aceitos in NOMES_FONTE.items():
+        for aceito in aceitos:
+            if aceito in titulos:
+                achados[campo] = titulos.index(aceito)
+                break
+
+    faltando = [c for c in NOMES_FONTE if c not in achados]
+    if faltando:
+        sys.exit(
+            f"cabeçalho da aba '{FONTE_ABA}' mudou: não achei coluna para "
+            f"{', '.join(faltando)}.\n"
+            f"cabeçalho lido: {', '.join(t for t in titulos if t) or '(vazio)'}\n"
+            "Ajuste NOMES_FONTE em outros/transcricao_debates.py, ou peça para "
+            "a coluna voltar ao nome antigo."
+        )
+    return achados
 
 
 def sincronizar(gc, ws):
@@ -942,6 +997,8 @@ def sincronizar(gc, ws):
     alguém completou na mão. Linha em 'processando' ou 'pronto' não tem o
     status mexido: transcrição já feita não volta para a fila.
     """
+    global COL_FONTE
+
     if not FONTE_PLANILHA:
         log("SPREADSHEET_ID_INTERNO não definido, sync pulado")
         return
@@ -951,7 +1008,20 @@ def sincronizar(gc, ws):
         "abertura da planilha do monitoramento",
         lambda: gc.open_by_key(FONTE_PLANILHA).worksheet(FONTE_ABA),
     )
-    de_la = com_retentativa("leitura da fonte", fonte.get_all_values)[1:]
+    tudo_de_la = com_retentativa("leitura da fonte", fonte.get_all_values)
+    if not tudo_de_la:
+        log(f"aba '{FONTE_ABA}' vazia, sync pulado")
+        return
+
+    # Antes de ler linha, confere onde está cada coluna lá.
+    COL_FONTE = mapear_fonte(tudo_de_la[0])
+    mudadas = [c for c, pos in COL_FONTE.items() if COL_FONTE_PADRAO[c] != pos]
+    if mudadas:
+        log("colunas fora da posição de sempre, lidas pelo cabeçalho:")
+        for c in mudadas:
+            log(f"  {c}: coluna {COL_FONTE_PADRAO[c] + 1} -> {COL_FONTE[c] + 1}")
+
+    de_la = tudo_de_la[1:]
     nossas = com_retentativa("leitura da nossa planilha", ws.get_all_values)
     log(f"fonte '{FONTE_ABA}': {len(de_la)} linha(s) | nossa: {len(nossas) - 1} linha(s)")
 
