@@ -873,8 +873,14 @@ def main() -> int:
         processados.add((sq, nome))
         feitos += 1
         niveis = sum(1 for l in linhas if l["nivel"] != "Não menciona")
+        # O que chega aqui é a linha já formatada para a planilha, onde 'pontes'
+        # é o texto do pontes_texto, junto por " | ", e não o dicionário. Contar
+        # com len() direto media caracteres: em 14/08/2026 o log deu "807
+        # programas" para um plano do DF, que eram 807 caracteres de texto.
+        pontes_txt = str(coe.get("pontes", "")).strip()
+        n_pontes = len([p for p in pontes_txt.split(" | ") if p]) if pontes_txt else 0
         print(f"ok ({niveis}/{len(linhas)} temas com conteúdo, "
-              f"{len(coe.get('pontes', {}))} programas atravessando temas)")
+              f"{n_pontes} programas atravessando temas)")
 
         if feitos % LOTE == 0:
             descarrega()
