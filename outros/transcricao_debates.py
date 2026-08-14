@@ -326,10 +326,10 @@ def transcrever(client, arq, contexto, uso):
                 return texto
             log(f"    tentativa {n}/{TENTATIVAS}: resposta vazia ({tokens})")
         except Exception as e:
-            # Modelo que não aceita thinking_level responde 400 e responderia
-            # 400 em todos os blocos: desliga o campo e segue caro, em vez de
-            # devolver debate vazio.
-            if not SEM_THINKING_CONFIG and "thinking" in str(e).lower():
+            # Modelo que não aceita thinking_level/thinking_budget responde 400 e
+            # responderia 400 em todos os blocos: desliga o campo e segue caro,
+            # em vez de devolver debate vazio.
+            if not SEM_THINKING_CONFIG and ("thinking" in str(e).lower() or "invalid_argument" in str(e).lower() or "400" in str(e)):
                 SEM_THINKING_CONFIG = True
                 log(f"    {GEMINI_MODEL} recusou thinking_config, seguindo sem ele: {e}")
                 continue
