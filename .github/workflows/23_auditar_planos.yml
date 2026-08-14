@@ -1,0 +1,61 @@
+name: 23 - Auditar planos gravados
+
+# Manual, e de propósito. Passa as guardas da análise sobre o que já está na
+# planilha, chamando a mesma conferir_classificacao da produção. Existe porque
+# guarda que entra sem a VERSAO_ANALISE subir junto nunca alcança o que já foi
+# gravado, e a base fica com dois critérios convivendo.
+#
+# Comece por "contar": ele não chama o modelo e diz o tamanho antes de gastar.
+
+on:
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: 'O que fazer'
+        type: choice
+        options:
+          - contar
+          - simular
+          - gravar
+        default: contar
+      planos:
+        description: 'Quantos planos (0 = base inteira)'
+        required: false
+        default: '0'
+      uf:
+        description: 'Restringe a uma UF (vazio = todas)'
+        required: false
+        default: ''
+
+jobs:
+  auditar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: OCR (planos digitalizados)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-por
+
+      - run: pip install gspread google-auth google-genai PyMuPDF pillow pytesseract pandas
+
+      - name: Escrever credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+
+      - name: Auditar
+        env:
+          PYTHONUNBUFFERED: "1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
+        run: |
+          python -m outros.auditar_planos \
+            --planos ${{ inputs.planos }} \
+            ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }} \
+            ${{ inputs.modo == 'contar' && '--contar' || '' }} \
+            ${{ inputs.modo == 'gravar' && '--gravar' || '' }}
