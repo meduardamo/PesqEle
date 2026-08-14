@@ -83,7 +83,10 @@ ESPERA_MAX = 120
 # repescar na hora cai nela de novo.
 ESPERA_REPESCAGEM = 90
 
-# MINIMAL, LOW, MEDIUM, HIGH ou vazio para deixar o padrão do modelo.
+# MINIMAL, LOW, MEDIUM, HIGH, um número de tokens de orçamento (0 desliga) ou
+# vazio para deixar o padrão do modelo. O 3.6-flash aceitou MINIMAL e ignorou:
+# gastou ~48 mil tokens de raciocínio por bloco do mesmo jeito. Fica nas duas
+# formas porque orçamento e nível são campos diferentes na API.
 RACIOCINIO = os.getenv("GEMINI_THINKING", "MINIMAL").strip().upper()
 # Vira True se o modelo recusar o campo, para não repetir 400 em cada bloco.
 SEM_THINKING_CONFIG = False
@@ -296,8 +299,12 @@ def montar_config():
     raciocínio por bloco para devolver ~2,4 mil de transcrição, 96% da saída
     paga. Com o raciocínio no mínimo o gasto cai na mesma proporção."""
     cfg = dict(temperature=0.0, max_output_tokens=32000)
-    if RACIOCINIO and not SEM_THINKING_CONFIG:
-        cfg["thinking_config"] = types.ThinkingConfig(thinking_level=RACIOCINIO)
+    if RACIOCINIO not in ("", "PADRAO") and not SEM_THINKING_CONFIG:
+        if RACIOCINIO.lstrip("-").isdigit():
+            pensa = types.ThinkingConfig(thinking_budget=int(RACIOCINIO))
+        else:
+            pensa = types.ThinkingConfig(thinking_level=RACIOCINIO)
+        cfg["thinking_config"] = pensa
     return types.GenerateContentConfig(**cfg)
 
 
@@ -599,7 +606,8 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     secao("GASTO NA API")
     dolar, resumo_custo = custo(uso)
     log(f"modelo   : {GEMINI_MODEL}")
-    log("raciocínio: " + ("padrão do modelo" if SEM_THINKING_CONFIG or not RACIOCINIO
+    log("raciocínio: " + ("padrão do modelo"
+                          if SEM_THINKING_CONFIG or RACIOCINIO in ("", "PADRAO")
                           else RACIOCINIO))
     log(f"chamadas : {uso['chamadas']} em {n_blocos} bloco(s) "
         f"(só as que responderam; erro de API não é cobrado)")

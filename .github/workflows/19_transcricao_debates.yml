@@ -35,6 +35,10 @@ on:
         description: 'Modelo Gemini'
         required: false
         default: 'gemini-3.6-flash'
+      raciocinio:
+        description: 'Raciocínio: MINIMAL/LOW/MEDIUM/HIGH, um número de tokens (0 desliga) ou vazio para o padrão do modelo'
+        required: false
+        default: 'MINIMAL'
 
   # Disparo externo pelo mesmo agendador que já chama os workflows 06, 08 e 15:
   # POST /repos/meduardamo/eixo-eleicoes/dispatches com
@@ -93,6 +97,10 @@ jobs:
           # O env vence o padrão do script, então trocar só o .py não basta: com
           # 2.5-flash aqui a chave nova responde 404 e o run morre na 1a chamada.
           GEMINI_MODEL: ${{ inputs.modelo || 'gemini-3.6-flash' }}
+          # O || cobre o repository_dispatch, que não manda input nenhum: sem
+          # ele a fila normal chegaria vazia aqui e rodaria com o padrão caro
+          # do modelo. Para pedir o padrão do modelo de propósito, use PADRAO.
+          GEMINI_THINKING: ${{ inputs.raciocinio || 'MINIMAL' }}
           # Opcional. O YouTube às vezes barra o IP do runner como bot; com o
           # conteúdo de um cookies.txt neste secret o yt-dlp passa.
           YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
