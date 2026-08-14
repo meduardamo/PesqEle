@@ -435,6 +435,7 @@ Regras do agrupamento:
 - Cada grupo representa UMA área de política pública. Não junte áreas diferentes no mesmo grupo: Segurança e Infraestrutura são dois grupos, Saúde e Educação são dois grupos.
 - O rótulo carrega o que o candidato fala de concreto. Use também os nomes da seção "Vocabulário específico" quando eles detalharem um dos grupos. A indicação "coaparece com" mostra a qual pauta o nome está ligado.
 - Se houver programa, obra ou indicador relacionado a um grupo, inclua pelo menos um no rótulo. Exemplo: "Saúde: PIX Saúde e Sistema Corujão", não apenas "Acesso à Saúde".
+- NUNCA use nomes de figuras políticas, aliados, padrinhos eleitorais ou adversários como subtítulo ou descritor de uma área temática (ex.: PROIBIDO 'Saúde: Presidente Lula', 'Educação: Haddad' ou 'Segurança: Bolsonaro'). O subtítulo deve conter APENAS programas, obras, hospitais, escolas, indicadores ou medidas de política pública. Se não houver programa/obra específica, use apenas o nome da área (ex.: 'Saúde Pública' ou 'Acesso à Saúde').
 - Os nomes específicos servem apenas para enriquecer o rótulo: não os inclua em "brutos" e não crie grupo só para eles.
 - Rótulo curto, até oito palavras. Escreva o rótulo como texto corrido, nunca como JSON, chave ou lista.
 - Nome de cidade ou de estado só entra no rótulo colado ao nome de uma obra ou programa ("Ponte Salvador-Itaparica", "Hospital do Barreiro"). Sozinho, não entra.
@@ -460,12 +461,27 @@ Assuntos abaixo do corte, únicos que podem ser descritos como pouco presentes:
 """
 
 
+FIGURAS_POLITICAS = {
+    "lula", "presidente lula", "luiz inacio lula da silva", "jair bolsonaro", "bolsonaro",
+    "presidente bolsonaro", "tarcisio", "tarcisio de freitas", "fernando haddad", "haddad",
+    "ciro gomes", "ciro", "geraldo alckmin", "alckmin", "arthur lira", "rodrigo pacheco",
+    "alexandre de moraes", "moraes", "flavio bolsonaro", "eduardo bolsonaro",
+    "carlos bolsonaro", "michelle bolsonaro", "janja", "presidente", "ex presidente",
+    "governador", "vice governador", "prefeito", "vice prefeito", "ministro", "senador",
+    "deputado", "deputado federal", "deputado estadual", "vereador", "ronaldo caiado",
+    "caiado", "romeu zema", "zema", "eduardo leite", "leite", "ratinho junior", "ratinho jr"
+}
+
+
 def _parece_especifico(texto: str) -> bool:
     """Seleciona programa, obra ou indicador raro para enriquecer rótulos.
 
     Não altera a contagem nem cria tema. O teste é conservador: sigla, algarismo
-    ou duas palavras relevantes iniciadas por maiúscula.
+    ou duas palavras relevantes iniciadas por maiúscula. Descarta figuras políticas
+    e cargos soltos para não contaminar o subtítulo de políticas públicas.
     """
+    if normalizar(texto) in FIGURAS_POLITICAS:
+        return False
     palavras = re.findall(r"\b[\wÁÂÃÉÊÍÓÔÕÚÇáâãéêíóôõúç-]+\b", texto)
     maiusculas = [p for p in palavras if len(p) > 2 and p[0].isupper()]
     return bool(re.search(r"\b[A-ZÁÂÃÉÊÍÓÔÕÚÇ]{2,}\b|\d", texto) or len(maiusculas) >= 2)
@@ -617,11 +633,10 @@ def limpar_rotulo(rotulo: str, lugares: set[str] | None = None) -> str:
     if caiu_categoria:
         categoria = ""
 
-    # Nome de cidade ou de estado só se sustenta colado a uma obra ou programa
-    # ("Ponte Salvador-Itaparica"). Sozinho, é lugar, não pauta. Por isso a
-    # comparação é com o descritor inteiro.
+    # Nome de cidade, estado ou figura política não se sustenta como descritor de
+    # política pública. Sozinho, é lugar/ator, não pauta.
     descritores = [d.strip() for d in re.split(r",|\s+e\s+", cauda) if d.strip()]
-    mantidos = [d for d in descritores if normalizar(d) not in lugares]
+    mantidos = [d for d in descritores if normalizar(d) not in lugares and normalizar(d) not in FIGURAS_POLITICAS]
     if not mantidos:
         return _fechar_aspas(categoria)
     # Só remonta o rótulo se algo saiu. Remontar sempre trocaria a pontuação de
