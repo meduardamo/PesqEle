@@ -76,7 +76,17 @@ FAIXA_FONTE = "B{i}:J{i}"
 
 BLOCO_SEG = 600          # 10 min de conteúdo por bloco
 SOBREPOSICAO_SEG = 20    # o bloco vai 20s além, para não cortar frase na borda
-TENTATIVAS = 3
+TENTATIVAS = 5
+ESPERA_BASE = 15         # 1a espera, dobrando a cada tentativa
+ESPERA_MAX = 120
+# Pausa antes da repescagem dos blocos vazios. A onda de 503 dura minutos, e
+# repescar na hora cai nela de novo.
+ESPERA_REPESCAGEM = 90
+
+# MINIMAL, LOW, MEDIUM, HIGH ou vazio para deixar o padrão do modelo.
+RACIOCINIO = os.getenv("GEMINI_THINKING", "MINIMAL").strip().upper()
+# Vira True se o modelo recusar o campo, para não repetir 400 em cada bloco.
+SEM_THINKING_CONFIG = False
 
 # Palavras por minuto abaixo disso é sinal de que o modelo resumiu em vez de
 # transcrever. Fala corrida em português fica entre 130 e 160; medido no debate
@@ -280,7 +290,19 @@ def contar(resp, uso):
     return detalhe
 
 
+def montar_config():
+    """Config da chamada. Transcrever não é raciocinar: o modelo tem o áudio e
+    o formato de saída, e no debate Band SP de 2h ele queimou ~52 mil tokens de
+    raciocínio por bloco para devolver ~2,4 mil de transcrição, 96% da saída
+    paga. Com o raciocínio no mínimo o gasto cai na mesma proporção."""
+    cfg = dict(temperature=0.0, max_output_tokens=32000)
+    if RACIOCINIO and not SEM_THINKING_CONFIG:
+        cfg["thinking_config"] = types.ThinkingConfig(thinking_level=RACIOCINIO)
+    return types.GenerateContentConfig(**cfg)
+
+
 def transcrever(client, arq, contexto, uso):
+    global SEM_THINKING_CONFIG
     prompt = PROMPT.format(contexto=contexto.strip())
     for n in range(1, TENTATIVAS + 1):
         t = time.time()
@@ -288,7 +310,7 @@ def transcrever(client, arq, contexto, uso):
             resp = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=[prompt, arq],
-                config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=32000),
+                config=montar_config(),
             )
             texto = (resp.text or "").strip()
             tokens = contar(resp, uso)
@@ -297,9 +319,19 @@ def transcrever(client, arq, contexto, uso):
                 return texto
             log(f"    tentativa {n}/{TENTATIVAS}: resposta vazia ({tokens})")
         except Exception as e:
+            # Modelo que não aceita thinking_level responde 400 e responderia
+            # 400 em todos os blocos: desliga o campo e segue caro, em vez de
+            # devolver debate vazio.
+            if not SEM_THINKING_CONFIG and "thinking" in str(e).lower():
+                SEM_THINKING_CONFIG = True
+                log(f"    {GEMINI_MODEL} recusou thinking_config, seguindo sem ele: {e}")
+                continue
             log(f"    tentativa {n}/{TENTATIVAS} falhou em {time.time() - t:.1f}s: {e}")
         if n < TENTATIVAS:
-            espera = 5 * n
+            # O 503 de "high demand" é onda, não fila: espera curta cai na
+            # mesma onda. No debate de 14/08 quatro blocos se perderam com
+            # 5s e 10s de espera, com o modelo respondendo normal 40s depois.
+            espera = min(ESPERA_BASE * 2 ** (n - 1), ESPERA_MAX)
             log(f"    aguardando {espera}s")
             time.sleep(espera)
     return ""
@@ -444,16 +476,23 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     log(f"duração a processar: {hhmmss(total)} em {n_blocos} bloco(s)")
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    linhas, bruto, vazios, suspeitos = [], [], [], []
+    linhas, textos, suspeitos = [], {}, []
     uso = {"in": 0, "out": 0, "chamadas": 0}
 
-    secao("TRANSCRIÇÃO")
+    # Recorte de cada bloco, guardado para a repescagem saber refazer o que
+    # voltou vazio sem ter que recalcular posição.
+    cortes = []
     pos, n = 0, 0
     while pos < total - 1:
         n += 1
-        ultimo = pos + BLOCO_SEG >= total
         d = min(BLOCO_SEG + SOBREPOSICAO_SEG, total - pos)
-        limite = None if ultimo else BLOCO_SEG
+        limite = None if pos + BLOCO_SEG >= total else BLOCO_SEG
+        cortes.append({"n": n, "pos": pos, "d": d, "limite": limite})
+        pos += BLOCO_SEG
+
+    def rodar(c):
+        """Transcreve um bloco e guarda o resultado. Devolve o texto do modelo."""
+        pos, d, limite, n = c["pos"], c["d"], c["limite"], c["n"]
         log(f"bloco {n}/{n_blocos}  {hhmmss(pos)} a {hhmmss(pos + d)}")
 
         arq_bloco = recortar(origem, trabalho / f"bloco_{n:03d}.mp3", pos, int(d))
@@ -468,13 +507,10 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
         except Exception:
             pass
 
-        bruto.append(f"### bloco {n} ({hhmmss(pos)} a {hhmmss(pos + d)})\n\n{texto}")
-
+        textos[n] = texto
         if not texto:
-            vazios.append(n)
             log(f"    bloco {n} voltou vazio depois de {TENTATIVAS} tentativas, segue")
-            pos += BLOCO_SEG
-            continue
+            return texto
 
         novas, ignoradas, fora = parsear(texto, pos, limite)
         linhas.extend(novas)
@@ -495,14 +531,31 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
             log(f"    {ignoradas} linha(s) fora do formato, descartadas")
         if fora:
             log(f"    {fora} linha(s) da sobreposição, cobertas pelo bloco seguinte")
-        if ritmo < PALAVRAS_POR_MIN_SUSPEITO:
+        if ritmo < PALAVRAS_POR_MIN_SUSPEITO and n not in suspeitos:
             suspeitos.append(n)
             log(f"    ATENÇÃO: {ritmo:.0f} palavras/min, o modelo pode ter resumido este bloco")
         for r in novas[:2]:
             log(f"    > [{r['tempo']}] {r['falante']}: {r['fala'][:90]}")
+        return texto
 
-        pos += BLOCO_SEG
+    secao("TRANSCRIÇÃO")
+    for c in cortes:
+        rodar(c)
 
+    # Repescagem: bloco perdido é trecho que some da transcrição, e no debate
+    # Band SP de 14/08 foram 4 de 12, todos por 503 de "high demand" que passou
+    # minutos depois. Sai antes de gravar arquivo, então a saída já vem inteira.
+    vazios = [c["n"] for c in cortes if not textos.get(c["n"], "").strip()]
+    if vazios:
+        secao("REPESCAGEM DOS BLOCOS VAZIOS")
+        log(f"vazios na primeira passada: {vazios}")
+        log(f"esperando {ESPERA_REPESCAGEM}s para a onda de erro passar")
+        time.sleep(ESPERA_REPESCAGEM)
+        for c in cortes:
+            if c["n"] in vazios:
+                rodar(c)
+
+    vazios = [c["n"] for c in cortes if not textos.get(c["n"], "").strip()]
     if not linhas:
         raise RuntimeError("nenhuma fala transcrita")
 
@@ -518,7 +571,11 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
         w.writeheader()
         w.writerows(linhas)
     with open(f"{base}_bruto.md", "w", encoding="utf-8") as f:
-        f.write("\n\n".join(bruto))
+        f.write("\n\n".join(
+            f"### bloco {c['n']} ({hhmmss(c['pos'])} a {hhmmss(c['pos'] + c['d'])})"
+            f"\n\n{textos.get(c['n'], '')}"
+            for c in cortes
+        ))
 
     caminhos = [Path(f"{base}.txt"), Path(f"{base}.csv"), Path(f"{base}_bruto.md")]
     for p in caminhos:
@@ -542,7 +599,10 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     secao("GASTO NA API")
     dolar, resumo_custo = custo(uso)
     log(f"modelo   : {GEMINI_MODEL}")
-    log(f"chamadas : {uso['chamadas']} em {n_blocos} bloco(s) (retentativa conta)")
+    log("raciocínio: " + ("padrão do modelo" if SEM_THINKING_CONFIG or not RACIOCINIO
+                          else RACIOCINIO))
+    log(f"chamadas : {uso['chamadas']} em {n_blocos} bloco(s) "
+        f"(só as que responderam; erro de API não é cobrado)")
     log(f"gasto    : {resumo_custo}")
     if dolar is not None and total:
         log(f"por hora de áudio: US$ {dolar / (total / 3600):.2f}")
