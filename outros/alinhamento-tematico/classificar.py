@@ -503,6 +503,35 @@ def _parece_especifico(texto: str) -> bool:
     return bool(re.search(r"\b[A-ZÁÂÃÉÊÍÓÔÕÚÇ]{2,}\b|\d", texto) or len(maiusculas) >= 2)
 
 
+_SEM_THINKING_CONFIG = False
+
+
+def _gerar_classificacao(gem: genai.Client, prompt: str):
+    global _SEM_THINKING_CONFIG
+    cfg_kwargs = {
+        "response_mime_type": "application/json",
+        "response_schema": ESQUEMA,
+    }
+    if not _SEM_THINKING_CONFIG:
+        try:
+            return gem.models.generate_content(
+                model=MODELO,
+                contents=[prompt],
+                config=types.GenerateContentConfig(
+                    **cfg_kwargs,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+        except Exception as e:
+            if "thinking" in str(e).lower() or "invalid_argument" in str(e).lower() or "400" in str(e):
+                _SEM_THINKING_CONFIG = True
+    return gem.models.generate_content(
+        model=MODELO,
+        contents=[prompt],
+        config=types.GenerateContentConfig(**cfg_kwargs),
+    )
+
+
 def classificar(gem: genai.Client, candidato: str, contagem: Counter,
                 canonico: dict[str, str],
                 posts_por_tema: dict[str, set[int]],
@@ -551,17 +580,7 @@ def classificar(gem: genai.Client, candidato: str, contagem: Counter,
                            manchetes_imprensa=texto_manchetes)
 
     resp = com_retry(
-        lambda: gem.models.generate_content(
-            model=MODELO,
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ESQUEMA,
-                # Sem isso o modelo gasta (e cobra) pensamento numa tarefa que é
-                # agrupar string. O custo da rodada cai e o resultado não muda.
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
-            ),
-        ),
+        lambda: _gerar_classificacao(gem, prompt),
         f"classificação de {candidato}",
     )
 
