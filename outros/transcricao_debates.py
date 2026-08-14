@@ -389,6 +389,39 @@ def clientes_google():
     return gspread.authorize(creds), build("drive", "v3", credentials=creds)
 
 
+def extrair_id_drive(link_ou_id: str) -> str:
+    m = re.search(r"/d/([a-zA-Z0-9_-]+)", link_ou_id)
+    if m:
+        return m.group(1)
+    m = re.search(r"id=([a-zA-Z0-9_-]+)", link_ou_id)
+    if m:
+        return m.group(1)
+    return link_ou_id.strip()
+
+
+def baixar_audio_drive(drive, link_ou_id: str, destino: Path) -> Path:
+    """Baixa o áudio MP3 diretamente do Google Drive quando o YouTube estiver geobloqueado."""
+    from googleapiclient.http import MediaIoBaseDownload
+    import io
+
+    file_id = extrair_id_drive(link_ou_id)
+    destino.mkdir(parents=True, exist_ok=True)
+    mp3 = destino / "debate.mp3"
+    log(f"baixando áudio do Google Drive (id: {file_id})")
+
+    request = drive.files().get_media(fileId=file_id, supportsAllDrives=True)
+    with io.FileIO(str(mp3), "wb") as fh:
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+            if status:
+                log(f"  download drive: {int(status.progress() * 100)}%")
+
+    log(f"áudio salvo do Drive: {mp3.name} ({mp3.stat().st_size / 1e6:.1f} MB)")
+    return mp3
+
+
 def enviar_drive(drive, caminho, nome, mime_destino=None, pasta=None):
     """Sobe um arquivo para a pasta Debates do drive compartilhado.
 
@@ -800,17 +833,33 @@ def rodar_fila(args):
             for l_ in contexto.splitlines():
                 log(f"  | {l_}")
 
-            audio = baixar_audio(url, saida / "_trabalho")
+            link_audio_existente = linha[COL["link_audio"]].strip() if COL.get("link_audio", 999) < len(linha) else ""
+            if link_audio_existente:
+                log(f"link_audio já disponível no Drive: {link_audio_existente}")
+                try:
+                    audio = baixar_audio_drive(drive, link_audio_existente, saida / "_trabalho")
+                except Exception as e_drive:
+                    log(f"falha ao baixar do Drive ({e_drive}), tentando YouTube...")
+                    audio = baixar_audio(url, saida / "_trabalho")
+            else:
+                try:
+                    audio = baixar_audio(url, saida / "_trabalho")
+                except Exception as e_yt:
+                    if link_audio_existente:
+                        audio = baixar_audio_drive(drive, link_audio_existente, saida / "_trabalho")
+                    else:
+                        raise e_yt
 
             # O mp3 sobe antes de transcrever, e não depois: se a transcrição
             # falhar, o áudio já está guardado e a segunda tentativa não
             # precisa baixar de novo do YouTube, que é a parte que trava.
-            secao("ÁUDIO NO DRIVE")
-            link_audio = enviar_drive(
-                drive, audio, f"{ident}.mp3", pasta=pasta_audios(drive)
-            )
-            ws.update_cell(i, COL["link_audio"] + 1, link_audio)
-            log(f"{ident}.mp3 ({audio.stat().st_size / 1e6:.0f} MB) -> {link_audio}")
+            if not link_audio_existente:
+                secao("ÁUDIO NO DRIVE")
+                link_audio = enviar_drive(
+                    drive, audio, f"{ident}.mp3", pasta=pasta_audios(drive)
+                )
+                ws.update_cell(i, COL["link_audio"] + 1, link_audio)
+                log(f"{ident}.mp3 ({audio.stat().st_size / 1e6:.0f} MB) -> {link_audio}")
 
             caminhos, avisos = processar(
                 audio, contexto, saida, ident, args.inicio, args.duracao
