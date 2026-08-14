@@ -196,6 +196,7 @@ def exige(binario):
 
 def baixar_audio(url, destino):
     exige("yt-dlp")
+    destino.mkdir(parents=True, exist_ok=True)
     log(f"baixando áudio de {url}")
     cmd = [
         "yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "5",
