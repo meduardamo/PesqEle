@@ -293,7 +293,7 @@ TERMOS_ANCORA = {
                                    "equilibrio fiscal", "gasto publico", "custeio", "despesa",
                                    "cargo comissionado", "auditar", "auditoria", "orcamento",
                                    "recursos publicos"],
-    "Transparência e Combate à Corrupção": ["transparencia", "dados abertos", "corrupcao",
+    "Transparência e Combate à Corrupção": ["transparencia", "dados abertos", "corrup*",
                                             "controle interno"],
     "Governo Digital": ["governo digital", "digitalizacao*", "servico digital",
                         "governo eletronico", "atendimento ao cidadao"],
@@ -316,6 +316,405 @@ TERMOS_ANCORA = {
     "Turismo": ["turismo", "turistic*", "atrativo turistico"],
 }
 
+
+# Listas de ausência: o vocabulário de cada tema, para provar o "Não menciona".
+#
+#
+# POR QUE DUAS LISTAS E NÃO UMA
+# TERMOS_ANCORA é discriminante de propósito ("creche" serve, "criança" não) e é
+# ela que dispara a repergunta ao modelo. Termo comum ali faz a guarda disparar em
+# todo plano e gasta chamada à toa, que é o problema já medido do "uti" (248
+# ocorrências, 5 reais). Esta lista aqui não gasta chamada nenhuma: ela só carimba
+# o selo que vai gravado ao lado do nível. Por isso ela é generosa.
+#
+# A DIREÇÃO DO ERRO É O QUE MUDA
+# Nesta lista, termo que dispara à toa é conservador: rebaixa "Ausência
+# confirmada" para "Revisar ausência" e ninguém afirma nada de errado. Termo
+# FALTANDO é que estraga, porque carimba ausência confirmada num tema que o plano
+# trata com outro vocabulário. Então, na dúvida, inclua.
+#
+# O QUE A BORDA DE PALAVRA RESOLVE E O QUE ELA NÃO RESOLVE
+# _regex_ancora monta \btermo\b, com plural opcional e radical quando o termo
+# termina em "*". Medido no plano do Lula 2026: "uti" cai de 85 casamentos por
+# substring para 0, "leito" de 3 (todos dentro de "eleito") para 0, "esf" de 8
+# (dentro de "esforço") para 0, "fome" de 45 (dentro de "fomento") para 11.
+# O que a borda NÃO resolve é palavra inteira com outro sentido. No mesmo plano,
+# "aposta" casa 4 vezes com borda, e as 4 são "este programa aposta nessa força".
+# Por isso aqui não existe "aposta" solta, e sim "jogos de apostas", "apostas on
+# line", "casas de aposta" e "aposta esportiva". Mesma razão para não usar
+# "urgência" solta (aparece como "urgência cada vez maior"), "meta", "campo" e
+# "rede".
+#
+# LIMITE CONHECIDO DO PLURAL AUTOMÁTICO
+# O sufixo do _regex_ancora cobre "s" e "es", que é o plural regular. Não cobre
+# "m" virando "ns": "trem" não casa "trens", "armazém" não casa "armazéns". Nesses
+# casos as duas formas estão escritas na lista.
+#
+# COLISÕES CONHECIDAS, MANTIDAS DE PROPÓSITO
+# "média e alta complexidade" também é vocabulário de assistência social: no plano
+# do Lula a única ocorrência é "proteção social especial de média e alta
+# complexidade", que é SUAS. Mantido porque na maioria dos planos estaduais o
+# sentido é saúde e porque o erro cai para o lado seguro.
+TERMOS_AUSENCIA = {
+    # ------------------------------------------------------------ Educação
+    "Alfabetização": [
+        "alfabetiza*", "analfabet*", "pnaic", "pna", "crianca alfabetizada",
+        "criancas alfabetizadas", "idade certa", "fluencia leitora",
+        "leitura e escrita", "aprender a ler", "saibam ler",
+        "ciclo de alfabetizacao", "avaliacao de fluencia",
+    ],
+    "Primeira Infância": [
+        "primeira infancia", "creche*", "pre escola", "pre escolar",
+        "educacao infantil", "bercario", "primeiros anos de vida",
+        "desenvolvimento infantil", "crianca feliz", "vaga em creche",
+        "vagas em creche", "matricula na creche", "puericultura",
+    ],
+    "Fundamental": [
+        "ensino fundamental", "anos iniciais", "anos finais", "educacao basica",
+        "aprendizagem", "recomposicao de aprendizagem", "defasagem",
+        "distorcao idade serie", "reforco escolar", "recuperacao da aprendizagem",
+        "saeb", "ideb", "prova brasil", "aprender a ler", "saibam ler",
+        "terceiro ano", "quinto ano", "nono ano", "rede estadual de ensino",
+        "escolas estaduais", "rede estadual", "avaliacao externa",
+        "avaliacoes externas", "aprovacao automatica", "reprovacao",
+    ],
+    "Ensino Médio": [
+        "ensino medio", "novo ensino medio", "itinerario formativo",
+        "ensino medio integrado", "evasao escolar", "abandono escolar",
+        "pe de meia", "enem", "matricula no ensino medio", "saeb", "ideb",
+    ],
+    "Tempo Integral": [
+        "tempo integral", "ensino integral", "escola integral",
+        "educacao integral", "jornada ampliada", "jornada escolar",
+        "contraturno", "escola de tempo integral", "turno unico",
+    ],
+    "Educação Profissional": [
+        "educacao profissional", "ensino tecnico", "curso tecnico",
+        "cursos tecnicos", "escola tecnica", "etec", "senai", "senac", "sesi",
+        "instituto federal", "institutos federais", "profissionalizante",
+        "qualificacao tecnica", "formacao tecnica", "itinerario tecnico",
+        "aprendizagem profissional",
+    ],
+    "Valorização Docente": [
+        "professor*", "docente*", "magisterio", "piso salarial", "piso nacional",
+        "carreira docente", "formacao continuada", "formacao de professores",
+        "concurso para professor", "valorizacao do magisterio",
+        "plano de carreira do magisterio", "residencia pedagogica", "pibid",
+    ],
+    "Educação Inclusiva e EJA": [
+        "educacao especial", "educacao inclusiva", "jovens e adultos", "eja",
+        "autis*", "tea", "neurodivergen*", "estudante com deficiencia",
+        "atendimento educacional especializado", "sala de recursos",
+        "educacao bilingue", "libras", "educacao do campo", "educacao no campo",
+        "educacao escolar indigena", "educacao quilombola",
+    ],
+    "Tecnologia na Educação": [
+        "conectividade*", "inclusao digital", "internet nas escolas", "internet",
+        "tecnologia educacional", "laboratorio de informatica", "computador*",
+        "tablet*", "chromebook", "plataforma de ensino", "ensino hibrido",
+        "letramento digital", "transformacao digital", "banda larga",
+        "celular na escola", "proibicao de celular",
+    ],
+    "Ensino Superior": [
+        "ensino superior", "universidade*", "universitari*", "faculdade*",
+        "vestibular", "enem", "prouni", "fies", "assistencia estudantil",
+        "graduacao", "pos graduacao", "campus", "bolsa de estudo", "mestrado",
+        "doutorado", "expansao de vagas", "ead",
+    ],
+    "Financiamento da Educação": [
+        "fundeb", "custo aluno", "caq", "orcamento da educacao",
+        "financiamento da educacao", "vinculacao de recursos", "por cento do pib",
+        "% do pib", "do pib para educacao", "salario educacao",
+        "aplicacao minima em educacao", "recursos para a educacao",
+        "plano nacional de educacao", "pne", "despesas com educacao",
+        "investimento em educacao", "investimento na educacao",
+        "repasse para as escolas", "recursos para as escolas", "pdde",
+        "minimo constitucional", "da receita para a educacao",
+    ],
+
+    # -------------------------------------------------------------- Saúde
+    "Atenção Primária": [
+        "atencao primaria", "atencao basica", "saude da familia", "ubs*",
+        "unidade basica", "agente comunitario", "agente de saude", "esf",
+        "medicina de familia", "medico de familia", "mais medicos",
+        "equipe multiprofissional", "equipes multiprofissionais", "saude bucal",
+        "brasil sorridente", "visita domiciliar", "atencao domiciliar",
+        "previne brasil", "nasf", "porta de entrada do sistema",
+        "cobertura vacinal", "vacinacao", "farmacia popular",
+        "assistencia farmaceutica",
+    ],
+    "Média e Alta Complexidade": [
+        "media e alta complexidade", "alta complexidade", "media complexidade",
+        "atencao especializada", "leito*", "uti", "terapia intensiva", "cirurgi*",
+        "fila de cirurgia", "fila unica", "mutirao*", "consulta especializada",
+        "centro de especialidades", "policlinica*", "ambulatori*",
+        "exames de imagem", "exame laboratorial", "diagnostico por imagem",
+        "tomografia", "ressonancia", "radioterapia", "quimioterap*", "oncolog*",
+        "transplante*", "hemodialise", "santa casa", "hospital*",
+        "referencia e contrarreferencia", "central de regulacao",
+    ],
+    "Urgência e Emergência": [
+        "urgencia e emergencia", "rede de urgencia", "atendimento de urgencia",
+        "pronto socorro", "pronto atendimento", "samu", "upa*", "ambulancia*",
+        "transporte sanitario", "sala de estabilizacao", "classificacao de risco",
+        "emergencia hospitalar", "socorro medico", "resgate aeromedico",
+    ],
+    "Saúde Mental": [
+        "saude mental", "atencao psicossocial", "psicossocial", "caps", "raps",
+        "psicolog*", "psiquiatr*", "sofrimento psiquico", "suicidio",
+        "autoextermin*", "automutilacao", "setembro amarelo",
+        "dependencia quimica", "alcool", "outras drogas", "drogas",
+        "reducao de danos", "comunidade terapeutica", "ludopatia",
+        "jogos de apostas", "apostas on line", "apostas online",
+        "casas de aposta", "aposta esportiva", "bets", "jogo de azar",
+        "jogos de azar", "imposto seletivo", "acolhimento psicologico",
+    ],
+    "Financiamento e Gestão do SUS": [
+        "financiamento da saude", "orcamento da saude", "custeio da saude",
+        "subfinanciamento", "piso da saude", "piso constitucional",
+        "recursos para a saude", "investimento em saude", "fundo de saude",
+        "repasse para a saude", "gestao do sus", "regionalizacao",
+        "consorcio de saude", "pactuacao", "tabela sus", "judicializacao",
+        "plano de saude", "planos de saude", "saude suplementar", "prontuario",
+        "rnds", "dados em saude", "saude digital", "telessaude",
+        "regulacao do acesso", "governanca do sus", "financiamento do sus",
+        "recursos da saude", "gestao privada", "privatizacao da saude",
+        "organizacao social", "planos privados", "rede credenciada",
+        "emendas parlamentares", "prestadores de servico",
+    ],
+
+    # -------------------------------------------------- Segurança pública
+    "Policiamento e Efetivo": [
+        "policia*", "policial*", "efetivo policial", "aumento do efetivo",
+        "policiamento", "policiamento comunitario", "seguranca ostensiva",
+        "guarda municipal", "bombeiro*", "videomonitoramento", "camera corporal",
+        "viatura*", "base comunitaria de seguranca", "patrulhamento", "ronda",
+        "desmilitariza*", "forcas de seguranca", "concurso da policia",
+        "salario dos policiais", "equipamento policial",
+    ],
+    "Enfrentamento ao Crime Organizado": [
+        "faccao*", "crime organizado", "organizacao criminosa", "trafico*",
+        "narcotrafico", "milicia*", "inteligencia policial", "lavagem de dinheiro",
+        "asfixia financeira", "roubo de carga", "homicidio*", "latrocinio",
+        "apreensao de armas", "controle de armas", "fronteira*",
+    ],
+    "Violência contra a Mulher": [
+        "violencia domestica", "violencia contra a mulher",
+        "violencia contra as mulheres", "violencia contra mulheres",
+        "violencia de genero", "maria da penha", "feminicidio",
+        "delegacia da mulher", "casa da mulher", "medida protetiva",
+        "patrulha maria da penha", "botao do panico", "sala lilas", "agressor*",
+        "rede de protecao a mulher", "importunacao sexual", "abuso sexual",
+    ],
+    "Sistema Prisional e Socioeducativo": [
+        "presidio*", "penitenciaria*", "sistema prisional", "unidade prisional",
+        "vaga prisional", "ressocializacao", "socioeducativo",
+        "medida socioeducativa", "internacao de adolescente", "apac", "egresso*",
+        "reincidencia", "trabalho do preso", "audiencia de custodia",
+        "monitoracao eletronica", "tornozeleira",
+    ],
+
+    # ------------------------------------------------- Economia e emprego
+    "Geração de Emprego": [
+        "geracao de emprego", "gerar emprego", "criacao de emprego",
+        "posto de trabalho", "vagas de trabalho", "vagas de emprego",
+        "emprego e renda", "geracao de renda", "empregabilidade",
+        "qualificacao profissional", "curso de qualificacao", "requalificacao profissional",
+        "capacitacao para o trabalho", "intermediacao de mao de obra", "sine",
+        "frentes de trabalho", "trabalho decente", "informalidade",
+        "carteira assinada", "primeiro emprego",
+    ],
+    "Ambiente de Negócios": [
+        "ambiente de negocios", "desburocratiza*", "simplificacao",
+        "abertura de empresa", "incentivo fiscal", "atracao de investimento",
+        "atracao de empresas", "micro e pequena empresa", "pequenos negocios",
+        "mei", "microempreendedor", "sebrae", "empreendedorismo",
+        "iniciativa privada", "credito", "linha de credito", "garantia de credito",
+        "banco de fomento", "comercio popular", "distrito industrial",
+        "licenciamento",
+    ],
+    "Agropecuária": [
+        "agronegocio", "agropecuaria", "agricultura familiar", "produtor rural",
+        "pecuaria", "credito rural", "plano safra", "ater",
+        "assistencia tecnica rural", "extensao rural", "irrigacao", "cooperativa*",
+        "armazenagem", "silo", "defesa agropecuaria", "sanidade animal",
+        "embrapa", "reforma agraria", "assentamento*", "agroecologia",
+        "organico*", "pesca", "aquicultura",
+    ],
+    "Ciência, Tecnologia e Inovação": [
+        "pesquisa cientifica", "pesquisa e desenvolvimento",
+        "fundacao de amparo a pesquisa", "fapes", "cnpq", "capes",
+        "bolsa de pesquisa", "parque tecnologico", "startup*", "incubadora",
+        "hub de inovacao", "ecossistema de inovacao", "inovacao", "pos graduacao",
+        "propriedade intelectual", "transferencia de tecnologia",
+    ],
+
+    # --------------------------------------------- Meio ambiente e clima
+    "Desmatamento e Conservação": [
+        "desmatamento", "reflorestamento", "restauracao florestal",
+        "unidade de conservacao", "area protegida", "parque estadual",
+        "parque nacional", "bioma*", "cerrado", "caatinga", "amazonia",
+        "mata atlantica", "pantanal", "biodiversidade", "queimada*",
+        "manejo do fogo", "brigadista", "fiscalizacao ambiental",
+        "licenciamento ambiental", "crime ambiental", "garimpo",
+        "codigo florestal",
+    ],
+    "Saneamento e Recursos Hídricos": [
+        "saneamento", "esgoto", "esgotamento sanitario", "agua tratada",
+        "abastecimento de agua", "residuos solidos", "coleta de lixo",
+        "aterro sanitario", "reciclagem", "catador*", "bacia hidrografica",
+        "seguranca hidrica", "cisterna*", "adutora", "barragem",
+        "poco artesiano", "dessalinizacao", "drenagem",
+        "universalizacao do saneamento",
+    ],
+    "Transição Energética": [
+        "energia renovavel", "energia solar", "energia limpa", "eolica",
+        "painel solar", "parque eolico", "transicao energetica",
+        "matriz energetica", "hidrogenio verde", "biocombustivel*", "etanol",
+        "biodiesel", "biometano", "biogas", "credito de carbono",
+        "mercado de carbono", "descarbonizacao", "tarifa de energia",
+    ],
+    "Defesa Civil e Desastres": [
+        "defesa civil", "desastre*", "enchente*", "inundacao", "alagamento",
+        "deslizamento", "seca", "estiagem", "area de risco",
+        "contencao de encosta", "sistema de alerta", "alerta precoce",
+        "plano de contingencia", "sirene", "adaptacao climatica",
+        "evento climatico extremo", "calor extremo", "realocacao de familias",
+    ],
+
+    # ------------------------------------- Assistência social e pobreza
+    "Transferência de Renda": [
+        "transferencia de renda", "bolsa familia", "auxilio", "beneficio estadual",
+        "renda minima", "programa de renda", "complemento de renda", "cadunico",
+        "cadastro unico", "bpc", "vale gas", "cartao alimentacao",
+    ],
+    "Segurança Alimentar": [
+        "seguranca alimentar", "inseguranca alimentar", "fome",
+        "restaurante popular", "banco de alimentos", "cesta basica",
+        "cesta do povo", "preco dos alimentos",
+        "cozinha comunitaria", "cozinha solidaria", "alimentacao escolar",
+        "pnae", "paa", "agricultura urbana", "horta comunitaria",
+        "desperdicio de alimentos", "mapa da fome",
+    ],
+    "Habitação": [
+        "habitacao", "habitacional", "moradia", "minha casa", "casa propria",
+        "unidade habitacional", "deficit habitacional", "regularizacao fundiaria", "aluguel social", "favela*", "urbanizacao de favelas",
+        "lote urbanizado", "reforma de moradia", "ocupacao irregular",
+    ],
+
+    # ---------------------------------------- Infraestrutura e mobilidade
+    "Transporte e Rodovias": [
+        "rodovia*", "estrada*", "pavimentacao", "asfalto", "ponte*",
+        "duplicacao", "malha rodoviaria", "concessao rodoviaria", "pedagio",
+        "ferrovia*", "ferroviari*", "hidrovia*", "porto*", "aeroporto*",
+        "logistica", "trem", "trens", "armazem", "armazens",
+    ],
+    "Mobilidade Urbana": [
+        "mobilidade urbana", "transporte publico", "transporte coletivo",
+        "onibus", "metro", "brt", "vlt", "ciclovia*", "bicicleta",
+        "corredor exclusivo", "bilhete unico", "passe livre", "tarifa",
+        "tarifa zero", "gratuidade no transporte", "terminal de onibus",
+        "frota de onibus", "mobilidade ativa", "calcada*",
+    ],
+
+    # ------------------------------------- Gestão pública e transparência
+    "Eficiência e Gasto Público": [
+        "reforma administrativa", "corte de gasto", "teto de gasto",
+        "equilibrio fiscal", "gasto publico", "eficiencia do gasto",
+        "revisao de despesas", "despesa*", "custeio", "folha de pagamento",
+        "arrecadacao", "receita corrente", "capacidade de investimento",
+        "endividamento", "recuperacao fiscal", "cargo comissionado",
+        "auditoria", "auditar", "licitacao", "compras publicas", "orcamento",
+        "recursos publicos",
+    ],
+    "Transparência e Combate à Corrupção": [
+        "transparencia", "portal da transparencia", "dados abertos", "corrupcao",
+        "controle interno", "controladoria", "ouvidoria",
+        "lei de acesso a informacao", "lai", "integridade", "compliance",
+        "prestacao de contas", "controle social", "tribunal de contas",
+        "improbidade",
+    ],
+    "Governo Digital": [
+        "governo digital", "governo eletronico", "digitalizacao*",
+        "servico digital", "servicos online", "atendimento ao cidadao",
+        "aplicativo*", "plataforma digital", "gov br", "assinatura digital",
+        "interoperabilidade", "balcao unico", "autoatendimento",
+    ],
+    "Servidores e Municípios": [
+        "servidor publico", "servidores", "concurso publico", "plano de carreira",
+        "reajuste", "negociacao coletiva", "valorizacao do servidor",
+        "capacitacao de servidores", "consorcio", "consorcio intermunicipal",
+        "repasse aos municipios", "apoio aos municipios",
+        "cooperacao federativa", "regiao metropolitana",
+    ],
+
+    # ----------------------------------------- Direitos humanos e igualdade
+    "Igualdade Racial": [
+        "igualdade racial", "promocao da igualdade racial", "populacao negra",
+        "racismo", "racismo estrutural", "racial", "afrodescendente",
+        "negros e negras", "pretos e pardos", "juventude negra",
+        "mulheres negras", "saude da populacao negra", "povo preto", "povo negro",
+        "genocidio do povo", "cotas raciais",
+        "politica de cotas", "cotas no servico publico", "acao afirmativa", "intolerancia religiosa",
+    ],
+    "Mulheres": [
+        "mulher*", "equidade de genero", "igualdade de genero",
+        "autonomia das mulheres", "autonomia economica das mulheres",
+        "empreendedorismo feminino", "mulheres no mercado de trabalho",
+        "politica de cuidado", "politica nacional de cuidados",
+        "economia do cuidado", "saude da mulher", "direitos reprodutivos",
+        "licenca maternidade", "igualdade salarial",
+    ],
+    "Pessoa com Deficiência": [
+        "pessoa com deficiencia", "pessoas com deficiencia", "pcd",
+        "deficiencia", "acessibilidade", "tecnologia assistiva", "ortese*",
+        "protese*", "reabilitacao", "capacitismo", "inclusao no mercado",
+        "autis*", "tea",
+    ],
+    "Juventude e Pessoa Idosa": [
+        "juventude", "jovens", "protagonismo juvenil", "primeiro emprego",
+        "pessoa idosa", "pessoas idosas", "idoso*", "terceira idade",
+        "envelhecimento", "longevidade", "centro de convivencia", "centro dia",
+        "ilpi", "cuidador de idosos", "aposentad*",
+    ],
+    "Povos Indígenas e Quilombolas": [
+        "indigena*", "quilombola*", "quilombo*", "terra indigena", "demarcacao",
+        "aldeia*", "povos tradicionais", "comunidade tradicional",
+        "povos e comunidades tradicionais", "ribeirinho*", "extrativista*",
+        "titulacao de territorio", "remanescente de quilombo",
+    ],
+    "População LGBTQIA+": [
+        "lgbt*", "lgbtfobia", "homofobia", "transfobia", "nome social",
+        "diversidade sexual", "orientacao sexual", "identidade de genero",
+        "transexual*", "travesti*", "populacao trans",
+        "centro de cidadania lgbt",
+    ],
+
+    # ------------------------------------------- Cultura, esporte e turismo
+    "Cultura": [
+        "cultura", "cultural", "patrimonio", "patrimonio historico",
+        "patrimonio cultural",
+        "patrimonio imaterial",
+        "economia criativa", "edital de cultura", "fomento cultural",
+        "equipamento cultural", "lei aldir blanc", "lei rouanet",
+        "ponto de cultura", "biblioteca*", "museu*", "teatro*", "artista*",
+        "audiovisual", "carnaval", "festival*", "sistema de cultura",
+    ],
+    "Esporte e Lazer": [
+        "esporte", "esportiv*", "lazer", "atleta*", "bolsa atleta",
+        "esporte escolar", "jogos escolares", "quadra poliesportiva",
+        "equipamento esportivo", "ginasio", "campo de futebol",
+        "praca esportiva", "academia ao ar livre", "paradesporto",
+        "alto rendimento", "atividade fisica",
+    ],
+    "Turismo": [
+        "turismo", "turistic*", "atrativo turistico", "roteiro turistico",
+        "destino turistico", "ecoturismo", "turismo religioso", "hotelaria",
+        "rede hoteleira", "gastronomia", "promocao do destino",
+        "infraestrutura turistica",
+    ],
+}
+
 # Mapa plano tema -> eixo, para a página agrupar sem repetir a estrutura.
 EIXO_DO_TEMA = {tema: eixo for eixo, temas in EIXOS.items() for tema in temas}
 
@@ -329,13 +728,13 @@ TEMAS_EDUCACAO = dict(EIXOS["Educação"])
 # mexer no código, que é o único jeito de saber se a troca melhora a citação
 # inventada e o recall em plano longo, os dois pontos fracos medidos aqui.
 #
-# Fica no 2.5-flash porque a análise gravada foi calibrada nele: prompt, régua e
-# guardas foram medidos contra o que ele devolve. O sucessor é o gemini-3.6-flash,
-# recomendado pelo Google para produção nova. A doc oficial de modelos não anuncia
-# aposentadoria do 2.5-flash (o "16/10/2026" que circula em blog de terceiro não
-# aparece lá), então a troca é escolha, não prazo. Antes de trocar de vez, rode o
-# mesmo estado duas vezes com cada modelo e compare nível por tema.
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+# Era 2.5-flash, calibrado aqui: prompt, régua e guardas foram medidos contra o
+# que ele devolve. Em 14/08/2026 a troca deixou de ser escolha. Depois que o
+# projeto GCP antigo foi suspenso e apagado, a chave nova nasceu em projeto novo
+# e o 2.5-flash passou a responder 404 "no longer available to new users" nas 17
+# análises da fila. Não dá mais nem para comparar os dois modelos no mesmo plano,
+# porque o antigo não atende esta chave.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 
 _CLIENT = None
@@ -1354,6 +1753,64 @@ def ocorrencias_ancora(texto_norm: str, tema: str) -> list[int]:
     return sorted(achadas)
 
 
+_AUSENCIA_RE = {tema: [(t, _regex_ancora(t)) for t in termos]
+                for tema, termos in TERMOS_AUSENCIA.items()}
+
+# Selos do cruzamento entre a contagem de termos e o nível que o modelo deu.
+# São quatro casos e cada um pede uma leitura diferente de quem usa o painel.
+SELO_AUSENCIA_OK = "Ausência confirmada"   # nenhum termo e o modelo não achou
+SELO_AUSENCIA_REVER = "Revisar ausência"   # termo no plano e o modelo não achou
+SELO_CONFIRMADO = "Confirmado"             # termo no plano e o modelo achou
+SELO_SO_CONTEXTO = "Achado por contexto"   # sem termo e o modelo achou mesmo assim
+
+
+def termos_do_tema(texto_norm: str, tema: str) -> list[tuple[str, int]]:
+    """Quais termos do vocabulário do tema aparecem no plano, e quantas vezes.
+
+    Diferente de ocorrencias_ancora, que devolve posições e existe para a guarda
+    de ausência decidir se vale gastar uma chamada. Aqui o resultado é evidência
+    para gravar ao lado do nível: é o que permite escrever "o plano não trata
+    disso" mostrando o que foi procurado.
+
+    As posições são deduplicadas entre termos: "psicossocial" e "atenção
+    psicossocial" casam no mesmo pedaço de texto e contariam duas vezes a mesma
+    menção. A contagem por termo continua sendo a do próprio termo, o que muda é
+    o total, que é quem responde "tem ou não tem".
+    """
+    achados = []
+    for termo, padrao in _AUSENCIA_RE.get(tema, []):
+        n = len(padrao.findall(texto_norm))
+        if n:
+            achados.append((termo, n))
+    return achados
+
+
+def posicoes_do_tema(texto_norm: str, tema: str) -> set[int]:
+    """Posições distintas cobertas pelo vocabulário do tema, sem contar duas
+    vezes o trecho em que dois termos da lista se sobrepõem."""
+    pos = set()
+    for _, padrao in _AUSENCIA_RE.get(tema, []):
+        for m in padrao.finditer(texto_norm):
+            pos.add(m.start())
+    return pos
+
+
+def selo_termos(nivel: str, tem_termo: bool) -> str:
+    """Cruza a contagem com o nível do modelo.
+
+    O erro das duas listas anda em direções opostas, e é isso que torna o selo
+    legível. Termo que dispara à toa em TERMOS_AUSENCIA só rebaixa "Ausência
+    confirmada" para "Revisar ausência", ninguém afirma nada de errado. Termo
+    faltando é que estragaria, carimbando ausência num tema que o plano trata
+    com outro vocabulário. Por isso aquela lista é generosa e esta função não
+    tenta consertar nada: ela só descreve o que as duas fontes disseram.
+    """
+    ausente = (nivel or "").strip() in ("", "Não menciona", "Ausente")
+    if ausente:
+        return SELO_AUSENCIA_REVER if tem_termo else SELO_AUSENCIA_OK
+    return SELO_CONFIRMADO if tem_termo else SELO_SO_CONTEXTO
+
+
 def contexto_do_tema(texto: str, texto_norm: str, tema: str,
                      janela: int = 3000, maximo: int = 5) -> str:
     """Os pedaços do plano em volta dos termos-âncora do tema.
@@ -1369,6 +1826,27 @@ def contexto_do_tema(texto: str, texto_norm: str, tema: str,
     # texto_norm e texto têm comprimentos diferentes: a posição normalizada é uma
     # aproximação da posição no original, e a janela é larga o bastante para o
     # deslize não tirar o trecho de dentro.
+    fator = len(texto) / max(len(texto_norm), 1)
+    pedacos = []
+    for p in posicoes:
+        centro = int(p * fator)
+        pedacos.append(texto[max(0, centro - janela):centro + janela])
+    return "\n[...]\n".join(pedacos)
+
+
+def contexto_do_vocabulario(texto: str, texto_norm: str, tema: str,
+                            janela: int = 3000, maximo: int = 5) -> str:
+    """Igual ao contexto_do_tema, mas em volta do vocabulário largo do tema.
+
+    Existe porque as duas listas servem a momentos diferentes. O contexto_do_tema
+    usa TERMOS_ANCORA, que é discriminante e por isso não encontra o plano que
+    trata do tema sem usar a palavra do tema. Quando a guarda de ausência decide
+    reperguntar por causa do vocabulário largo, é o entorno DESSAS ocorrências
+    que precisa ir na pergunta, senão não há o que reperguntar.
+    """
+    posicoes = sorted(posicoes_do_tema(texto_norm, tema))[:maximo]
+    if not posicoes:
+        return ""
     fator = len(texto) / max(len(texto_norm), 1)
     pedacos = []
     for p in posicoes:
