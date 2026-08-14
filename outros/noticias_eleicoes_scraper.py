@@ -380,11 +380,21 @@ def normalize_tipo(raw) -> str:
     return v if v in TIPOS else "outro"
 
 
+_SEM_THINKING_CONFIG = False
+
+
 def _config_gemini():
     """Orçamento de pensamento do flash. None = deixa o padrão do modelo."""
-    if GEMINI_THINKING_BUDGET < 0:
+    global _SEM_THINKING_CONFIG
+    if _SEM_THINKING_CONFIG or GEMINI_THINKING_BUDGET < 0:
         return None
-    return {"thinking_config": {"thinking_budget": GEMINI_THINKING_BUDGET}}
+    try:
+        from google.genai import types
+        return types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(thinking_budget=GEMINI_THINKING_BUDGET)
+        )
+    except Exception:
+        return None
 
 
 # Status da candidatura. Mesma canonicalização do partido e do tipo: o modelo
@@ -668,8 +678,19 @@ def classificar_com_gemini(titulo, trecho=""):
         "- Responda SOMENTE o objeto JSON, sem texto extra, sem markdown, sem bloco de código\n\n"
         f"{contexto}"
     )
-    resp = _gemini_client().models.generate_content(
-        model=GEMINI_MODEL, contents=prompt, config=_config_gemini())
+    global _SEM_THINKING_CONFIG
+    cfg = _config_gemini()
+    try:
+        resp = _gemini_client().models.generate_content(
+            model=GEMINI_MODEL, contents=prompt, config=cfg)
+    except Exception as e:
+        if not _SEM_THINKING_CONFIG and cfg and ("thinking" in str(e).lower() or "invalid_argument" in str(e).lower() or "400" in str(e)):
+            _SEM_THINKING_CONFIG = True
+            print(f"  {GEMINI_MODEL} recusou thinking_config ({e}); seguindo sem ele.")
+            resp = _gemini_client().models.generate_content(
+                model=GEMINI_MODEL, contents=prompt, config=None)
+        else:
+            raise
     _registrar_uso(resp)
     texto = (getattr(resp, "text", "") or "").strip()
     texto = texto.replace("```json", "").replace("```", "").strip()
@@ -1051,18 +1072,28 @@ def _gc():
     return _autorizar(Credentials.from_service_account_info(info, scopes=scopes))
 
 
-def _sheets_aba():
+def _sheets_aba(tentativas: int = 3):
     import gspread
-    sh = _gc().open_by_key(SHEET_ID)
-    try:
-        aba = sh.worksheet(SHEET_ABA)
-    except gspread.exceptions.WorksheetNotFound:
-        print(f"Aba '{SHEET_ABA}' não encontrada — criando com cabeçalho...")
-        aba = sh.add_worksheet(title=SHEET_ABA, rows=5000, cols=len(COLUNAS_PLANILHA))
-        aba.append_row(COLUNAS_PLANILHA)
-        return aba
-    _garantir_colunas(aba)
-    return aba
+    erro = None
+    for tentativa in range(1, tentativas + 1):
+        try:
+            sh = _gc().open_by_key(SHEET_ID)
+            try:
+                aba = sh.worksheet(SHEET_ABA)
+            except gspread.exceptions.WorksheetNotFound:
+                print(f"Aba '{SHEET_ABA}' não encontrada — criando com cabeçalho...")
+                aba = sh.add_worksheet(title=SHEET_ABA, rows=5000, cols=len(COLUNAS_PLANILHA))
+                aba.append_row(COLUNAS_PLANILHA)
+                return aba
+            _garantir_colunas(aba)
+            return aba
+        except Exception as e:
+            erro = e
+            print(f"Tentativa {tentativa}/{tentativas} de abrir a planilha '{SHEET_ABA}' falhou: {e}")
+            if tentativa < tentativas:
+                time.sleep(3 * tentativa)
+    raise RuntimeError(
+        f"Não foi possível abrir a planilha '{SHEET_ABA}' após {tentativas} tentativas. Causa: {erro}")
 
 
 def _garantir_colunas(aba):
