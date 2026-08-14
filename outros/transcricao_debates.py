@@ -25,6 +25,7 @@ Uso:
 
 import argparse
 import csv
+import http.client
 import os
 import re
 import shutil
@@ -82,6 +83,14 @@ ESPERA_MAX = 120
 # Pausa antes da repescagem dos blocos vazios. A onda de 503 dura minutos, e
 # repescar na hora cai nela de novo.
 ESPERA_REPESCAGEM = 90
+
+# Chamada de Drive e de planilha também cai sozinha, e cai perto do fim: no run
+# de 14/08 a transcrição inteira ficou pronta e o upload morreu com "EOF
+# occurred in violation of protocol", com a escrita do status logo depois
+# levando "Connection reset by peer". Repetir isso é barato, ao contrário do
+# bloco do modelo, então a espera é curta e a conta é outra.
+TENTATIVAS_REDE = 4
+ESPERA_REDE = 5
 
 # MINIMAL, LOW, MEDIUM, HIGH, um número de tokens de orçamento (0 desliga) ou
 # vazio para deixar o padrão do modelo. O 3.6-flash aceitou MINIMAL e ignorou:
@@ -190,6 +199,45 @@ def agora_brt():
 def exige(binario):
     if not shutil.which(binario):
         sys.exit(f"'{binario}' não encontrado no PATH.")
+
+
+# ------------------------------------------------- rede do Drive e da planilha
+
+def transitorio(e):
+    """Erro que vale repetir: queda de conexão ou API pedindo para voltar depois.
+
+    Socket cortado no meio da chamada chega sempre embrulhado em OSError, seja
+    como ssl.SSLError, ConnectionResetError ou timeout, e o requests herda de
+    OSError também. Erro de permissão ou de id errado não entra aqui: repetir
+    404 quatro vezes só atrasa o log.
+    """
+    if isinstance(e, (OSError, http.client.HTTPException)):
+        return True
+    # googleapiclient guarda o status em .resp; gspread, em .response.
+    codigo = getattr(getattr(e, "resp", None), "status", None)
+    if codigo is None:
+        codigo = getattr(getattr(e, "response", None), "status_code", None)
+    return codigo in (429, 500, 502, 503, 504)
+
+
+def com_retentativa(descricao, fn):
+    """Repete uma chamada de rede que caiu por motivo transitório."""
+    for n in range(1, TENTATIVAS_REDE + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if n == TENTATIVAS_REDE or not transitorio(e):
+                raise
+            espera = ESPERA_REDE * 2 ** (n - 1)
+            log(f"    {descricao} falhou ({e}); tentativa {n + 1}/{TENTATIVAS_REDE} em {espera}s")
+            time.sleep(espera)
+
+
+def escrever_celula(ws, linha, coluna, valor):
+    com_retentativa(
+        f"escrita na linha {linha}",
+        lambda: ws.update_cell(linha, coluna, valor),
+    )
 
 
 # ---------------------------------------------------------------- áudio
@@ -421,7 +469,11 @@ def baixar_audio_drive(drive, link_ou_id: str, destino: Path) -> Path:
         downloader = MediaIoBaseDownload(fh, request)
         done = False
         while not done:
-            status, done = downloader.next_chunk()
+            # O next_chunk retoma de onde parou, então repetir um pedaço que
+            # caiu não rebaixa os 70 MB inteiros.
+            status, done = com_retentativa(
+                "download do áudio no Drive", downloader.next_chunk
+            )
             if status:
                 log(f"  download drive: {int(status.progress() * 100)}%")
 
@@ -444,10 +496,13 @@ def enviar_drive(drive, caminho, nome, mime_destino=None, pasta=None):
     # que estoura em conexão instável. Acima de 10 MB vai em pedaços.
     grande = Path(caminho).stat().st_size > 10e6
     midia = MediaFileUpload(str(caminho), resumable=grande)
-    arq = drive.files().create(
-        body=corpo, media_body=midia,
-        supportsAllDrives=True, fields="id,webViewLink",
-    ).execute()
+    arq = com_retentativa(
+        f"upload de {nome}",
+        lambda: drive.files().create(
+            body=corpo, media_body=midia,
+            supportsAllDrives=True, fields="id,webViewLink",
+        ).execute(),
+    )
     return arq["webViewLink"]
 
 
@@ -455,17 +510,23 @@ def pasta_audios(drive):
     """Id da subpasta 'audios', criada na primeira vez que for preciso."""
     q = (f"'{PASTA_DRIVE}' in parents and name='{SUBPASTA_AUDIOS}' "
          "and mimeType='application/vnd.google-apps.folder' and trashed=false")
-    achou = drive.files().list(
-        q=q, includeItemsFromAllDrives=True, supportsAllDrives=True,
-        fields="files(id)",
-    ).execute().get("files", [])
+    achou = com_retentativa(
+        f"busca da subpasta '{SUBPASTA_AUDIOS}'",
+        lambda: drive.files().list(
+            q=q, includeItemsFromAllDrives=True, supportsAllDrives=True,
+            fields="files(id)",
+        ).execute(),
+    ).get("files", [])
     if achou:
         return achou[0]["id"]
-    nova = drive.files().create(
-        body={"name": SUBPASTA_AUDIOS, "parents": [PASTA_DRIVE],
-              "mimeType": "application/vnd.google-apps.folder"},
-        supportsAllDrives=True, fields="id",
-    ).execute()
+    nova = com_retentativa(
+        f"criação da subpasta '{SUBPASTA_AUDIOS}'",
+        lambda: drive.files().create(
+            body={"name": SUBPASTA_AUDIOS, "parents": [PASTA_DRIVE],
+                  "mimeType": "application/vnd.google-apps.folder"},
+            supportsAllDrives=True, fields="id",
+        ).execute(),
+    )
     log(f"subpasta '{SUBPASTA_AUDIOS}' criada no Drive")
     return nova["id"]
 
@@ -733,9 +794,12 @@ def sincronizar(gc, ws):
         return
 
     secao("SYNC COM O MONITORAMENTO")
-    fonte = gc.open_by_key(FONTE_PLANILHA).worksheet(FONTE_ABA)
-    de_la = fonte.get_all_values()[1:]
-    nossas = ws.get_all_values()
+    fonte = com_retentativa(
+        "abertura da planilha do monitoramento",
+        lambda: gc.open_by_key(FONTE_PLANILHA).worksheet(FONTE_ABA),
+    )
+    de_la = com_retentativa("leitura da fonte", fonte.get_all_values)[1:]
+    nossas = com_retentativa("leitura da nossa planilha", ws.get_all_values)
     log(f"fonte '{FONTE_ABA}': {len(de_la)} linha(s) | nossa: {len(nossas) - 1} linha(s)")
 
     por_fonte = {}
@@ -784,9 +848,9 @@ def sincronizar(gc, ws):
             log(f"  {idf} ganhou link -> pendente")
 
     if edicoes or promovidas:
-        ws.batch_update(edicoes + promovidas)
+        com_retentativa("sync das edições", lambda: ws.batch_update(edicoes + promovidas))
     if novas:
-        ws.append_rows(novas, table_range="A1")
+        com_retentativa("sync das linhas novas", lambda: ws.append_rows(novas, table_range="A1"))
 
     log(f"sync: {len(novas)} novo(s), {len(edicoes)} atualizado(s), "
         f"{len(promovidas)} promovido(s) para 'pendente'")
@@ -796,7 +860,10 @@ def rodar_fila(args):
     if not PLANILHA or not PASTA_DRIVE:
         sys.exit("defina SPREADSHEET_ID_DEBATES e PASTA_DRIVE_DEBATES (secrets do repo).")
     gc, drive = clientes_google()
-    ws = gc.open_by_key(PLANILHA).worksheet(ABA)
+    ws = com_retentativa(
+        "abertura da planilha de debates",
+        lambda: gc.open_by_key(PLANILHA).worksheet(ABA),
+    )
 
     if not args.sem_sync:
         sincronizar(gc, ws)
@@ -805,7 +872,7 @@ def rodar_fila(args):
         return
 
     secao("FILA")
-    todas = ws.get_all_values()
+    todas = com_retentativa("leitura da fila", ws.get_all_values)
     log(f"planilha: {len(todas) - 1} linha(s) na aba '{ABA}'")
 
     fila = []
@@ -826,12 +893,13 @@ def rodar_fila(args):
 
     log(f"fila: {len(fila)} debate(s) -> {', '.join(l[COL['id']] or f'linha {i}' for i, l in fila)}")
 
+    falhas = []
     for i, linha in fila:
         ident = linha[COL["id"]].strip() or f"linha{i}"
         url = linha[COL["url_youtube"]].strip()
         secao(f"DEBATE {ident}  (linha {i})")
 
-        ws.update_cell(i, COL["status"] + 1, "processando")
+        escrever_celula(ws, i, COL["status"] + 1, "processando")
         saida = Path(args.saida) / ident
         saida.mkdir(parents=True, exist_ok=True)
         try:
@@ -865,7 +933,7 @@ def rodar_fila(args):
                 link_audio = enviar_drive(
                     drive, audio, f"{ident}.mp3", pasta=pasta_audios(drive)
                 )
-                ws.update_cell(i, COL["link_audio"] + 1, link_audio)
+                escrever_celula(ws, i, COL["link_audio"] + 1, link_audio)
                 log(f"{ident}.mp3 ({audio.stat().st_size / 1e6:.0f} MB) -> {link_audio}")
 
             caminhos, avisos = processar(
@@ -882,19 +950,35 @@ def rodar_fila(args):
                 links[p.suffix] = enviar_drive(drive, p, p.name, destino)
                 log(f"{p.name} -> {links[p.suffix]}")
 
-            ws.update(
-                values=[[links.get(".txt", ""), links.get(".csv", ""),
-                         agora_brt(), avisos]],
-                range_name=FAIXA_SAIDA.format(i=i),
+            com_retentativa(
+                f"escrita da saída na linha {i}",
+                lambda: ws.update(
+                    values=[[links.get(".txt", ""), links.get(".csv", ""),
+                             agora_brt(), avisos]],
+                    range_name=FAIXA_SAIDA.format(i=i),
+                ),
             )
-            ws.update_cell(i, COL["status"] + 1, "pronto")
+            escrever_celula(ws, i, COL["status"] + 1, "pronto")
             log(f"linha {i} marcada como 'pronto'")
         except Exception as e:
             log(f"ERRO em {ident}: {e}")
-            ws.update_cell(i, COL["status"] + 1, "erro")
-            ws.update_cell(i, COL["observacoes"] + 1, str(e)[:400])
+            falhas.append(ident)
+            # Marcar 'erro' não pode derrubar a fila. Em 14/08 essa escrita
+            # caiu junto com a rede, o processo morreu aqui, e a linha ficou
+            # presa em 'processando', que nenhum run seguinte pega de volta.
+            try:
+                escrever_celula(ws, i, COL["status"] + 1, "erro")
+                escrever_celula(ws, i, COL["observacoes"] + 1, str(e)[:400])
+            except Exception as e_status:
+                log(f"não deu para marcar 'erro' na linha {i}: {e_status}")
+                log(f"ponha o status da linha {i} na mão, senão ela fica em 'processando'")
         finally:
             shutil.rmtree(saida / "_trabalho", ignore_errors=True)
+
+    # Um debate com erro não pode parar os outros da fila, mas o run tem que
+    # ficar vermelho: verde com transcrição faltando é o que passa despercebido.
+    if falhas:
+        sys.exit(f"{len(falhas)} debate(s) com erro: {', '.join(falhas)}")
 
 
 # ---------------------------------------------------------------- main
