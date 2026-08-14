@@ -47,6 +47,7 @@ jobs:
       - name: Classificar
         env:
           SPREADSHEET_ID: ${{ secrets.SHEET_ID_INSTAGRAM }}
+          SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
         run: |
           ARGS=()
           if [ -n "${{ inputs.candidato }}" ]; then
