@@ -45,7 +45,7 @@ def norm_texto(t):
     o espaçamento dele, e comparar espaço a espaço reprovaria trecho correto."""
     return re.sub(r"\s+", " ", _norm_acentos(t or "")).strip()
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 TENTATIVAS = 3
 
 # Abaixo disto o eixo não rende documento: vira uma citação solta e a leitura

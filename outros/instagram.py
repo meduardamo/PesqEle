@@ -196,10 +196,12 @@ MARCA_MIDIA_EXPIRADA = "(mídia expirada, não analisado)"
 # para cerca de um terço. O áudio (32 tokens/s) não muda, então a transcrição
 # continua igual; o que piora é o detalhe visual do frame.
 RESOLUCAO_MIDIA_BAIXA = os.getenv("RESOLUCAO_MIDIA_BAIXA", "").strip().lower() in ("1", "true", "sim")
-# Tarifas do gemini-2.5-flash (ai.google.dev/gemini-api/docs/pricing, 05/08/2026),
-# por 1M de tokens. Servem só para a estimativa impressa no fim da rodada.
-PRECO_ENTRADA_POR_MILHAO = float(os.getenv("PRECO_ENTRADA_POR_MILHAO", "0.30"))
-PRECO_SAIDA_POR_MILHAO = float(os.getenv("PRECO_SAIDA_POR_MILHAO", "2.50"))
+# Tarifas do gemini-3.6-flash (ai.google.dev/gemini-api/docs/pricing, 14/08/2026),
+# por 1M de tokens. Servem só para a estimativa impressa no fim da rodada. Subiram
+# junto com a troca de modelo: no 2.5-flash eram 0.30 e 2.50, ou seja, a entrada
+# ficou 2,5x mais cara, e entrada é quase toda a conta quando tem vídeo.
+PRECO_ENTRADA_POR_MILHAO = float(os.getenv("PRECO_ENTRADA_POR_MILHAO", "0.75"))
+PRECO_SAIDA_POR_MILHAO = float(os.getenv("PRECO_SAIDA_POR_MILHAO", "3.75"))
 
 _PADRAO_SECOES = re.compile(
     r"[#\s*]*\d+\.[ \t*]*(Transcri[cç][aã]o|Resumo\s+do\s+conte[uú]do|Resumo\s+da\s+legenda|Temas?)[ \t*:]*[^\n]*\n",
@@ -1140,7 +1142,7 @@ def analisar_com_gemini(gem: genai.Client, eh_video: bool, caminho: str, legenda
         conteudo = [types.Part.from_bytes(data=dados, mime_type="image/jpeg"), prompt]
 
     resp = com_retry(
-        lambda: gem.models.generate_content(model="gemini-2.5-flash", contents=conteudo, config=config),
+        lambda: gem.models.generate_content(model="gemini-3.6-flash", contents=conteudo, config=config),
         f"análise de {os.path.basename(caminho)}",
     )
     uso = resp.usage_metadata

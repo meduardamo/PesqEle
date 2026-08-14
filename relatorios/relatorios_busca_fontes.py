@@ -21,7 +21,7 @@ from google.genai import types
 
 from compartilhado.relatorios_sheets_utils import (
     ALIASES_RELATORIOS, BRT, CABECALHO_RELATORIOS, CARGOS_MONITORADOS, CARGO_ROTULO,
-    REGISTRO_TSE_RE, RELATORIOS_COLUNAS, REL_COL, REL_KEY, STATUS_TOPLINE_MANUAL,
+    MAPA_UF, REGISTRO_TSE_RE, RELATORIOS_COLUNAS, REL_COL, REL_KEY, STATUS_TOPLINE_MANUAL,
     _append_rows_compacto, _ativar_checkbox, _ativar_dropdown, _cargo_norm, autorizar_com_retry,
     _cargos_monitorados, _chave_fila, _colorir_cabecalhos_relatorios, _colorir_por_valor,
     _custo_estimado, _encolher_linhas_vazias, _extrair_json_objeto,
@@ -33,7 +33,7 @@ from compartilhado.relatorios_sheets_utils import (
     _ultima_linha_com_registro,
 )
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 # Uso acumulado de tokens do Gemini nesta execução (processo novo a cada rodada
 # do workflow, então não precisa resetar entre chamadas).
@@ -50,16 +50,6 @@ STEALTH_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
     "X-Forwarded-For": "66.249.66.1"  # IP do Googlebot para furar alguns paywalls híbridos
-}
-
-MAPA_UF = {
-    "ACRE": "AC", "ALAGOAS": "AL", "AMAPÁ": "AP", "AMAZONAS": "AM", "BAHIA": "BA",
-    "CEARÁ": "CE", "DISTRITO FEDERAL": "DF", "ESPÍRITO SANTO": "ES", "GOIÁS": "GO",
-    "MARANHÃO": "MA", "MATO GROSSO": "MT", "MATO GROSSO DO SUL": "MS", "MINAS GERAIS": "MG",
-    "PARÁ": "PA", "PARAÍBA": "PB", "PARANÁ": "PR", "PERNAMBUCO": "PE", "PIAUÍ": "PI",
-    "RIO DE JANEIRO": "RJ", "RIO GRANDE DO NORTE": "RN", "RIO GRANDE DO SUL": "RS",
-    "RONDÔNIA": "RO", "RORAIMA": "RR", "SANTA CATARINA": "SC", "SÃO PAULO": "SP",
-    "SERGIPE": "SE", "TOCANTINS": "TO", "BRASIL": "BR"
 }
 
 DRIVE_ID = '0AH-94UFLKIFPUk9PVA'

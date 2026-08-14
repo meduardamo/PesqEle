@@ -28,7 +28,7 @@ import gspread
 
 from compartilhado.relatorios_sheets_utils import (
     ALIASES_RELATORIOS, BRT, CABECALHO_RELATORIOS, CARGOS_MONITORADOS, CARGO_ROTULO,
-    REGISTRO_TSE_RE, RELATORIOS_COLUNAS, REL_COL, REL_KEY, STATUS_TOPLINE_MANUAL,
+    MAPA_UF, REGISTRO_TSE_RE, RELATORIOS_COLUNAS, REL_COL, REL_KEY, STATUS_TOPLINE_MANUAL,
     _aba, _append_rows_compacto, _ativar_checkbox, _ativar_dropdown, _baixar_pdf,
     _blocos_ativos_cargo, _blocos_pdf, _cargo_norm, _cargos_monitorados, _chave_fila,
     _colorir_cabecalhos_relatorios, _colorir_por_valor, _creds_info, _custo_estimado,
@@ -134,7 +134,7 @@ def _enviar(subject, html_body):
 
 
 def _preencher_fila(pesquisas):
-    """Cria na aba 'relatorios' uma linha por registro+cargo monitorado."""
+    """Cria na aba 'relatorios' uma linha por registro+cargo, já com o link PollingData."""
     if not RELATORIOS_ID:
         print("SPREADSHEET_ID_RELATORIOS não definido; pulando preenchimento da fila.")
         return
@@ -159,6 +159,9 @@ def _preencher_fila(pesquisas):
                 "uf": p.get("abrangencia", ""),
                 "instituto": p.get("empresa_contratada", ""),
                 "data_divulgacao": str(p.get("data_divulgacao", ""))[:10],
+                "link_pollingdata": _link_pollingdata_url(
+                    reg, cargo, p.get("abrangencia", "")
+                ),
             }
             novas.append(_rel_row(valores, header))
             existentes.add(chave)
@@ -186,7 +189,7 @@ def cmd_alerta():
 RELATORIOS_ID = os.getenv("SPREADSHEET_ID_RELATORIOS", "")
 
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 
 PROMPT = (
@@ -1088,7 +1091,6 @@ def _link_pollingdata_url(registro: str, cargo: str, uf_rotulo: str = "") -> str
     presidente com recorte estadual é registrada como BR-08086/2026 mas sai
     publicada na página do estado ('ACRE' -> presidente/ac). Sem a coluna, cai
     no prefixo do registro ('PI-04468/2026' -> pi)."""
-    from relatorios.relatorios_busca_fontes import MAPA_UF
     rotulo = str(uf_rotulo).strip().upper()
     uf = MAPA_UF.get(rotulo, rotulo if len(rotulo) == 2 else "")
     registro = str(registro)

@@ -50,7 +50,7 @@ from compartilhado.relatorios_sheets_utils import autorizar_com_retry as _autori
 
 
 BRT = timezone(timedelta(hours=-3))
-GEMINI_MODEL = os.getenv("GEMINI_MODEL_APOIOS", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL_APOIOS", "gemini-3.6-flash")
 ABA_ORIGEM_PADRAO = "Convenções partidárias"
 ABA_DESTINO_PADRAO = "apoio por candidatura"
 ABA_CONTROLE_PADRAO = "_apoios_buscados"

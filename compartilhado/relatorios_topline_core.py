@@ -22,7 +22,7 @@ from datetime import datetime
 # Este módulo é independente do pollingdata_scraper.py de propósito: ele fica
 # intocado. As 3 funções abaixo são cópias pequenas do que era usado de lá.
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 TIPOS_RESULTADO = ["candidato", "nao_valido"]
 
 # Marca a procedência: estes dados vêm dos PDFs dos relatórios, NÃO do PollingData.

@@ -37,7 +37,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 # Drive compartilhado "Eleições 2026" > Debates, e a planilha de mapeamento que
 # fica dentro dela. Sem valor padrão no código: este repo é público, e o resto

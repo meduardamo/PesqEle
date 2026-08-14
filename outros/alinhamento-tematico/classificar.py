@@ -69,7 +69,7 @@ MINIMO_POSTS_POR_TEMA = int(os.getenv("MINIMO_POSTS_POR_TEMA", "3"))
 # ranking. A linha sai marcada em vez de sair errada.
 MINIMO_POSTS_CANDIDATO = int(os.getenv("MINIMO_POSTS_CANDIDATO", "20"))
 
-MODELO = os.getenv("MODELO_GEMINI", "gemini-2.5-flash")
+MODELO = os.getenv("MODELO_GEMINI", "gemini-3.6-flash")
 TENTATIVAS = 4
 LOTE_ESCRITA = 10
 

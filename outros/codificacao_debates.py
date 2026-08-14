@@ -40,7 +40,7 @@ from google.genai import types
 
 from outros.analise_planos import EIXOS
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 TEMAS = {tema: desc for temas in EIXOS.values() for tema, desc in temas.items()}
 EIXO_DO_TEMA = {tema: eixo for eixo, temas in EIXOS.items() for tema in temas}

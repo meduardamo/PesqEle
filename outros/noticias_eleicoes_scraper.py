@@ -35,7 +35,7 @@ from compartilhado.relatorios_sheets_utils import (
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 # Classificar manchete é tarefa de extração, não de raciocínio: numa rodada real
 # (335 notícias) o modelo gastou 473 mil tokens de pensamento para 21 mil de

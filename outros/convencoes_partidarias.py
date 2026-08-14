@@ -31,7 +31,7 @@ from compartilhado.relatorios_sheets_utils import autorizar_com_retry as _autori
 
 
 BRT = timezone(timedelta(hours=-3))
-GEMINI_MODEL = os.getenv("GEMINI_MODEL_CONVENCOES", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL_CONVENCOES", "gemini-3.6-flash")
 ABA_PADRAO = "Convenções partidárias"
 
 # Uso acumulado de tokens do Gemini nesta execução (processo novo a cada rodada).

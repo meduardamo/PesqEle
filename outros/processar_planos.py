@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analise_planos import (  # noqa: E402
     NIVEIS, NIVEIS_LEGADO, TEMAS, PlanoIndisponivel, RespostaIlegivel,
     _norm_busca, _sem_espaco, citacao_sustenta, classificar_plano, resumir_plano,
-    contexto_do_tema,
+    contexto_do_tema, contexto_do_vocabulario, posicoes_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
     normalizar_responsavel, tem_alvo_mensuravel, tema_e_item_de_enumeracao,
     verificar_trecho,
@@ -291,13 +291,20 @@ def conferir_classificacao(classif: dict, texto: str,
                     responsavel="", prazo="", publico_alvo="", programa_nome="")
 
     for tema, item in classif.items():
+        por_vocabulario = False
         if item["nivel"] == "Não menciona":
             if not ocorrencias_ancora(texto_norm, tema):
-                continue                      # ausência conferida, nada a fazer
+                # A âncora é enxuta de propósito e por isso deixa passar a
+                # ausência do plano que trata do tema sem usar a palavra do
+                # tema. Antes de aceitar, confere o vocabulário largo.
+                if len(posicoes_do_tema(texto_norm, tema)) < LIMIAR_VOCABULARIO:
+                    continue                  # ausência conferida, nada a fazer
+                por_vocabulario = True
         elif citacao_sustenta(paginas_norm, item["trecho"]):
             continue                          # citação bate com o plano
 
-        contexto = contexto_do_tema(texto, texto_norm, tema)
+        contexto = (contexto_do_vocabulario(texto, texto_norm, tema)
+                    if por_vocabulario else contexto_do_tema(texto, texto_norm, tema))
         if not contexto:
             # Sem nem o termo no plano, não há o que reperguntar: o nível que
             # estava lá vinha de citação que o plano não tem.
@@ -319,6 +326,29 @@ def conferir_classificacao(classif: dict, texto: str,
     classif = _conferir_meta(classif)
     return _conferir_nivel_por_citacao(classif)
 
+
+# A partir de quantas posições do vocabulário largo a ausência é reperguntada.
+#
+# Por que 2 e não 1: medido em 40 planos e 125 ausências gravadas em 11/08/2026.
+# Com corte em 1 são 28 reperguntas novas, ~64 chamadas por rodada de 91 planos,
+# e a maioria é menção de passagem em que "Não menciona" está certo (um
+# "aplicativo" virando Governo Digital). Com corte em 2 são 12, ~27 chamadas, e
+# elas concentram os casos fortes: Daniel Vilela (GO) com 14 ocorrências de
+# vocabulário de Financiamento do SUS marcado como "Não menciona", Kalil (MG)
+# com 11 em Violência contra a Mulher, Cadu de Lula (RN) com 10 em Desmatamento.
+#
+# Efeito medido rodando as 12 reperguntas: 10 voltaram com nível e citação
+# literal do plano, 2 confirmaram a ausência. Duas das 10 atribuíram o trecho ao
+# tema errado (uma seção sobre idosos e pessoas com deficiência virou Educação
+# Inclusiva e EJA). Testei exigir que a citação devolvida contivesse termo do
+# próprio tema e a regra reprovou zero dos 12, então não serve como filtro e não
+# está aqui.
+#
+# A VERSAO_ANALISE NÃO subiu junto de propósito. Subir força reprocessar os 91
+# planos com Gemini para mexer em ~23 linhas de 4.186, e a guarda vale a partir
+# do próximo plano que entrar. A base fica com dois critérios convivendo, e é
+# uma troca consciente.
+LIMIAR_VOCABULARIO = 2
 
 # A partir de quantas ocorrências do termo o tema deixa de ser menção de
 # passagem. ocorrencias_ancora para de contar em 12, então este é o teto dela: o
