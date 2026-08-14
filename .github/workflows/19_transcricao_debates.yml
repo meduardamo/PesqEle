@@ -34,7 +34,7 @@ on:
       modelo:
         description: 'Modelo Gemini'
         required: false
-        default: 'gemini-2.5-flash'
+        default: 'gemini-3.6-flash'
 
   # Disparo externo pelo mesmo agendador que já chama os workflows 06, 08 e 15:
   # POST /repos/meduardamo/eixo-eleicoes/dispatches com
@@ -90,7 +90,9 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"     # sem isso o log só aparece quando o job acaba
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ inputs.modelo || 'gemini-2.5-flash' }}
+          # O env vence o padrão do script, então trocar só o .py não basta: com
+          # 2.5-flash aqui a chave nova responde 404 e o run morre na 1a chamada.
+          GEMINI_MODEL: ${{ inputs.modelo || 'gemini-3.6-flash' }}
           # Opcional. O YouTube às vezes barra o IP do runner como bot; com o
           # conteúdo de um cookies.txt neste secret o yt-dlp passa.
           YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
