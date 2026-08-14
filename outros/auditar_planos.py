@@ -78,6 +78,48 @@ def _item_da_linha(v: list, col: dict) -> dict:
     }
 
 
+def _medir_atribuicao(linhas: list, col: dict, n: int) -> int:
+    """Mede quantos trechos não sustentam o tema em que foram arquivados.
+
+    Nenhuma guarda cobre isso: a citação existe no plano e é literal, mas fala
+    de outro assunto. Na medição de 11/08/2026 foram 2 em 10 (uma seção sobre
+    idosos e pessoas com deficiência arquivada em Educação Inclusiva e EJA).
+
+    Como mede: mostra ao modelo só o trecho gravado e pergunta o tema, com a
+    mesma reanalisar_tema da produção. Se ele responder "Não menciona" olhando
+    justamente o trecho que sustenta o nível, o trecho provavelmente não é dali.
+
+    É uma triagem, não um veredito: trecho sem o entorno da página pode perder
+    o que o ligava ao tema, então o número aqui é teto, não contagem de erro.
+    """
+    import random
+    from analise_planos import TEMAS, reanalisar_tema
+
+    alvo = [v for v in linhas
+            if v[col["nivel"]] != "Não menciona"
+            and v[col["verificacao"]] == "literal"
+            and v[col["trecho"]].strip()]
+    random.seed(20260814)                     # amostra repetível entre execuções
+    amostra = random.sample(alvo, min(n, len(alvo)))
+    print(f"amostra: {len(amostra)} de {len(alvo)} linhas com citação literal\n")
+
+    suspeitos = 0
+    for k, v in enumerate(amostra, 1):
+        tema = v[col["tema"]]
+        try:
+            r = reanalisar_tema(v[col["trecho"]], tema, TEMAS.get(tema, ""))
+        except Exception as e:                # noqa: BLE001
+            print(f"[{k}/{len(amostra)}] {tema}: erro ({e})")
+            continue
+        if r and r["nivel"] == "Não menciona":
+            suspeitos += 1
+            print(f"[{k}/{len(amostra)}] SUSPEITO · {v[col['candidato']][:20]} · {tema}")
+            print(f"      \"{v[col['trecho']][:120]}\"")
+    print(f"\ntrechos que não sustentam o próprio tema: {suspeitos} de "
+          f"{len(amostra)} ({suspeitos / len(amostra):.1%})" if amostra else "")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--planos", type=int, default=0, help="0 = base inteira")
@@ -86,6 +128,8 @@ def main() -> int:
                    help="só mede, sem chamar o modelo")
     p.add_argument("--gravar", action="store_true",
                    help="corrige na aba as linhas divergentes")
+    p.add_argument("--atribuicao", type=int, default=0, metavar="N",
+                   help="mede em N linhas se o trecho é mesmo do tema em que está")
     args = p.parse_args()
 
     aba = cliente().open_by_key(os.environ["SPREADSHEET_ID_TSE"]).worksheet(ANALISE_ABA)
@@ -102,6 +146,9 @@ def main() -> int:
                                    "nome": v[col["candidato"]],
                                    "uf": v[col["uf"]], "temas": {}})
         d["temas"][v[col["tema"]]] = (n, v)
+
+    if args.atribuicao:
+        return _medir_atribuicao(linhas, col, args.atribuicao)
 
     ordem = list(planos)[:args.planos] if args.planos else list(planos)
     print(f"planos: {len(ordem)} | modo: "

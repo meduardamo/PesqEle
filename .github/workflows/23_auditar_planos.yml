@@ -17,7 +17,12 @@ on:
           - contar
           - simular
           - gravar
+          - atribuicao
         default: contar
+      amostra:
+        description: 'Só no modo atribuicao: quantas linhas medir'
+        required: false
+        default: '150'
       planos:
         description: 'Quantos planos (0 = base inteira)'
         required: false
@@ -58,4 +63,5 @@ jobs:
             --planos ${{ inputs.planos }} \
             ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }} \
             ${{ inputs.modo == 'contar' && '--contar' || '' }} \
-            ${{ inputs.modo == 'gravar' && '--gravar' || '' }}
+            ${{ inputs.modo == 'gravar' && '--gravar' || '' }} \
+            ${{ inputs.modo == 'atribuicao' && format('--atribuicao {0}', inputs.amostra) || '' }}
