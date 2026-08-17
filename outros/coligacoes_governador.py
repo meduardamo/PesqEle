@@ -98,78 +98,137 @@ def split_parties(composition, listed_party="", coalition_name=""):
     return parties
 
 
-def classify(parties):
+CARGOS = [
+    (1, "PRESIDENTE", ["BR"]),
+    (3, "GOVERNADOR", UFS),
+    (5, "SENADOR", UFS),
+]
+
+
+def classify(parties, coalition_name=""):
+    coalition_name = str(coalition_name or "").strip()
     if len(parties) > 1:
+        if (
+            coalition_name.upper().startswith("FEDERAÇÃO")
+            or coalition_name.upper().startswith("FEDERACAO")
+        ) and " / " not in coalition_name:
+            return "FEDERAÇÃO"
         return "COLIGAÇÃO"
     if len(parties) == 1:
         return "PARTIDO ISOLADO"
     return "COMPOSIÇÃO NÃO INFORMADA"
 
 
-def extract_governors(session=None):
+def _fetch_candidate_detail(item, election, headers_http):
+    uf, cargo_nome, candidate = item
+    candidate_id = str(candidate.get("id") or "").strip()
+    if not candidate_id:
+        return None
+    source_url = (
+        f"{API}/candidatura/buscar/{ANO}/{uf}/{election}"
+        f"/candidato/{candidate_id}"
+    )
+    s = requests.Session()
+    s.headers.update(headers_http)
+    try:
+        r = s.get(source_url, timeout=30)
+        r.raise_for_status()
+        detail = r.json()
+    except Exception:
+        detail = {}
+
+    party_data = candidate.get("partido") or detail.get("partido") or {}
+    listed_party = str(party_data.get("sigla") or "").strip()
+    coalition_name = str(
+        detail.get("nomeColigacao") or candidate.get("nomeColigacao") or ""
+    ).strip()
+    parties = split_parties(
+        detail.get("composicaoColigacao"),
+        listed_party,
+        coalition_name,
+    )
+    return {
+        "ano": ANO,
+        "uf": uf,
+        "cargo": cargo_nome,
+        "candidato": str(
+            candidate.get("nomeUrna") or detail.get("nomeUrna") or ""
+        ).strip(),
+        "partido_candidato": listed_party,
+        "nome_coligacao": coalition_name,
+        "partidos_coligacao": " / ".join(parties),
+        "quantidade_partidos": len(parties),
+        "tipo_chapa": classify(parties, coalition_name),
+        "situacao": str(
+            detail.get("descricaoSituacao")
+            or candidate.get("descricaoSituacao")
+            or ""
+        ).strip(),
+        "fonte_tse": source_url,
+        "sq_titular": candidate_id,
+    }
+
+
+def extract_majoritarias(session=None):
+    from concurrent.futures import ThreadPoolExecutor
+
     session = session or requests.Session()
+    session.headers.update(HEADERS_HTTP)
     election = election_id(session)
-    rows = []
+
+    tasks = []
     seen = set()
+    for cargo_code, cargo_nome, ufs in CARGOS:
+        for uf in ufs:
+            listing_url = (
+                f"{API}/candidatura/listar/{ANO}/{uf}/{election}/{cargo_code}/candidatos"
+            )
+            listing = get_json(session, listing_url)
+            candidates = listing.get("candidatos") or []
+            for candidate in candidates:
+                candidate_id = str(candidate.get("id") or "").strip()
+                if not candidate_id or candidate_id in seen:
+                    continue
+                seen.add(candidate_id)
+                tasks.append((uf, cargo_nome, candidate))
+            print(f"{cargo_nome} {uf}: {len(candidates)} candidatura(s)", flush=True)
 
-    for uf in UFS:
-        listing_url = (
-            f"{API}/candidatura/listar/{ANO}/{uf}/{election}/3/candidatos"
+    print(f"Buscando detalhes de {len(tasks)} candidaturas majoritárias...", flush=True)
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        results = list(
+            executor.map(
+                lambda t: _fetch_candidate_detail(t, election, HEADERS_HTTP),
+                tasks,
+            )
         )
-        listing = get_json(session, listing_url)
-        candidates = listing.get("candidatos") or []
-        for candidate in candidates:
-            candidate_id = str(candidate.get("id") or "").strip()
-            if not candidate_id or candidate_id in seen:
-                continue
-            seen.add(candidate_id)
-            source_url = (
-                f"{API}/candidatura/buscar/{ANO}/{uf}/{election}"
-                f"/candidato/{candidate_id}"
-            )
-            detail = get_json(session, source_url)
-            party_data = candidate.get("partido") or detail.get("partido") or {}
-            listed_party = str(party_data.get("sigla") or "").strip()
-            coalition_name = str(
-                detail.get("nomeColigacao") or candidate.get("nomeColigacao") or ""
-            ).strip()
-            parties = split_parties(
-                detail.get("composicaoColigacao"),
-                listed_party,
-                coalition_name,
-            )
-            rows.append({
-                "ano": ANO,
-                "uf": uf,
-                "cargo": "GOVERNADOR",
-                "candidato": str(
-                    candidate.get("nomeUrna") or detail.get("nomeUrna") or ""
-                ).strip(),
-                "partido_candidato": listed_party,
-                "nome_coligacao": coalition_name,
-                "partidos_coligacao": " / ".join(parties),
-                "quantidade_partidos": len(parties),
-                "tipo_chapa": classify(parties),
-                "situacao": str(
-                    detail.get("descricaoSituacao")
-                    or candidate.get("descricaoSituacao")
-                    or ""
-                ).strip(),
-                "fonte_tse": source_url,
-                "sq_titular": candidate_id,
-            })
-        print(f"{uf}: {len(candidates)} candidatura(s)", flush=True)
 
-    return sorted(rows, key=lambda row: (row["uf"], row["candidato"], row["sq_titular"]))
+    rows = [r for r in results if r is not None]
+    return sorted(
+        rows,
+        key=lambda row: (
+            0 if row["cargo"] == "PRESIDENTE" else (1 if row["cargo"] == "GOVERNADOR" else 2),
+            row["uf"],
+            row["candidato"],
+            row["sq_titular"],
+        ),
+    )
+
+
+def extract_governors(session=None):
+    return extract_majoritarias(session)
 
 
 def validate(rows):
     if not rows:
-        raise RuntimeError("O TSE não devolveu candidaturas a governador.")
-    present_ufs = {row["uf"] for row in rows}
-    missing_ufs = sorted(set(UFS) - present_ufs)
-    if missing_ufs:
-        raise RuntimeError(f"UFs sem candidatura na extração: {missing_ufs}")
+        raise RuntimeError("O TSE não devolveu candidaturas.")
+    gov_ufs = {row["uf"] for row in rows if row["cargo"] == "GOVERNADOR"}
+    missing_gov = sorted(set(UFS) - gov_ufs)
+    if missing_gov:
+        raise RuntimeError(f"UFs sem candidatura a governador: {missing_gov}")
+    sen_ufs = {row["uf"] for row in rows if row["cargo"] == "SENADOR"}
+    missing_sen = sorted(set(UFS) - sen_ufs)
+    if missing_sen:
+        raise RuntimeError(f"UFs sem candidatura ao senado: {missing_sen}")
     missing_composition = [
         f"{row['uf']}/{row['candidato']}"
         for row in rows
