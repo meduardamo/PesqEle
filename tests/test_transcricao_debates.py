@@ -29,6 +29,39 @@ def test_bloco_colado_numa_linha_vira_varios_turnos():
     assert linhas[0]["fala"] == "renegociação, porque de fato,"
 
 
+def test_centesimo_no_timestamp_nao_descarta_a_linha():
+    """O bloco 10 do SP voltou como "[01:56.00] FERNANDO HADDAD: ...".
+
+    Eram 96 linhas, 2.033 palavras, todas descartadas por causa do ".00", e o
+    log só dizia 'ritmo de fala baixo'. Dez minutos de debate.
+    """
+    linhas, ignoradas, _ = parsear(
+        "[01:56.00] FERNANDO HADDAD: Bom, eu só vou recuperar aqui parte da fala.",
+        0, None)
+    assert ignoradas == 0
+    assert linhas[0]["segundos"] == 116
+    assert linhas[0]["falante"] == "FERNANDO HADDAD"
+
+
+def test_formato_com_travessao_e_fala_na_linha_seguinte():
+    """O bloco 11 do MG voltou em "02:08 - NOME:" com a fala embaixo, entre aspas.
+
+    Eram 86 linhas e 3.718 palavras que não entraram na transcrição.
+    """
+    texto = ('02:08 - MATEUS SIMÕES:\n'
+             '"Eu tenho a tranquilidade de ter um estado que saiu sob o meu comando"\n'
+             '\n'
+             '03:06 - LUCAS CATTA PRÊTA: "Exato, Mateus. Agora para fechar."')
+    linhas, ignoradas, _ = parsear(texto, 0, None)
+    assert len(linhas) == 2
+    assert ignoradas == 0
+    assert linhas[0]["segundos"] == 128
+    assert linhas[0]["falante"] == "MATEUS SIMÕES"
+    assert linhas[0]["fala"].startswith("Eu tenho a tranquilidade")
+    assert '"' not in linhas[0]["fala"]
+    assert linhas[1]["falante"] == "LUCAS CATTA PRÊTA"
+
+
 def test_timestamp_citado_dentro_da_fala_nao_parte_o_turno():
     """A guarda do teste acima não pode virar troca de turno onde não há."""
     linhas, _, _ = parsear(

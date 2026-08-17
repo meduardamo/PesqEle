@@ -30,6 +30,7 @@ Uso:
     python -m outros.transcricao_debates --fila
     python -m outros.transcricao_debates --fila --id 2026-band-sp-gov-t1
     python -m outros.transcricao_debates --remarcar --id 2026-band-sp-gov-t1
+    python -m outros.transcricao_debates --remarcar --id 2026-band-mg-gov-t1 --cortar-antes 00:50:00
     python -m outros.transcricao_debates --url "https://youtube.com/watch?v=..."
     python -m outros.transcricao_debates --audio debate.mp3 --inicio 00:30:00 --duracao 00:10:00
 """
@@ -172,7 +173,11 @@ Regras:
   foram ditos.
 - O timestamp é relativo ao início DESTE áudio, começando em 00:00."""
 
-RE_LINHA = re.compile(r"^\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*([^:]{1,60}?)\s*:\s*(.+)$")
+# O centésimo depois do segundo é opcional: o bloco 10 do debate de SP de
+# 09/08 voltou inteiro como "[01:56.00] FERNANDO HADDAD: ...", e as 96 linhas
+# foram descartadas por causa do ".00". Eram 10 minutos de debate.
+RE_LINHA = re.compile(
+    r"^\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?\]\s*([^:]{1,60}?)\s*:\s*(.+)$")
 
 _T0 = time.time()
 
@@ -425,7 +430,60 @@ def transcrever(client, arq, contexto, uso):
 # Marcador de fala no meio da linha, para reparar bloco que voltou sem quebra
 # de linha nenhuma. Exige o nome e os dois pontos depois do tempo, senão um
 # "[00:15]" citado dentro da fala também viraria troca de turno.
-RE_MARCADOR = re.compile(r"(?<!^)\s*(\[\d{1,2}:\d{2}(?::\d{2})?\]\s*[^:\n]{1,60}?\s*:)")
+RE_MARCADOR = re.compile(
+    r"(?<!^)\s*(\[\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?\]\s*[^:\n]{1,60}?\s*:)")
+
+# Variante sem colchete, "02:08 - MATEUS SIMÕES:", às vezes com a fala só na
+# linha seguinte e entre aspas. Foi como voltou o bloco 11 do debate de MG de
+# 16/08: 86 linhas, 3.718 palavras, nenhuma aproveitada.
+RE_TRAVESSAO = re.compile(
+    r"^(\d{1,2}:\d{2}(?::\d{2})?)(?:\.\d+)?\s*[-–—]\s*([^:\n]{1,60}?)\s*:\s*(.*)$")
+
+
+def normalizar_formato(texto):
+    """Põe a saída do modelo no formato "[tempo] NOME: fala", linha a linha.
+
+    O prompt pede um formato só e o modelo entrega outro de vez em quando. Não
+    é erro de transcrição: o conteúdo está lá, íntegro, e só o enfeite muda.
+    Descartar por isso é jogar fora bloco pago, e foi o que aconteceu com três
+    blocos dos dois primeiros debates.
+
+    O que esta função aceita, e nada além disso: o travessão no lugar do
+    colchete, a fala na linha seguinte ao nome, e a aspa em volta da fala.
+    Linha que não vira marcador continua exatamente como veio.
+    """
+    linhas, pendente = [], None
+    for bruta in (texto or "").splitlines():
+        crua = bruta.strip()
+        m = RE_TRAVESSAO.match(crua)
+        if m:
+            if pendente:
+                linhas.append(pendente)
+            tempo, falante, fala = m.groups()
+            cabeca = f"[{tempo}] {falante}:"
+            if fala.strip():
+                linhas.append(f"{cabeca} {fala.strip()}")
+                pendente = None
+            else:
+                # Nome sozinho na linha: a fala vem na próxima não vazia.
+                pendente = cabeca
+            continue
+        if pendente:
+            if crua:
+                linhas.append(f"{pendente} {crua}")
+                pendente = None
+            continue
+        linhas.append(bruta)
+    if pendente:
+        linhas.append(pendente)
+
+    limpas = []
+    for l in linhas:
+        m = RE_LINHA.match(l.strip())
+        if m and len(m.group(5)) > 1 and m.group(5)[0] in "\"“" and m.group(5)[-1] in "\"”":
+            l = l[:l.index(m.group(5))] + m.group(5)[1:-1]
+        limpas.append(l)
+    return "\n".join(limpas)
 
 
 def parsear(texto, offset, limite):
@@ -440,7 +498,7 @@ def parsear(texto, offset, limite):
     dentro daquela fala, numa célula de 1.891 palavras com "[00:04] MATEUS
     SIMÕES:" escrito no meio. Um bloco perdido é visível; este não era.
     """
-    texto = RE_MARCADOR.sub(r"\n\1", texto)
+    texto = normalizar_formato(RE_MARCADOR.sub(r"\n\1", texto))
     linhas, ignoradas, fora = [], 0, 0
     for bruta in texto.splitlines():
         bruta = bruta.strip()
@@ -1234,6 +1292,64 @@ def sincronizar(gc, ws):
         f"{len(promovidas)} promovido(s) para 'pendente'")
 
 
+RE_CABECA_BRUTO = re.compile(
+    r"^### bloco (\d+) \((\d{1,2}:\d{2}:\d{2}) a (\d{1,2}:\d{2}:\d{2})\)$", re.M)
+
+
+def falas_do_bruto(caminho):
+    """Refaz a transcrição a partir do _bruto.md, sem chamar a API.
+
+    O bruto guarda a resposta crua do modelo bloco a bloco, e é o que permite
+    consertar um parse ruim sem pagar a transcrição de novo. Ele sai junto com
+    o csv em toda rodada e fica 30 dias no artefato do run.
+
+    O corte e o limite de sobreposição são remontados do cabeçalho de cada
+    bloco, do mesmo jeito que o processar monta: só o último bloco vai até o
+    fim, os outros param em BLOCO_SEG para não duplicar a borda.
+    """
+    texto = Path(caminho).read_text(encoding="utf-8")
+    partes = RE_CABECA_BRUTO.split(texto)
+    cabecas = [(int(partes[i]), partes[i + 1], partes[i + 3])
+               for i in range(1, len(partes), 4)]
+    if not cabecas:
+        raise RuntimeError(f"{caminho} não tem cabeçalho de bloco")
+
+    linhas, por_bloco = [], {}
+    for k, (n, ini, corpo) in enumerate(cabecas):
+        pos = em_segundos(ini)
+        limite = None if k == len(cabecas) - 1 else BLOCO_SEG
+        novas, ignoradas, _ = parsear(corpo, pos, limite)
+        por_bloco[n] = (len(novas), sum(len(r["fala"].split()) for r in novas),
+                        ignoradas)
+        linhas.extend(novas)
+    linhas.sort(key=lambda r: r["segundos"])
+    unificar_falantes(linhas)
+    return linhas, por_bloco
+
+
+def reescrever_doc(drive, link, linhas):
+    """Regrava o Doc da transcrição a partir das falas, no mesmo arquivo.
+
+    Sobe text/plain por cima do id que já existe: o Drive converte e o link
+    continua o mesmo. Subir com enviar_drive criaria um segundo Doc de mesmo
+    nome na pasta do debate, e quem já tem o link ficaria com o antigo.
+    """
+    import io
+    from googleapiclient.http import MediaIoBaseUpload
+
+    conteudo = "".join(f"[{r['tempo']}] {r['falante']}: {r['fala']}\n"
+                       for r in linhas)
+    midia = MediaIoBaseUpload(io.BytesIO(conteudo.encode("utf-8")),
+                              mimetype="text/plain", resumable=False)
+    com_retentativa(
+        "regravação do Doc da transcrição",
+        lambda: drive.files().update(
+            fileId=extrair_id_drive(link), media_body=midia,
+            supportsAllDrives=True, fields="id",
+        ).execute(),
+    )
+
+
 def remarcar(args):
     """Refaz eixo, tema, termos e herdado nos CSVs já publicados.
 
@@ -1242,13 +1358,25 @@ def remarcar(args):
     transcrição que já está lá, e não pagar a transcrição de novo. O custo é
     zero e a fala, o falante e o tempo não são tocados.
 
+    Com --cortar-antes o trecho anterior ao horário sai da transcrição, e aí a
+    fala é tocada: é o jeito de tirar o que não é debate sem pagar a
+    transcrição de novo. O áudio da Band de MG de 16/08 tem 50 minutos de
+    pré-programa antes do debate, com apresentador e comentaristas de estúdio,
+    e essas 69 falas entravam em toda contagem por candidato.
+
     Escreve no mesmo arquivo do link_csv, em vez de subir outro: o link já foi
     distribuído, e o enviar_drive cria arquivo novo em cada chamada, o que
     deixaria duas planilhas com o mesmo nome na pasta do debate.
     """
     if not PLANILHA:
         sys.exit("defina SPREADSHEET_ID_DEBATES (secret do repo).")
-    gc, _ = clientes_google()
+    corte = em_segundos(args.cortar_antes)
+    if (corte or args.refazer_do_bruto) and not args.id:
+        sys.exit("--cortar-antes e --refazer-do-bruto valem para um debate por "
+                 "vez: informe também --id.")
+    if args.refazer_do_bruto and not Path(args.refazer_do_bruto).exists():
+        sys.exit(f"não encontrei {args.refazer_do_bruto}")
+    gc, drive = clientes_google()
     ws = com_retentativa(
         "abertura da planilha de debates",
         lambda: gc.open_by_key(PLANILHA).worksheet(ABA),
@@ -1303,6 +1431,36 @@ def remarcar(args):
             ]
             log(f"{len(linhas)} fala(s) lidas de {link}")
 
+            if args.refazer_do_bruto:
+                antigas = len(linhas)
+                linhas, por_bloco = falas_do_bruto(args.refazer_do_bruto)
+                log(f"refeito de {args.refazer_do_bruto}: {antigas} -> {len(linhas)} fala(s)")
+                for n, (q, pal, ign) in sorted(por_bloco.items()):
+                    aviso = "  <- SEM FALA" if not q else ""
+                    log(f"  bloco {n:>2}: {q:>3} falas, {pal:>5} palavras, "
+                        f"{ign:>3} ignoradas{aviso}")
+                vazios = [n for n, (q, _, _) in por_bloco.items() if not q]
+                if vazios:
+                    log(f"blocos que continuam sem fala: {vazios} "
+                        f"(o bruto não tem o que aproveitar neles)")
+
+            cortadas = []
+            if corte:
+                def seg(l):
+                    return em_segundos(l["segundos"] or l["tempo"])
+                cortadas = [l for l in linhas if seg(l) < corte]
+                linhas = [l for l in linhas if seg(l) >= corte]
+                if not linhas:
+                    raise RuntimeError(
+                        f"o corte em {args.cortar_antes} não deixaria fala nenhuma")
+                pal = sum(len(l["fala"].split()) for l in cortadas)
+                log(f"corte em {hhmmss(corte)}: saem {len(cortadas)} fala(s) e "
+                    f"{pal} palavra(s); ficam {len(linhas)}")
+                quem = sorted({l["falante"] for l in cortadas})
+                log(f"falantes que saem: {', '.join(quem) or 'nenhum'}")
+                for l in cortadas[:3]:
+                    log(f"  - [{l['tempo']}] {l['falante']}: {l['fala'][:70]}")
+
             antes = sum(1 for l in valores[1:]
                         if pos.get("eixo", 999) < len(l) and l[pos["eixo"]].strip())
             marcar_assuntos(linhas)
@@ -1319,8 +1477,21 @@ def remarcar(args):
                 "escrita do csv",
                 lambda: aba.update(values=corpo, range_name="A1"),
             )
+            doc = (linha[COL["link_transcricao"]]
+                   if COL["link_transcricao"] < len(linha) else "").strip()
+            if (cortadas or args.refazer_do_bruto) and doc:
+                # O Doc é a mesma transcrição em texto. Cortar um e não o
+                # outro deixa os dois discordando, e é o Doc que a equipe lê.
+                reescrever_doc(drive, doc, linhas)
+                log("Doc da transcrição regravado no mesmo link")
+
             obs = (linha[COL["observacoes"]] if COL["observacoes"] < len(linha) else "").strip()
             nota = f"remarcado em {agora_brt()}: {depois} falas com eixo (era {antes})"
+            if args.refazer_do_bruto:
+                nota += f"; transcrição refeita do bruto, {len(linhas)} falas"
+            if cortadas:
+                nota += (f"; cortadas {len(cortadas)} fala(s) antes de "
+                         f"{hhmmss(corte)}, que não eram do debate")
             com_retentativa(
                 f"escrita da nota na linha {i}",
                 lambda: ws.update(
@@ -1492,6 +1663,12 @@ def main():
                     help="não puxa o calendário do monitoramento antes da fila")
     ap.add_argument("--so-sync", action="store_true",
                     help="só sincroniza o calendário e sai, sem transcrever nada")
+    ap.add_argument("--cortar-antes", default=None,
+                    help="com --remarcar e --id, tira da transcrição as falas "
+                         "anteriores a esse HH:MM:SS (pré-programa da emissora)")
+    ap.add_argument("--refazer-do-bruto", default=None,
+                    help="com --remarcar e --id, reparseia o _bruto.md do run e "
+                         "reescreve a transcrição, sem chamar a API")
     ap.add_argument("--inicio", default=None, help="HH:MM:SS, recorta o áudio antes de processar")
     ap.add_argument("--duracao", default=None, help="HH:MM:SS, recorta o áudio antes de processar")
     ap.add_argument("--contexto", default=None, help="participantes; só nos modos avulsos")
@@ -1510,6 +1687,7 @@ def main():
         secao("REMARCAR ASSUNTOS" + (" (simulação)" if args.simular else ""))
         log(f"planilha : {PLANILHA}")
         log(f"alvo     : {args.id or 'todos os debates prontos'}")
+        log(f"corte    : {args.cortar_antes or 'nenhum, só refaz os assuntos'}")
         remarcar(args)
         return
 

@@ -38,6 +38,10 @@ on:
         type: boolean
         required: false
         default: false
+      cortar_antes:
+        description: 'Com "remarcar" e id: tira da transcrição as falas antes desse HH:MM:SS (pré-programa da emissora)'
+        required: false
+        default: ''
       simular:
         description: 'Com "reorganizar" ou "remarcar", só lista o que faria, sem escrever'
         type: boolean
@@ -163,6 +167,7 @@ jobs:
             echo "remarcando assuntos, sem chamar a API"
             python -m outros.transcricao_debates --remarcar \
               ${{ inputs.id && format('--id {0}', inputs.id) || '' }} \
+              ${{ inputs.cortar_antes && format('--cortar-antes {0}', inputs.cortar_antes) || '' }} \
               ${{ inputs.simular == true && '--simular' || '' }}
           elif [ -n "$URL" ]; then
             # Teste avulso: não sincroniza, não escreve na planilha, não sobe
