@@ -883,6 +883,55 @@ def _abrir_pdf(data: bytes):
     return doc
 
 
+# Quantas palavras seguidas precisam se repetir para a segunda cópia sair.
+# Mínimo 4 porque abaixo disso a coincidência é comum ("de acordo com a"), e
+# teto 12 porque o que se repete aqui é linha, não parágrafo.
+_DUP_MIN, _DUP_MAX = 4, 12
+
+
+def desduplicar_linhas(texto: str) -> str:
+    """Tira a cópia quando o PDF escreve a mesma linha duas vezes seguidas.
+
+    Existe por causa do plano da Samara (UP, presidente), o único da base de
+    17/08/2026 em que isso aparece: 42,8% do texto sai em duplicata, contra 2,4%
+    no segundo pior. A página 22 entrega "efetivar programa de erradicacao
+    efetivar programa de erradicacao do analfabetismo no pais envolvendo do
+    analfabetismo no pais envolvendo".
+
+    O estrago não é o modelo perder conteúdo, que ele lê repetido e entende: é
+    que a frase citada não existe corrida em lugar nenhum do arquivo, então
+    `verificar_trecho` não acha e carimba "junta partes do plano". Ela ficou com
+    40 dos 43 trechos assim, contra 6% na base inteira, e o selo diz ao leitor
+    que a citação foi costurada quando ela é transcrição fiel.
+
+    Só remove repetição COLADA da mesma sequência: não aproxima trechos
+    distantes, então citação de fato costurada continua reprovando e a
+    conferência não afrouxa.
+
+    Medido nos 201 planos antes de entrar: muda 27 linhas, todas dela, todas de
+    "junta partes" para "literal", e nenhuma piora. Nos outros 25 planos em que
+    a regra dispara, o que ela come é enfeite de diagramação (pontilhado de
+    sumário, cabeçalho repetido na mesma página, caixa de seleção), e isso o
+    modelo não deveria estar lendo.
+    """
+    palavras = str(texto or "").split()
+    saida, i = [], 0
+    while i < len(palavras):
+        repetido = 0
+        for n in range(_DUP_MAX, _DUP_MIN - 1, -1):
+            if (i + 2 * n <= len(palavras)
+                    and palavras[i:i + n] == palavras[i + n:i + 2 * n]):
+                repetido = n
+                break
+        if repetido:
+            saida.extend(palavras[i:i + repetido])
+            i += 2 * repetido
+        else:
+            saida.append(palavras[i])
+            i += 1
+    return " ".join(saida)
+
+
 def _extrair_paginas(doc, usar_ocr: bool, min_chars: int) -> list[str]:
     """Texto de cada página, na ordem do documento.
 
@@ -900,7 +949,9 @@ def _extrair_paginas(doc, usar_ocr: bool, min_chars: int) -> list[str]:
             ocradas += 1
             if len(ocr.strip()) > len(raw.strip()):
                 raw = ocr
-        partes.append(raw)
+        # Depois do OCR: a duplicata pode vir da camada de texto ou da leitura,
+        # e a decisão de OCRar olha o texto como o PDF entrega.
+        partes.append(desduplicar_linhas(raw))
     return partes
 
 

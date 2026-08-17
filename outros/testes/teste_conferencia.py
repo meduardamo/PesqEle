@@ -231,6 +231,33 @@ def main() -> int:
     check("nome de programa entre aspas não conta",
           not ap.temas_no_texto('Ele institui a "Secretaria de Cultura e Turismo".'))
 
+    # 17/08/2026: o plano da Samara (UP) escreve cada linha duas vezes, e por
+    # isso 40 dos 43 trechos dela levavam "junta partes do plano" sendo
+    # transcrição fiel. Único plano da base em que isso aparece.
+    print("\nlinha escrita duas vezes pelo PDF perde a cópia")
+    check("tira a repetição colada",
+          ap.desduplicar_linhas(
+              "efetivar programa de erradicacao efetivar programa de "
+              "erradicacao do analfabetismo no pais")
+          == "efetivar programa de erradicacao do analfabetismo no pais")
+    check("tira cabeçalho repetido na mesma página",
+          ap.desduplicar_linhas("Plano de Governo 2027 Plano de Governo 2027")
+          == "Plano de Governo 2027")
+    check("texto sem repetição passa intacto",
+          ap.desduplicar_linhas("texto normal sem nenhuma repeticao aqui")
+          == "texto normal sem nenhuma repeticao aqui")
+    # Abaixo de quatro palavras a coincidência é comum em português e a cópia
+    # fica: tirar "de acordo com" mudaria frase que ninguém duplicou.
+    check("repetição de três palavras não conta",
+          ap.desduplicar_linhas("de acordo com de acordo com a lei")
+          == "de acordo com de acordo com a lei")
+    # O que garante que a conferência não afrouxa: a regra só junta o que já
+    # estava colado, então citação costurada de partes distantes continua
+    # reprovando.
+    check("não aproxima trechos distantes",
+          "primeira parte segunda parte" not in
+          ap.desduplicar_linhas("primeira parte " + "enchimento " * 30 + "segunda parte"))
+
     print("\nnome de urna vira nome próprio sem estragar sigla")
     for cru, esperado in (("ACM NETO", "ACM Neto"),
                           ("JHC", "JHC"),
