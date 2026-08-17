@@ -32,6 +32,16 @@ on:
         required: false
         default: ''
 
+# O mesmo grupo do workflow 14, porque os dois escrevem em analise_planos e o 14
+# escreve pela reescrita da aba inteira (clear + update, que não é atômico). Sem
+# a fila, uma correção gravada aqui por batch_update cai dentro da janela do
+# clear de lá e some, que é o modo como o Ciro Gomes sumiu da aba em 28/07/2026.
+# Auditoria em modo contar não escreve, mas fica na fila junto: o custo é
+# esperar, e o de errar é dado perdido.
+concurrency:
+  group: planos-governo
+  cancel-in-progress: false
+
 jobs:
   auditar:
     runs-on: ubuntu-latest
