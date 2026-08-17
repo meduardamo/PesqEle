@@ -995,8 +995,13 @@ def main() -> None:
         if analisados < MINIMO_POSTS_CANDIDATO:
             print(f"[{i}/{len(alvos)}] {candidato}: só {analisados} post(s) analisado(s), "
                   f"abaixo do mínimo de {MINIMO_POSTS_CANDIDATO}. Marcado, não classificado.")
+            # A marca vai na coluna que se lê, e não só no resumo: célula vazia
+            # em 'Temas Principais' lê como falha da rodada, e aqui não houve
+            # falha nenhuma, houve pouco post.
             escritas.extend(escritas_da_linha(indices, numero, {
-                "Temas Principais": "",
+                "Temas Principais": f"Base pequena para ranquear: {analisados} "
+                                    f"post(s) analisado(s), mínimo de "
+                                    f"{MINIMO_POSTS_CANDIDATO}.",
                 "Resumo da conta": "Base pequena demais para ranquear.",
                 "Nº de posts": analisados,
                 COLUNA_PERCENTUAL: "",
@@ -1017,6 +1022,20 @@ def main() -> None:
 
         temas = consolidar(grupos, contagem, canonico, analisados, posts_por_tema,
                            lugares_do_candidato(candidato, uf_por_candidato.get(candidato, "")))
+        # Nenhum tema sobreviveu às guardas: o modelo devolveu grupo que não
+        # tinha post real embaixo, e não há o que publicar. A linha fica como
+        # estava, igual ao caminho de erro logo acima.
+        #
+        # Sem isto o vazio ia por cima do que já estava publicado. Aconteceu na
+        # rodada de 14/08/2026 com Elmano de Freitas (137 posts) e Felipe
+        # Camarão (105): os dois tinham 7 e 6 temas do dia anterior e saíram da
+        # planilha em branco, o que lê como candidato sem post.
+        if not temas:
+            print(f"[{i}/{len(alvos)}] {candidato}: nenhum tema sobreviveu às "
+                  f"guardas sobre {analisados} post(s). Linha mantida como estava, "
+                  f"rode de novo.")
+            continue
+
         resumo = montar_resumo(candidato, resumo_modelo, temas, analisados,
                                 len(posts), contagem, canonico)
 
