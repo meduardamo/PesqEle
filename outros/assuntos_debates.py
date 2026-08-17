@@ -71,11 +71,23 @@ TERMOS_EXTRA = {
         "venda de acoes", "participacao acionaria", "sabesp",
         "tarifa", "outorga", "reestatiza*",
     ],
+    # "seguranca publica" saiu daqui: é o nome do eixo, não é resultado de
+    # crime, e sustentava sozinho 10 das 24 marcações no debate de SP de 09/08
+    # (42%) e 7 das 14 no de MG de 16/08 (50%). Em 4 linhas de SP marcava
+    # Criminalidade sem marcar o eixo Segurança pública, ou seja, a fala
+    # genérica sobre segurança virava resultado de crime. Agora está em
+    # 'Policiamento e Efetivo' com entrada em TERMOS_SO_EIXO: marca o eixo
+    # Segurança pública e não escolhe tema.
+    #
+    # Os particípios entraram conferindo as falas sem tema do debate de SP: o
+    # dicionário tinha só o substantivo, e o debate diz "tem o celular
+    # roubado" (linha 0:23:50) e não "roubo".
     "Criminalidade e violência": [
         "homicidio", "latrocinio", "roubo", "furto", "assalto",
         "assassinato", "chacina", "criminalidade", "letalidade",
         "morte violenta", "sequestro", "estupro", "violencia",
-        "taxa de homicidio", "indice de criminalidade", "seguranca publica",
+        "taxa de homicidio", "indice de criminalidade",
+        "roubad*", "furtad*", "assaltad*", "balead*",
     ],
     "Economia nacional e comércio exterior": [
         "tarifaco", "taxacao americana", "sobretaxa", "comercio exterior",
@@ -90,7 +102,16 @@ TERMOS_EXTRA = {
 # solta. Achados conferindo, uma a uma, as falas que o modelo temou e o
 # dicionário não pegou no debate da Band de 09/08.
 TERMOS_FALADOS = {
-    "Policiamento e Efetivo": ["policia", "pm", "delegado", "delegacia", "corporacao"],
+    # Videomonitoramento está na definição de 'Policiamento e Efetivo' nos
+    # planos e não tinha termo nenhum. Achado nas falas sem tema do debate de
+    # SP: Tarcísio em 0:24:27 fala 27 palavras sobre "a integração entre o
+    # Smart Sampa e o Muralha Paulista" e "ali tem várias câmeras", e a fala
+    # saía sem eixo. Os dois nomes de programa são de SP; entram porque foram
+    # medidos ali, e nome de programa não colide com outro sentido.
+    "Policiamento e Efetivo": ["policia", "pm", "delegado", "delegacia", "corporacao",
+                               "camera", "videomonitoramento", "reconhecimento facial",
+                               "camera corporal", "smart sampa", "muralha paulista",
+                               "seguranca publica"],
     "Enfrentamento ao Crime Organizado": ["faccao", "traficante", "bandido", "criminoso"],
     "Média e Alta Complexidade": ["hospital", "cirurgia", "leito"],
     "Urgência e Emergência": ["ambulancia"],
@@ -104,6 +125,13 @@ TERMOS_FALADOS = {
     # "desemprego" soltos. Sem estes o eixo Economia ficava quase vazio.
     "Geração de Emprego": ["emprego", "desemprego", "carteira assinada",
                            "vaga de trabalho", "mercado de trabalho"],
+    # 'patrimonio' virou ambíguo (veja TERMOS_AMBIGUOS) e o dicionário dos
+    # planos só tinha essa palavra solta em Cultura, então patrimônio tombado
+    # deixaria de marcar. Estas locuções são o que sobra dizendo cultura, e
+    # cobrem a única ocorrência legítima medida ("a Serra do Curral é
+    # patrimônio dos mineiros, é tombada", MG 16/08, 1:12:12).
+    "Cultura": ["patrimonio historico", "patrimonio cultural", "tombad*",
+                "tombamento"],
 }
 
 
@@ -117,7 +145,12 @@ TERMOS_FALADOS = {
 #
 # Regra: valem no nível eixo e não valem no nível tema. Um tema só sai se algum
 # termo próprio dele tiver disparado.
-TERMOS_SO_EIXO = {"escola", "aluno", "sala de aula", "professor", "hospital"}
+#
+# "seguranca publica" entra pela mesma razão, do outro lado: diz o eixo com
+# certeza e não diz nada de tema. Fica em 'Policiamento e Efetivo' porque todo
+# termo precisa morar num tema, e é aqui que ele para de escolher tema.
+TERMOS_SO_EIXO = {"escola", "aluno", "sala de aula", "professor", "hospital",
+                  "seguranca publica"}
 
 # Termos que sozinhos não dizem nem o eixo. Só confirmam um rótulo que outro
 # termo já tenha disparado na mesma fala.
@@ -127,7 +160,22 @@ TERMOS_SO_EIXO = {"escola", "aluno", "sala de aula", "professor", "hospital"}
 # de qualquer área ("o investimento em Defesa Civil não avança", linha 257).
 # 'tarifa' está em Mobilidade Urbana pelo dicionário dos planos e marcou como
 # mobilidade a fala sobre "as tarifas impostas pelos Estados Unidos" (linha 235).
-TERMOS_AMBIGUOS = {"investimento", "tarifa"}
+#
+# Os três de baixo entraram conferindo os dois debates já processados. Nos três
+# o termo específico continua marcando ('internet nas escolas', 'credito
+# rural', 'patrimonio historico'); o que sai é a palavra solta:
+#
+#  - 'internet' marcava 'Tecnologia na Educação' em 6 falas do debate de MG, e
+#    as conferidas são "dá uma busca na internet" e "vou pra internet e mostro
+#    as contas". Nenhuma é sobre escola.
+#  - 'credito' marcava 'Ambiente de Negócios' em 6 falas do debate de SP, todas
+#    de crédito macro: "o problema do crédito", "o endividamento das empresas",
+#    "as operações de crédito travadas, a operação com o Banco Europeu".
+#  - 'patrimonio' marcava 'Cultura' em 6 falas do debate de MG e respondia
+#    sozinho pelas 8 menções do eixo Cultura, esporte e turismo. Só uma é
+#    patrimônio tombado (a Serra do Curral); as outras são "o patrimônio do
+#    cidadão" e "o meu patrimônio evoluiu de uma bicicleta para quatro".
+TERMOS_AMBIGUOS = {"investimento", "tarifa", "internet", "credito", "patrimonio"}
 
 
 def montar_termos(por_tema):

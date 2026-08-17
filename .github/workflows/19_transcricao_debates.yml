@@ -33,8 +33,13 @@ on:
         type: boolean
         required: false
         default: false
+      remarcar:
+        description: 'Só refaz eixo/tema/termos nos CSVs já prontos, sem chamar a API nem gastar (respeita o id)'
+        type: boolean
+        required: false
+        default: false
       simular:
-        description: 'Com "reorganizar", só lista o que seria movido, sem mover'
+        description: 'Com "reorganizar" ou "remarcar", só lista o que faria, sem escrever'
         type: boolean
         required: false
         default: false
@@ -151,6 +156,14 @@ jobs:
             echo "reorganizando o Drive"
             python -m outros.transcricao_debates --reorganizar-drive \
               ${{ inputs.simular == true && '--simular' || '' }}
+          elif [ "${{ inputs.remarcar }}" = "true" ]; then
+            # Só reaplica o dicionário de termos sobre o CSV que já está no
+            # Drive: não baixa áudio, não chama o modelo, não custa nada, e
+            # escreve no mesmo arquivo, então o link não muda.
+            echo "remarcando assuntos, sem chamar a API"
+            python -m outros.transcricao_debates --remarcar \
+              ${{ inputs.id && format('--id {0}', inputs.id) || '' }} \
+              ${{ inputs.simular == true && '--simular' || '' }}
           elif [ -n "$URL" ]; then
             # Teste avulso: não sincroniza, não escreve na planilha, não sobe
             # para o Drive. Só o artefato do run, para conferir qualidade.
@@ -185,6 +198,10 @@ jobs:
               echo "Rodada de sync: só puxou o calendário do monitoramento, sem transcrever."
             elif [ "${{ inputs.reorganizar }}" = "true" ]; then
               echo "Rodada de reorganização do Drive, sem transcrever."
+            elif [ "${{ inputs.remarcar }}" = "true" ]; then
+              # Sem isto a remarcação escreveria "nenhuma transcrição gerada",
+              # que lê como falha: ela não gera transcrição por definição.
+              echo "Rodada de remarcação: eixo, tema e termos refeitos nos CSVs já prontos, sem custo de API."
             else
               echo "Nenhuma transcrição gerada. Veja o log do passo anterior."
             fi

@@ -21,9 +21,15 @@ bruto e mp3 juntos:
 
     Debates/SP/2026-08/09/2026-band-sp-gov-t1.txt
 
+As colunas de eixo, tema e termos não vêm do modelo: são dicionário de termos
+(outros/assuntos_debates.py). Quando o dicionário muda, o --remarcar reaplica
+sobre o CSV que já está no Drive, no mesmo arquivo e sem custo de API. Só a
+transcrição em si custa dinheiro.
+
 Uso:
     python -m outros.transcricao_debates --fila
     python -m outros.transcricao_debates --fila --id 2026-band-sp-gov-t1
+    python -m outros.transcricao_debates --remarcar --id 2026-band-sp-gov-t1
     python -m outros.transcricao_debates --url "https://youtube.com/watch?v=..."
     python -m outros.transcricao_debates --audio debate.mp3 --inicio 00:30:00 --duracao 00:10:00
 """
@@ -193,6 +199,19 @@ def hhmmss(seg):
     h, r = divmod(int(seg), 3600)
     m, s = divmod(r, 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def em_segundos(hms):
+    """HH:MM:SS, MM:SS ou número de segundos -> segundos. Vazio vira 0."""
+    if not hms:
+        return 0
+    partes = str(hms).strip().split(":")
+    if len(partes) == 1:
+        return int(float(partes[0]))
+    seg = 0
+    for p in partes:
+        seg = seg * 60 + int(float(p or 0))
+    return seg
 
 
 def agora_brt():
@@ -760,6 +779,7 @@ def marcar_assuntos(linhas):
         eixos = assuntos_da_fala(texto, comp_eixo, por_tema=False)
         temas = assuntos_da_fala(texto, comp_tema, por_tema=True)
         proprios = assuntos_da_fala(r["fala"], comp_eixo, por_tema=False)
+        proprios_tema = assuntos_da_fala(r["fala"], comp_tema, por_tema=True)
         achados = temas or eixos
         r["eixo"] = "; ".join(sorted(eixos))
         r["tema"] = "; ".join(sorted(temas))
@@ -767,7 +787,13 @@ def marcar_assuntos(linhas):
                                 for k, v in sorted(achados.items()))
         # Marcação que só existe por causa do turno anterior. Quem for citar
         # fala isolada em entrega precisa olhar estas antes.
-        r["herdado_do_anterior"] = "; ".join(sorted(set(eixos) - set(proprios)))
+        #
+        # Os dois níveis, e não só o eixo: no debate de SP de 09/08, 51 falas
+        # citam pelo menos um termo que veio do turno anterior e o aviso saía
+        # em 44. As 7 de fora eram fala cujo eixo era próprio e o tema é que
+        # foi herdado, e é o tema que aparece na entrega.
+        r["herdado_do_anterior"] = "; ".join(sorted(
+            (set(eixos) - set(proprios)) | (set(temas) - set(proprios_tema))))
 
     com = sum(1 for r in linhas if r["eixo"])
     herd = sum(1 for r in linhas if r["herdado_do_anterior"])
@@ -782,9 +808,16 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
 
     total_bruto = duracao(origem)
     log(f"duração original: {hhmmss(total_bruto)}")
+    # Deslocamento do recorte, somado em todo timestamp da saída. Sem isto a
+    # transcrição recortada começa em 00:00:00 e não casa mais com o vídeo: o
+    # debate de MG de 16/08 começa em 00:50:00 do arquivo da Band, e quem
+    # conferir a fala no YouTube pelo tempo da planilha erra por 50 minutos.
+    offset = em_segundos(inicio)
     if inicio or dur:
         log(f"recortando de {inicio or '00:00:00'}" + (f" por {dur}" if dur else " até o fim"))
         origem = recortar(origem, trabalho / "recorte.mp3", inicio or "00:00:00", dur)
+        if offset:
+            log(f"timestamps deslocados em +{hhmmss(offset)}, para casar com o vídeo")
 
     total = duracao(origem)
     n_blocos = max(1, -(-int(total) // BLOCO_SEG))
@@ -827,7 +860,7 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
             log(f"    bloco {n} voltou vazio depois de {TENTATIVAS} tentativas, segue")
             return texto
 
-        novas, ignoradas, fora = parsear(texto, pos, limite)
+        novas, ignoradas, fora = parsear(texto, pos + offset, limite)
         linhas.extend(novas)
 
         minutos = (limite or d) / 60
@@ -926,7 +959,8 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
 
     secao("O QUE CONFERIR ANTES DE USAR")
     desc = agg.get("DESCONHECIDO", {}).get("palavras", 0) / tot
-    log(f"cobertura: {hhmmss(linhas[-1]['segundos'])} de {hhmmss(total)} de áudio")
+    log(f"cobertura: {hhmmss(linhas[-1]['segundos'] - offset)} de {hhmmss(total)} de áudio"
+        + (f"  (timestamps somam +{hhmmss(offset)})" if offset else ""))
     log(f"DESCONHECIDO: {desc:.1%} das palavras")
     if vazios:
         log(f"blocos vazios: {vazios} (esses trechos NÃO estão na transcrição)")
@@ -1133,6 +1167,109 @@ def sincronizar(gc, ws):
         f"{len(promovidas)} promovido(s) para 'pendente'")
 
 
+def remarcar(args):
+    """Refaz eixo, tema, termos e herdado nos CSVs já publicados.
+
+    Existe porque as quatro colunas de assunto saem de dicionário de termos, e
+    não do modelo: quando o dicionário muda, o certo é reaplicar sobre a
+    transcrição que já está lá, e não pagar a transcrição de novo. O custo é
+    zero e a fala, o falante e o tempo não são tocados.
+
+    Escreve no mesmo arquivo do link_csv, em vez de subir outro: o link já foi
+    distribuído, e o enviar_drive cria arquivo novo em cada chamada, o que
+    deixaria duas planilhas com o mesmo nome na pasta do debate.
+    """
+    if not PLANILHA:
+        sys.exit("defina SPREADSHEET_ID_DEBATES (secret do repo).")
+    gc, _ = clientes_google()
+    ws = com_retentativa(
+        "abertura da planilha de debates",
+        lambda: gc.open_by_key(PLANILHA).worksheet(ABA),
+    )
+
+    secao("FILA DE REMARCAÇÃO")
+    todas = com_retentativa("leitura da fila", ws.get_all_values)
+    fila = []
+    for i, linha in enumerate(todas[1:], start=2):
+        if not linha:
+            continue
+        def campo(nome, l=linha):
+            j = COL[nome]
+            return (l[j] if j < len(l) else "").strip()
+        if args.id and campo("id") != args.id:
+            continue
+        if not args.id and campo("status").lower() != "pronto":
+            continue
+        if not campo("link_csv"):
+            log(f"linha {i} ({campo('id')}) não tem link_csv, pulando")
+            continue
+        fila.append((i, linha))
+
+    if not fila:
+        log("nada para remarcar.")
+        return
+    log(f"{len(fila)} debate(s): "
+        f"{', '.join(l[COL['id']] or f'linha {i}' for i, l in fila)}")
+
+    falhas = []
+    for i, linha in fila:
+        ident = linha[COL["id"]].strip() or f"linha{i}"
+        link = linha[COL["link_csv"]].strip()
+        secao(f"REMARCANDO {ident}  (linha {i})")
+        try:
+            csv_id = extrair_id_drive(link)
+            aba = com_retentativa(
+                f"abertura do csv de {ident}",
+                lambda: gc.open_by_key(csv_id).sheet1,
+            )
+            valores = com_retentativa("leitura do csv", aba.get_all_values)
+            if not valores:
+                raise RuntimeError("csv vazio")
+            cab = [c.strip() for c in valores[0]]
+            faltando = [c for c in CAMPOS_CSV[:4] if c not in cab]
+            if faltando:
+                raise RuntimeError(f"csv sem as colunas {faltando}")
+            pos = {c: cab.index(c) for c in cab}
+            linhas = [
+                {c: (l[pos[c]] if pos[c] < len(l) else "") for c in CAMPOS_CSV[:4]}
+                for l in valores[1:]
+            ]
+            log(f"{len(linhas)} fala(s) lidas de {link}")
+
+            antes = sum(1 for l in valores[1:]
+                        if pos.get("eixo", 999) < len(l) and l[pos["eixo"]].strip())
+            marcar_assuntos(linhas)
+            depois = sum(1 for l in linhas if l["eixo"])
+            log(f"falas com eixo: {antes} antes, {depois} depois")
+
+            if args.simular:
+                log("--simular: não escrevi nada")
+                continue
+
+            corpo = [CAMPOS_CSV] + [[l[c] for c in CAMPOS_CSV] for l in linhas]
+            com_retentativa("limpeza do csv", aba.clear)
+            com_retentativa(
+                "escrita do csv",
+                lambda: aba.update(values=corpo, range_name="A1"),
+            )
+            obs = (linha[COL["observacoes"]] if COL["observacoes"] < len(linha) else "").strip()
+            nota = f"remarcado em {agora_brt()}: {depois} falas com eixo (era {antes})"
+            com_retentativa(
+                f"escrita da nota na linha {i}",
+                lambda: ws.update(
+                    values=[[agora_brt(), f"{obs}; {nota}" if obs else nota]],
+                    range_name=f"N{i}:O{i}",
+                ),
+            )
+            log("csv reescrito no mesmo link e nota gravada na planilha")
+        except Exception as e:
+            log(f"ERRO em {ident}: {e}")
+            falhas.append(ident)
+
+    if falhas:
+        sys.exit(f"{len(falhas)} debate(s) com erro: {', '.join(falhas)}")
+
+
 def rodar_fila(args):
     if not PLANILHA or not PASTA_DRIVE:
         sys.exit("defina SPREADSHEET_ID_DEBATES e PASTA_DRIVE_DEBATES (secrets do repo).")
@@ -1279,8 +1416,10 @@ def main():
     fonte.add_argument("--audio", help="arquivo de áudio local")
     fonte.add_argument("--reorganizar-drive", action="store_true",
                        help="move o que já está no Drive para UF/ano-mês/dia e sai")
+    fonte.add_argument("--remarcar", action="store_true",
+                       help="refaz eixo, tema e termos nos CSVs já prontos, sem chamar a API")
     ap.add_argument("--simular", action="store_true",
-                    help="com --reorganizar-drive, só mostra o que seria movido")
+                    help="com --reorganizar-drive ou --remarcar, só mostra o que faria")
     ap.add_argument("--id", default=None, help="com --fila, roda só esse id (ignora o status)")
     ap.add_argument("--sem-sync", action="store_true",
                     help="não puxa o calendário do monitoramento antes da fila")
@@ -1297,6 +1436,14 @@ def main():
     if args.reorganizar_drive:
         secao("REORGANIZAR O DRIVE" + (" (simulação)" if args.simular else ""))
         reorganizar_drive(args)
+        return
+
+    # Remarcar é dicionário de termos, não modelo: roda sem chave e sem custo.
+    if args.remarcar:
+        secao("REMARCAR ASSUNTOS" + (" (simulação)" if args.simular else ""))
+        log(f"planilha : {PLANILHA}")
+        log(f"alvo     : {args.id or 'todos os debates prontos'}")
+        remarcar(args)
         return
 
     # --so-sync só mexe em planilha, não chama o modelo.
