@@ -116,7 +116,7 @@ def filtrar(falas, eixo, anteriores=1):
 def temas_da_fala(texto):
     """Subtemas do eixo citados numa fala, para o mapa de confronto."""
     compilados = compilar(montar_termos(por_tema=True))
-    return set(assuntos_da_fala(texto, compilados))
+    return set(assuntos_da_fala(texto, compilados, por_tema=True))
 
 
 def extrair(client, eixo, falas):

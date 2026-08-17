@@ -722,6 +722,59 @@ def contexto_da_linha(linha):
 
 # ---------------------------------------------------------------- núcleo
 
+CAMPOS_CSV = ["segundos", "tempo", "falante", "fala",
+              "eixo", "tema", "termos", "herdado_do_anterior"]
+
+
+def marcar_assuntos(linhas):
+    """Acrescenta eixo, tema e termos a cada fala, pelo dicionário de assuntos.
+
+    Não é o modelo que classifica: é varredura por lista de termos, sem chamada
+    de API e sem custo. Rodar de novo no mesmo texto dá o mesmo resultado.
+
+    São duas varreduras, uma por nível, e não uma com o eixo derivado do tema:
+    termo que diz o eixo e não diz o tema ('escola' é educação, mas não diz a
+    etapa) vale no nível eixo e não vale no nível tema. Por isso a coluna eixo
+    pode ter rótulo que a coluna tema não tem.
+
+    Envolvido em try de propósito. A transcrição custa dinheiro por rodada e a
+    marcação não vale perder uma: se o dicionário faltar ou quebrar, as colunas
+    saem vazias e a transcrição sai igual.
+    """
+    for r in linhas:
+        r.update({c: "" for c in CAMPOS_CSV[4:]})
+    try:
+        from outros.assuntos_debates import (assuntos_da_fala, compilar,
+                                             janela, montar_termos)
+    except Exception as e:
+        log(f"marcação de assuntos indisponível ({type(e).__name__}: {e})")
+        log("a transcrição sai sem as colunas de eixo e tema")
+        return
+
+    comp_eixo = compilar(montar_termos(por_tema=False))
+    comp_tema = compilar(montar_termos(por_tema=True))
+    for i, r in enumerate(linhas):
+        if not r["fala"].strip():
+            continue
+        texto = " ".join(x["fala"] for x in janela(linhas, i, 1))
+        eixos = assuntos_da_fala(texto, comp_eixo, por_tema=False)
+        temas = assuntos_da_fala(texto, comp_tema, por_tema=True)
+        proprios = assuntos_da_fala(r["fala"], comp_eixo, por_tema=False)
+        achados = temas or eixos
+        r["eixo"] = "; ".join(sorted(eixos))
+        r["tema"] = "; ".join(sorted(temas))
+        r["termos"] = "; ".join(f"{k}: {', '.join(v)}"
+                                for k, v in sorted(achados.items()))
+        # Marcação que só existe por causa do turno anterior. Quem for citar
+        # fala isolada em entrega precisa olhar estas antes.
+        r["herdado_do_anterior"] = "; ".join(sorted(set(eixos) - set(proprios)))
+
+    com = sum(1 for r in linhas if r["eixo"])
+    herd = sum(1 for r in linhas if r["herdado_do_anterior"])
+    log(f"assuntos: {com} de {len(linhas)} falas marcadas, {herd} com marcação "
+        f"herdada do turno anterior")
+
+
 def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     """Transcreve um áudio inteiro e grava txt, csv e bruto. Devolve os caminhos."""
     trabalho = saida / "_trabalho"
@@ -828,8 +881,9 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     with open(f"{base}.txt", "w", encoding="utf-8") as f:
         for r in linhas:
             f.write(f"[{r['tempo']}] {r['falante']}: {r['fala']}\n")
+    marcar_assuntos(linhas)
     with open(f"{base}.csv", "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["segundos", "tempo", "falante", "fala"])
+        w = csv.DictWriter(f, fieldnames=CAMPOS_CSV)
         w.writeheader()
         w.writerows(linhas)
     with open(f"{base}_bruto.md", "w", encoding="utf-8") as f:

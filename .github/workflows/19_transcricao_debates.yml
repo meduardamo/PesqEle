@@ -104,7 +104,12 @@ jobs:
         with:
           deno-version: v2.x
 
-      - run: pip install google-genai yt-dlp gspread google-auth google-api-python-client
+      # pymupdf e pandas não são da transcrição: entram porque a marcação de
+      # eixo e tema importa o assuntos_debates, que importa o analise_planos
+      # (é de lá que vem a taxonomia, para debate e plano ficarem comparáveis)
+      # e o analise_planos importa os dois no topo. Sem eles a transcrição sai
+      # igual, só sem as colunas de assunto.
+      - run: pip install google-genai yt-dlp gspread google-auth google-api-python-client pymupdf pandas
 
       - name: Escrever credentials.json
         run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
