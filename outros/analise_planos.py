@@ -983,7 +983,21 @@ def baixar_plano(url: str) -> bytes:
     conexão e 5xx são o DivulgaCand fora do ar: repete e, se não voltar,
     levanta PlanoIndisponivel para quem chama saber que é para tentar depois.
     """
+    from pathlib import Path
+    import re
     import requests
+
+    if url.startswith("file://"):
+        p = Path(url[7:])
+        if p.exists():
+            return p.read_bytes()
+
+    m = re.search(r"path=[^&]*/([a-f0-9]{32,64})", url)
+    if m:
+        candidato_local = Path("dados_tse/planos_pje") / f"{m.group(1)}.pdf"
+        if candidato_local.exists():
+            return candidato_local.read_bytes()
+
     ultimo = None
     for tentativa in range(1, BAIXAR_TENTATIVAS + 1):
         try:
@@ -997,6 +1011,11 @@ def baixar_plano(url: str) -> bytes:
                     f"o TSE não entrega esse arquivo (HTTP {r.status_code})")
             r.raise_for_status()
             if r.content:
+                # WAF/bloqueio por IP fora do Brasil (ex: runner do GitHub Actions)
+                if r.content[:1024].lstrip()[:1] in (b"<", b"{") and m:
+                    candidato_local = Path("dados_tse/planos_pje") / f"{m.group(1)}.pdf"
+                    if candidato_local.exists():
+                        return candidato_local.read_bytes()
                 return r.content
             ultimo = "resposta vazia"
         except PlanoIlegivel:
