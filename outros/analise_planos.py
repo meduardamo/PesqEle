@@ -1973,6 +1973,67 @@ def _quadro_da_analise(classif: dict, temas: dict) -> str:
     return "\n\n".join(blocos)
 
 
+_CONECTIVOS_NOME = {"da", "das", "de", "do", "dos", "e"}
+# Abreviação de tratamento, que é palavra e não sigla: sai "Dr.", não "DR.".
+_TRATAMENTOS = {"dr", "dra", "prof", "profa", "sgt", "cb", "ten", "cel", "sr", "sra"}
+
+
+# Siglas que aparecem dentro de nome de urna e têm vogal, então a regra geral
+# abaixo não alcança. Lista curta de propósito: cada entrada é um caso visto na
+# base, e o custo de faltar uma é um nome escrito errado, não dado errado.
+SIGLAS_NOME = {"ACM", "PCO", "PCB", "PSOL", "PSTU", "MST", "UNE", "OAB"}
+
+
+def _e_sigla(token: str) -> bool:
+    """Se o token em caixa alta é sigla, e não palavra escrita em caixa alta.
+
+    Tamanho não separa os dois, e foi por tentar isso que a primeira versão
+    desta função devolveu "ZÉ Batista", "RUI Costa Pimenta" e "GAL Leite". O que
+    separa na maioria dos casos é a vogal: "JHC" e "MLB" não têm, palavra sempre
+    tem.
+
+    Também não serve olhar o conectivo anterior, tentado e descartado no mesmo
+    dia: "do PCO" e "do MLB" seguem conectivo, mas "CADU DE LULA" também, e
+    LULA virava sigla.
+    """
+    letras = re.sub(r"[^A-Za-zÀ-ÿ]", "", token)
+    if not letras.isupper() or len(letras) > 4:
+        return False
+    return letras in SIGLAS_NOME or not re.search(r"[AEIOUÀ-Ý]", letras)
+
+
+def nome_proprio(nome: str) -> str:
+    """O nome de urna do TSE, que vem em caixa alta, escrito como nome próprio.
+
+    Sem isto o resumo sai com "PROFESSORA CAMILA prevê" no meio da frase, porque
+    o modelo copia o que recebe.
+
+    Sigla fica intacta. Baixar tudo com `capitalize()` gravou "Acm Neto" na
+    Bahia, "Jhc" em Alagoas e "Arinalda do Mlb" no RN, medido nos 201 resumos de
+    17/08/2026, e sigla virada em nome próprio é erro que o leitor vê antes de
+    ler a frase.
+
+    Quem sobe é a primeira letra, não o primeiro caractere: o apelido vem entre
+    parênteses no nome de urna, e `capitalize()` em "(lau)" devolve "(lau)".
+    Letra depois de ponto sobe junto, porque o TSE grava "DR.LUISINHO" sem
+    espaço.
+    """
+    nome = re.sub(r"\s+", " ", str(nome or "")).strip()
+    if not nome:
+        return ""
+    palavras = []
+    for p in nome.split(" "):
+        pl = p.lower()
+        if pl in _CONECTIVOS_NOME:
+            palavras.append(pl)
+        elif pl.rstrip(".") in _TRATAMENTOS or not _e_sigla(p):
+            palavras.append(re.sub(r"(^\W*|\.)([a-zà-ÿ])",
+                                   lambda m: m.group(1) + m.group(2).upper(), pl))
+        else:
+            palavras.append(p)
+    return " ".join(palavras)
+
+
 def _regras_sujeito(nome: str, genero: str) -> str:
     """Como o modelo deve nomear quem propõe, na justificativa da coerência.
 
@@ -1984,11 +2045,7 @@ def _regras_sujeito(nome: str, genero: str) -> str:
     Sem gênero no cadastro, o modelo não recebe pronome nenhum: ele deduziria do
     nome, e nome não diz gênero.
     """
-    # O TSE grava o nome de urna em caixa alta, e o modelo copia o que recebe:
-    # sem isto a justificativa sai com "PROFESSORA CAMILA prevê" no meio da frase.
-    _conectivos = {"da", "das", "de", "do", "dos", "e"}
-    nome = " ".join(p.lower() if p.lower() in _conectivos else p.capitalize()
-                    for p in str(nome or "").split())
+    nome = nome_proprio(nome)
     g = str(genero or "").strip().upper()
     fem = g.startswith("FEMIN")
     conhecido = g.startswith(("FEMIN", "MASCUL"))
@@ -2048,6 +2105,64 @@ def termos_proibidos(texto: str) -> list[str]:
     """
     sem_citacao = re.sub(r'["“][^"“”]*["”]', " ", str(texto or ""))
     return sorted(set(_PROIBIDOS_RE.findall(_norm_acentos(sem_citacao))))
+
+
+# ─── Nome de tema vazando para o texto do resumo ──────────────────────────────
+# O resumo é o primeiro texto que o cliente lê sobre cada plano, e o nome dos
+# temas é vocabulário interno da análise, não do plano. Medido nos 201 resumos
+# gravados em 17/08/2026: 93 traziam pelo menos um, quase sempre pendurado num
+# programa ("reforma o Planserv, que abrange Financiamento e Gestão do SUS e
+# Média e Alta Complexidade", "programa para Educação Profissional, Juventude e
+# Pessoa Idosa"). A origem era o próprio prompt, que mandava dizer "quais temas"
+# o programa cobre.
+#
+# Por que a conferência não pode ser só "o nome do tema aparece": metade dos
+# nomes é português corrente. "Ampliar o tempo integral em 80 escolas" é frase
+# boa, e "Tempo Integral" é nome de tema. O que denuncia o vazamento não é a
+# palavra, é a construção, então a busca é por duas:
+#
+#   1. verbo de cobertura (cobre, abrange, atravessa, contempla…) seguido de
+#      nome de tema logo adiante. Esses verbos não têm outro uso aqui.
+#   2. dois nomes de tema encadeados por 'e'/vírgula no mesmo período, que é a
+#      lista de rótulos que o modelo produzia.
+#
+# A regra 2 tem falso positivo possível ("universalizar o Ensino Médio em tempo
+# integral"), e ele é barato: custa uma chamada e uma reescrita, e não muda dado
+# nenhum. Ausência da guarda é que custa, porque o texto errado vai para a tela.
+_LIGA_TEMA = re.compile(
+    r"\b(?:cobre|cobrem|cobrindo|abrange|abrangem|abrangendo|atravessa|"
+    r"atravessam|atravessando|engloba|englobam|englobando|contempla|"
+    r"contemplam|contemplando|integra|integrando|une|unindo|"
+    r"nos temas|os temas|para os temas|tema de|temas de|eixos de|"
+    r"nas areas de|que cruza|que liga)\b")
+# O elo aceita artigo e preposição no meio ("Esporte e Lazer e para Transporte
+# e Rodovias"), senão a lista com preposição escapa.
+_ELO_TEMA = re.compile(
+    r"[\s,]*(?:e|ou)?[\s,]*(?:para|a|o|as|os|em|no|na|nos|nas|de|do|da)?[\s,]*")
+
+
+def temas_no_texto(texto: str, temas: dict = None) -> list[str]:
+    """Nomes de tema usados como rótulo dentro do texto, fora das aspas.
+
+    Fora das aspas pela mesma razão de `termos_proibidos`: nome de programa
+    copiado do plano não é escolha de quem escreve.
+    """
+    nomes = sorted(temas if temas is not None else TEMAS, key=len, reverse=True)
+    if not nomes:
+        return []
+    tema_re = re.compile(
+        r"\b(?:" + "|".join(re.escape(_norm_acentos(n)) for n in nomes) + r")\b")
+    sem_citacao = re.sub(r'["“][^"“”]*["”]', " ", str(texto or ""))
+    n = _norm_acentos(sem_citacao)
+    achados = []
+    for m in _LIGA_TEMA.finditer(n):
+        achados += [x.group(0) for x in tema_re.finditer(n[m.end():m.end() + 90])]
+    for periodo in re.split(r"[.;]", n):
+        pos = [(x.start(), x.end(), x.group(0)) for x in tema_re.finditer(periodo)]
+        for i in range(len(pos) - 1):
+            if _ELO_TEMA.fullmatch(periodo[pos[i][1]:pos[i + 1][0]]):
+                achados += [pos[i][2], pos[i + 1][2]]
+    return sorted(set(achados))
 
 
 def _ligacoes_validas(ligacoes: list, classif: dict) -> list:
@@ -2227,8 +2342,12 @@ def resumir_plano(classif: dict, temas: dict = TEMAS,
         "Escreva um RESUMO do plano em 3 ou 4 frases, no máximo 500 caracteres.\n"
         "- Comece pela proposta mais concreta, a que tem nome de programa, "
         "número ou prazo.\n"
-        "- Se houver programa atravessando mais de um tema, diga qual e quais "
-        "temas ele cobre.\n"
+        "- Se houver programa atravessando mais de um tema, diga qual é e o que "
+        "ele faz, com as palavras do plano. NUNCA liste os nomes dos temas do "
+        "quadro acima: eles são a grade desta análise, não o texto do "
+        "candidato. Errado: 'o Planserv, que abrange Financiamento e Gestão do "
+        "SUS e Média e Alta Complexidade'. Certo: 'reforma o Planserv, o plano "
+        "de saúde do servidor, do custeio à fila de cirurgia'.\n"
         "- Descreva o que o plano propõe. NÃO diga o que falta, o que não é "
         "mencionado nem o que o plano deixa de fazer.\n"
         "- Não dê nota, não classifique, não fale em nível, degrau ou escala.\n\n"
@@ -2241,6 +2360,8 @@ def resumir_plano(classif: dict, temas: dict = TEMAS,
         "'isoladas' e 'coerente'.\n"
         "- Nomeie programas, metas, números e prazos que estão no texto. Um "
         "resumo sem nenhum nome próprio de programa ou número não serve.\n"
+        "- Sigla se escreve como o plano escreve, em caixa alta: IDEB, SUS, "
+        "EJA, UBS. Nunca 'Ideb' nem 'Sus'.\n"
         "- Nada de juízo de valor. Só o que está escrito no plano.\n\n"
         "REGRA DE ASPAS: só use aspas para copiar, palavra por palavra, uma das "
         "citações listadas acima. Nunca encurte a frase dentro das aspas nem "
@@ -2249,13 +2370,15 @@ def resumir_plano(classif: dict, temas: dict = TEMAS,
         f"{RESTRICOES_LINGUAGEM}"
     )
 
-    def pedir(evitar: list[str] | None = None):
+    def pedir(evitar: list[str] | None = None, recusa: str = ""):
         texto = prompt
         if evitar:
             texto += ("\n\nSUA RESPOSTA ANTERIOR FOI RECUSADA porque usou: "
                       + ", ".join(evitar)
                       + ". Reescreva sem nenhuma dessas palavras, sem trocar por "
                       "sinônimo do mesmo tipo.")
+        if recusa:
+            texto += recusa
         resp = _gemini_client().models.generate_content(
             model=GEMINI_MODEL,
             contents=texto,
@@ -2275,6 +2398,28 @@ def resumir_plano(classif: dict, temas: dict = TEMAS,
         ainda = termos_proibidos(resumo)
         if ainda:
             print(f"(continuou com {', '.join(ainda)})", end=" ", flush=True)
+
+    # A instrução do prompt não segura sozinha, pelo mesmo motivo de
+    # `termos_proibidos`: o modelo tem o quadro de temas à vista e cola o rótulo
+    # no programa. A recusa diz o que fazer no lugar, senão a segunda resposta
+    # repete a primeira.
+    rotulos = temas_no_texto(resumo, temas)
+    if rotulos:
+        print(f"(nome de tema no resumo: {', '.join(rotulos)}, refazendo)",
+              end=" ", flush=True)
+        time.sleep(3)
+        data = pedir(recusa=(
+            "\n\nSUA RESPOSTA ANTERIOR FOI RECUSADA porque nomeou os temas do "
+            "quadro (" + ", ".join(rotulos) + "), que são a grade desta análise "
+            "e não aparecem no plano. Reescreva dizendo o que cada programa faz, "
+            "com as palavras do plano, sem listar tema nenhum."))
+        novo = _limpa(data.get("resumo", ""), n=600)
+        # Só troca se a segunda tentativa melhorou: resposta pior devolveria ao
+        # cliente um resumo com o mesmo defeito e sem o conteúdo do primeiro.
+        if novo and len(temas_no_texto(novo, temas)) < len(rotulos):
+            resumo = novo
+        else:
+            print("(continuou nomeando tema)", end=" ", flush=True)
 
     citacoes = [(classif.get(t) or {}).get("trecho", "") for t in temas]
     return {"resumo": tirar_aspas_sem_lastro(resumo, citacoes),

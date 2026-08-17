@@ -98,7 +98,15 @@ VERSAO_ANALISE = "13"
 # nomeia os pares de temas que se sustentam e o instrumento que os liga, e o
 # score é limitado pelos pares válidos. No plano da Samara Martins, uma lista de
 # reivindicações, a nota saiu de 3 para 2.
-VERSAO_COERENCIA = "12"
+# Subiu para 13 em 17/08/2026, na conferência da base antes de abrir o painel
+# para cliente: 93 dos 201 resumos escreviam o nome dos temas da análise no meio
+# da frase ("o Planserv, que abrange Financiamento e Gestão do SUS e Média e
+# Alta Complexidade"), porque o prompt mandava dizer quais temas o programa
+# cobria. O prompt agora pede o que o programa faz, e `temas_no_texto` confere
+# depois da resposta. Junto, sigla de nome de urna parou de virar nome próprio
+# ("Acm Neto" na BA, "Jhc" em AL). O resumo é o primeiro texto que o cliente lê
+# de cada plano, então nada de antes serve.
+VERSAO_COERENCIA = "13"
 
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",

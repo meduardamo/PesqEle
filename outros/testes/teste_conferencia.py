@@ -202,6 +202,53 @@ def main() -> int:
     check("aspas fiéis continuam aspas",
           '"construir presídios de segurança máxima"' in saida)
 
+    # 17/08/2026: 93 dos 201 resumos gravados nomeavam os temas da análise no
+    # meio da frase. O resumo é o primeiro texto que o cliente lê de cada plano,
+    # e nome de tema ali é vocabulário da grade, não do candidato.
+    print("\nnome de tema não vaza para o resumo")
+    for texto in ("Ele traz o Programa Estadual de Recomposição das Aprendizagens "
+                  "para Alfabetização e Fundamental.",
+                  "Acm Neto reforma o Planserv, que abrange Financiamento e Gestão "
+                  "do SUS e Média e Alta Complexidade.",
+                  "O candidato propõe o PUS-ES, cobrindo Ciência, Tecnologia e "
+                  "Inovação, e Eficiência e Gasto Público.",
+                  "200 mil jovens em Aprendiz Rio, programa para Educação "
+                  "Profissional, Juventude e Pessoa Idosa.",
+                  "o programa INFRAESTRUTURA NA TRILHA CERTA para Esporte e Lazer "
+                  "e para Transporte e Rodovias."):
+        check(f"pega: {texto[:52]}...", bool(ap.temas_no_texto(texto)),
+              str(ap.temas_no_texto(texto)))
+
+    # A palavra do tema não basta: metade dos nomes é português corrente, e
+    # rebaixar frase boa custaria o conteúdo do resumo.
+    for texto in ("O candidato propõe alcançar 90% dos alunos da rede pública com "
+                  "alfabetização adequada até o 2º ano.",
+                  "Ele cria 600 vagas em creches e amplia a malha rodoviária até 2030.",
+                  "Ela define o valor da bolsa-permanência estudantil em R$ 1.874,36."):
+        check(f"deixa passar: {texto[:46]}...", not ap.temas_no_texto(texto),
+              str(ap.temas_no_texto(texto)))
+
+    check("nome de programa entre aspas não conta",
+          not ap.temas_no_texto('Ele institui a "Secretaria de Cultura e Turismo".'))
+
+    print("\nnome de urna vira nome próprio sem estragar sigla")
+    for cru, esperado in (("ACM NETO", "ACM Neto"),
+                          ("JHC", "JHC"),
+                          ("ARINALDA DO MLB", "Arinalda do MLB"),
+                          ("BRUNO PEDREIRO DO PCO", "Bruno Pedreiro do PCO"),
+                          ("DR.LUISINHO", "Dr.Luisinho"),
+                          ("DR. FURLAN", "Dr. Furlan"),
+                          ("SARGENTO LAUDICÉRIO (LAU)", "Sargento Laudicério (Lau)"),
+                          # curtos que são palavra, não sigla: o corte por
+                          # tamanho devolvia "ZÉ Batista" e "CADU DE LULA".
+                          ("ZÉ BATISTA", "Zé Batista"),
+                          ("RUI COSTA PIMENTA", "Rui Costa Pimenta"),
+                          ("CADU DE LULA", "Cadu de Lula"),
+                          ("PROFESSORA MARIA DO CARMO", "Professora Maria do Carmo"),
+                          ("ÁLVARO DIAS", "Álvaro Dias")):
+        check(f"{cru!r} -> {esperado!r}", ap.nome_proprio(cru) == esperado,
+              repr(ap.nome_proprio(cru)))
+
     print()
     if falhas:
         print(f"{len(falhas)} falha(s): {falhas}")
