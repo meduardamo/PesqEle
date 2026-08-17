@@ -129,13 +129,20 @@ def baixar_base_oficial(ano=ANO):
 
 def carregar_base(csv_path):
     # o CSV vem com todos os cargos — mantemos todos (majoritários + proporcionais)
+    if isinstance(csv_path, pd.DataFrame):
+        return csv_path.copy()
     return pd.read_csv(csv_path, encoding="ISO-8859-1", sep=";", low_memory=False)
 
 
-def consolidar(df_api, csv_path):
+def consolidar(df_api, csv_path, df_existente=None):
     """Base-mãe: junta o CSV oficial (perfil completo) com a tabela da API
     (link do plano + situação em tempo real), pelo SQ_CANDIDATO.
-    O CSV é a espinha; a API só acrescenta o que ele não tem."""
+    O CSV é a espinha; a API só acrescenta o que ele não tem.
+
+    Se df_existente tiver LINK_PLANO já preenchido na aba e a API não trouxer
+    link para aquele candidato, preserva o link existente. Quando a API passar
+    a devolver o link oficial, o da API tem prioridade.
+    """
     base = carregar_base(csv_path)
     _extra_cols = [c for c in ("sq_candidato", "link_plano", "situacao", "foto_url")
                    if c in df_api.columns]
@@ -144,7 +151,21 @@ def consolidar(df_api, csv_path):
                               "link_plano": "LINK_PLANO",
                               "situacao": "SITUACAO_TEMPO_REAL",
                               "foto_url": "FOTO_URL"}))
-    return base.merge(extra, on="SQ_CANDIDATO", how="left")
+    res = base.merge(extra, on="SQ_CANDIDATO", how="left")
+
+    if df_existente is not None and not df_existente.empty:
+        if "SQ_CANDIDATO" in df_existente.columns and "LINK_PLANO" in df_existente.columns:
+            existentes = df_existente[["SQ_CANDIDATO", "LINK_PLANO"]].copy()
+            existentes["SQ_CANDIDATO"] = existentes["SQ_CANDIDATO"].astype(str).str.strip()
+            existentes["LINK_PLANO"] = existentes["LINK_PLANO"].astype(str).str.strip()
+            existentes = existentes[~existentes["LINK_PLANO"].isin(["", "None", "nan", "<NA>"])]
+            mapa_existente = dict(zip(existentes["SQ_CANDIDATO"], existentes["LINK_PLANO"]))
+
+            sem_link = (res["LINK_PLANO"].isna() |
+                        res["LINK_PLANO"].astype(str).str.strip().isin(["", "None", "nan", "<NA>"]))
+            sqs = res["SQ_CANDIDATO"].astype(str).str.strip()
+            res.loc[sem_link, "LINK_PLANO"] = sqs[sem_link].map(mapa_existente).fillna("")
+    return res
 
 
 def extrair_candidaturas(ano=ANO, cargos=CARGOS_PADRAO, enriquecer=True):
@@ -272,6 +293,23 @@ def salvar_no_sheets(df, aba):
     valores = df.where(df.notna(), "").astype(str)
     reescrever_aba(ws, [valores.columns.tolist()] + valores.values.tolist(), aba)
     print(f"Sheets atualizado: aba '{aba}' ({len(df)} linhas)")
+
+
+def ler_aba(aba):
+    """Lê uma aba existente do Sheets como DataFrame (vazio se não existir)."""
+    if not SHEETS_ID or not CREDS_FILE.exists():
+        return pd.DataFrame()
+    try:
+        gc = gspread.service_account(filename=str(CREDS_FILE))
+        sh = gc.open_by_key(SHEETS_ID)
+        ws = sh.worksheet(aba)
+        valores = ws.get_all_values()
+        if not valores:
+            return pd.DataFrame()
+        return pd.DataFrame(valores[1:], columns=[c.strip() for c in valores[0]])
+    except Exception as e:
+        print(f"aviso: não foi possível ler aba '{aba}' ({str(e)[:80]})")
+        return pd.DataFrame()
 
 
 # ── Aba de deputado federal na planilha "Eleições 2026 - Nomes competitivos" ──
@@ -510,7 +548,8 @@ if __name__ == '__main__':
     # existe, a coleta pela API já vale por si e não faz sentido derrubar a rodada.
     csv = baixar_base_oficial()
     if csv and len(df):
-        base = consolidar(df, csv)
+        existente = ler_aba("base_dadosabertos")
+        base = consolidar(df, csv, existente)
         print(f"base consolidada: {base.shape[0]} linhas")
         salvar_no_sheets(base, "base_dadosabertos")
     else:
