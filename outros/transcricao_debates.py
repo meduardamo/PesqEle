@@ -422,12 +422,25 @@ def transcrever(client, arq, contexto, uso):
     return ""
 
 
+# Marcador de fala no meio da linha, para reparar bloco que voltou sem quebra
+# de linha nenhuma. Exige o nome e os dois pontos depois do tempo, senão um
+# "[00:15]" citado dentro da fala também viraria troca de turno.
+RE_MARCADOR = re.compile(r"(?<!^)\s*(\[\d{1,2}:\d{2}(?::\d{2})?\]\s*[^:\n]{1,60}?\s*:)")
+
+
 def parsear(texto, offset, limite):
     """Converte a saída do modelo em linhas com tempo absoluto.
 
     Descarta o que caiu na sobreposição: o bloco seguinte cobre esse trecho e
     manter os dois duplica fala no meio da transcrição.
+
+    Antes de dividir por linha, reinsere a quebra em marcador que veio no meio
+    do texto. No debate de MG de 16/08 o bloco 1 voltou inteiro numa única
+    linha: o regex casou o primeiro turno e os outros 10 minutos foram para
+    dentro daquela fala, numa célula de 1.891 palavras com "[00:04] MATEUS
+    SIMÕES:" escrito no meio. Um bloco perdido é visível; este não era.
     """
+    texto = RE_MARCADOR.sub(r"\n\1", texto)
     linhas, ignoradas, fora = [], 0, 0
     for bruta in texto.splitlines():
         bruta = bruta.strip()
@@ -745,6 +758,46 @@ CAMPOS_CSV = ["segundos", "tempo", "falante", "fala",
               "eixo", "tema", "termos", "herdado_do_anterior"]
 
 
+def unificar_falantes(linhas):
+    """Junta o mesmo falante escrito com e sem acento, na forma mais frequente.
+
+    O modelo escreve o nome como ouviu, bloco a bloco, e no MG de 16/08 saíram
+    'LUCAS CATTA PRÊTA' com 59 turnos e 'LUCAS CATTA PRETA' com 5. Duas linhas
+    no resumo por falante para a mesma pessoa é erro que passa batido e divide
+    a contagem de quem for somar por candidato.
+
+    A forma vencedora é a mais frequente em palavras, não em turnos: variante
+    que aparece só num aparte não pode virar o nome canônico do candidato.
+    """
+    import unicodedata
+    from collections import Counter
+
+    def chave(nome):
+        t = unicodedata.normalize("NFKD", nome or "")
+        return re.sub(r"\s+", " ", t.encode("ascii", "ignore").decode()).strip().upper()
+
+    peso = {}
+    for r in linhas:
+        peso.setdefault(chave(r["falante"]), Counter())[r["falante"]] += \
+            len(r["fala"].split())
+
+    trocas = {}
+    for k, formas in peso.items():
+        if len(formas) < 2:
+            continue
+        vencedora = formas.most_common(1)[0][0]
+        for f in formas:
+            if f != vencedora:
+                trocas[f] = vencedora
+    if not trocas:
+        return
+    for r in linhas:
+        if r["falante"] in trocas:
+            r["falante"] = trocas[r["falante"]]
+    for de, para in sorted(trocas.items()):
+        log(f"falante unificado: {de!r} -> {para!r}")
+
+
 def marcar_assuntos(linhas):
     """Acrescenta eixo, tema e termos a cada fala, pelo dicionário de assuntos.
 
@@ -825,6 +878,10 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     linhas, textos, suspeitos = [], {}, []
+    # Quantas falas cada bloco pôs na transcrição. Texto não vazio não garante
+    # fala nenhuma: no MG de 16/08 o bloco 10 voltou com 57 linhas fora do
+    # formato e zero fala, e como o texto existia a repescagem não o pegou.
+    parseadas = {}
     uso = {"in": 0, "out": 0, "chamadas": 0}
 
     # Recorte de cada bloco, guardado para a repescagem saber refazer o que
@@ -857,10 +914,12 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
 
         textos[n] = texto
         if not texto:
+            parseadas[n] = 0
             log(f"    bloco {n} voltou vazio depois de {TENTATIVAS} tentativas, segue")
             return texto
 
         novas, ignoradas, fora = parsear(texto, pos + offset, limite)
+        parseadas[n] = len(novas)
         linhas.extend(novas)
 
         minutos = (limite or d) / 60
@@ -893,22 +952,30 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     # Repescagem: bloco perdido é trecho que some da transcrição, e no debate
     # Band SP de 14/08 foram 4 de 12, todos por 503 de "high demand" que passou
     # minutos depois. Sai antes de gravar arquivo, então a saída já vem inteira.
-    vazios = [c["n"] for c in cortes if not textos.get(c["n"], "").strip()]
+    #
+    # O critério é fala nenhuma na transcrição, e não texto vazio: no MG de
+    # 16/08 os blocos 5 e 10 responderam, o parse não aproveitou nada (57
+    # linhas fora do formato no bloco 10), e como havia texto a repescagem
+    # deixou passar. Deu 20 minutos de debate faltando num run que terminou
+    # verde. Repescar aqui não duplica fala: bloco sem fala não pôs nada em
+    # `linhas`.
+    vazios = [c["n"] for c in cortes if not parseadas.get(c["n"])]
     if vazios:
-        secao("REPESCAGEM DOS BLOCOS VAZIOS")
-        log(f"vazios na primeira passada: {vazios}")
+        secao("REPESCAGEM DOS BLOCOS SEM FALA")
+        log(f"sem fala na primeira passada: {vazios}")
         log(f"esperando {ESPERA_REPESCAGEM}s para a onda de erro passar")
         time.sleep(ESPERA_REPESCAGEM)
         for c in cortes:
             if c["n"] in vazios:
                 rodar(c)
 
-    vazios = [c["n"] for c in cortes if not textos.get(c["n"], "").strip()]
+    vazios = [c["n"] for c in cortes if not parseadas.get(c["n"])]
     if not linhas:
         raise RuntimeError("nenhuma fala transcrita")
 
     secao("SAÍDA")
     linhas.sort(key=lambda r: r["segundos"])
+    unificar_falantes(linhas)
     base = saida / nome
 
     with open(f"{base}.txt", "w", encoding="utf-8") as f:
@@ -963,11 +1030,11 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
         + (f"  (timestamps somam +{hhmmss(offset)})" if offset else ""))
     log(f"DESCONHECIDO: {desc:.1%} das palavras")
     if vazios:
-        log(f"blocos vazios: {vazios} (esses trechos NÃO estão na transcrição)")
+        log(f"blocos sem fala: {vazios} (esses trechos NÃO estão na transcrição)")
     if suspeitos:
         log(f"blocos com ritmo de fala baixo: {suspeitos} (confira contra o vídeo)")
     if not vazios and not suspeitos and desc < 0.05:
-        log("nenhum bloco vazio, nenhum bloco suspeito de resumo")
+        log("nenhum bloco sem fala, nenhum bloco suspeito de resumo")
     log("a identificação de falante vem do conteúdo, não da voz: confira as")
     log("trocas de bloco e os apartes contra o vídeo antes de citar em entrega")
 
@@ -976,7 +1043,7 @@ def processar(origem, contexto, saida, nome, inicio=None, dur=None):
     # que dá para somar quanto custou cada debate depois.
     avisos = [f"gasto: {resumo_custo}"]
     if vazios:
-        avisos.append(f"blocos vazios: {vazios}")
+        avisos.append(f"blocos sem fala: {vazios}")
     if suspeitos:
         avisos.append(f"ritmo de fala baixo: {suspeitos}")
     if desc >= 0.05:
