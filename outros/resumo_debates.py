@@ -665,6 +665,148 @@ def coluna_do_resumo(ws, cabecalho):
     return col
 
 
+def criar_docx_timbrado(texto_md: str, titulo: str, subtitulo: str, template_path: Path, saida_path: Path) -> Path | None:
+    """Gera um DOCX formatado em Montserrat usando o modelo Timbrado eleições."""
+    import zipfile, html, re
+    if not template_path.exists():
+        return None
+    with zipfile.ZipFile(template_path, "r") as zin:
+        file_dict = {item.filename: zin.read(item.filename) for item in zin.infolist()}
+
+    doc_xml_str = file_dict["word/document.xml"].decode("utf-8")
+    m_sect = re.search(r"(<w:sectPr>.*?</w:sectPr>)", doc_xml_str)
+    sect_xml = m_sect.group(1) if m_sect else ""
+
+    body_paragraphs = []
+    # 1. Título
+    body_paragraphs.append(f"""<w:p w:rsidR="00000000" w14:paraId="00000001">
+        <w:pPr>
+            <w:pStyle w:val="Title"/>
+            <w:spacing w:after="120" w:before="0" w:line="280" w:lineRule="auto"/>
+            <w:rPr>
+                <w:rFonts w:ascii="Montserrat" w:cs="Montserrat" w:eastAsia="Montserrat" w:hAnsi="Montserrat"/>
+                <w:b w:val="1"/><w:bCs w:val="1"/>
+                <w:color w:val="202124"/>
+                <w:sz w:val="32"/><w:szCs w:val="32"/>
+            </w:rPr>
+        </w:pPr>
+        <w:r>
+            <w:rPr>
+                <w:rFonts w:ascii="Montserrat" w:cs="Montserrat" w:eastAsia="Montserrat" w:hAnsi="Montserrat"/>
+                <w:b w:val="1"/><w:bCs w:val="1"/>
+                <w:color w:val="202124"/>
+                <w:sz w:val="32"/><w:szCs w:val="32"/>
+            </w:rPr>
+            <w:t>{html.escape(titulo)}</w:t>
+        </w:r>
+    </w:p>""")
+
+    # 2. Subtítulo
+    if subtitulo:
+        body_paragraphs.append(f"""<w:p w:rsidR="00000000" w14:paraId="00000002">
+            <w:pPr>
+                <w:pStyle w:val="Heading1"/>
+                <w:spacing w:after="240" w:before="0" w:line="260" w:lineRule="auto"/>
+                <w:rPr>
+                    <w:rFonts w:ascii="Montserrat" w:cs="Montserrat" w:eastAsia="Montserrat" w:hAnsi="Montserrat"/>
+                    <w:color w:val="5F6368"/>
+                    <w:sz w:val="22"/><w:szCs w:val="22"/>
+                </w:rPr>
+            </w:pPr>
+            <w:r>
+                <w:rPr>
+                    <w:rFonts w:ascii="Montserrat" w:cs="Montserrat" w:eastAsia="Montserrat" w:hAnsi="Montserrat"/>
+                    <w:color w:val="5F6368"/>
+                    <w:sz w:val="22"/><w:szCs w:val="22"/>
+                </w:rPr>
+                <w:t>{html.escape(subtitulo)}</w:t>
+            </w:r>
+        </w:p>""")
+
+    for p_idx, linha in enumerate(texto_md.splitlines(), start=3):
+        linha = linha.strip()
+        if not linha:
+            continue
+        if linha.startswith("---"):
+            body_paragraphs.append(f"""<w:p w:rsidR="00000000" w14:paraId="{p_idx:08x}">
+                <w:pPr>
+                    <w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="CCCCCC"/></w:pBdr>
+                    <w:spacing w:after="180" w:before="180"/>
+                </w:pPr>
+            </w:p>""")
+            continue
+        if linha.startswith("#"):
+            texto_head = re.sub(r"^#+\s*", "", linha)
+            body_paragraphs.append(f"""<w:p w:rsidR="00000000" w14:paraId="{p_idx:08x}">
+                <w:pPr>
+                    <w:spacing w:after="120" w:before="200" w:line="280" w:lineRule="auto"/>
+                    <w:rPr>
+                        <w:rFonts w:ascii="Montserrat" w:cs="Montserrat" w:eastAsia="Montserrat" w:hAnsi="Montserrat"/>
+                        <w:b w:val="1"/>
+                        <w:color w:val="1A73E8"/>
+                        <w:sz w:val="24"/>
+                    </w:rPr>
+                </w:pPr>
+                <w:r>
+                    <w:rPr>
+                        <w:rFonts w:ascii="Montserrat" w:cs="Montserrat" w:eastAsia="Montserrat" w:hAnsi="Montserrat"/>
+                        <w:b w:val="1"/>
+                        <w:color w:val="1A73E8"/>
+                        <w:sz w:val="24"/>
+                    </w:rPr>
+                    <w:t>{html.escape(texto_head)}</w:t>
+                </w:r>
+            </w:p>""")
+            continue
+
+        partes = re.split(r"(\*\*.*?\*\*)", linha)
+        runs_xml = []
+        for parte in partes:
+            if not parte:
+                continue
+            if parte.startswith("**") and parte.endswith("**"):
+                runs_xml.append(f"""<w:r>
+                    <w:rPr>
+                        <w:rFonts w:ascii="Montserrat" w:cs="Montserrat" w:eastAsia="Montserrat" w:hAnsi="Montserrat"/>
+                        <w:b w:val="1"/><w:bCs w:val="1"/>
+                        <w:color w:val="202124"/>
+                        <w:sz w:val="21"/><w:szCs w:val="21"/>
+                    </w:rPr>
+                    <w:t xml:space="preserve">{html.escape(parte[2:-2])}</w:t>
+                </w:r>""")
+            else:
+                runs_xml.append(f"""<w:r>
+                    <w:rPr>
+                        <w:rFonts w:ascii="Montserrat Light" w:cs="Montserrat Light" w:eastAsia="Montserrat Light" w:hAnsi="Montserrat Light"/>
+                        <w:color w:val="3C4043"/>
+                        <w:sz w:val="21"/><w:szCs w:val="21"/>
+                    </w:rPr>
+                    <w:t xml:space="preserve">{html.escape(parte)}</w:t>
+                </w:r>""")
+
+        body_paragraphs.append(f"""<w:p w:rsidR="00000000" w14:paraId="{p_idx:08x}">
+            <w:pPr>
+                <w:spacing w:after="180" w:before="0" w:line="340" w:lineRule="auto"/>
+                <w:jc w:val="both"/>
+            </w:pPr>
+            {''.join(runs_xml)}
+        </w:p>""")
+
+    novo_doc = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:wp="http://schemas.openxmlformats.org/wordprocessingDrawing" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+<w:body>
+{''.join(body_paragraphs)}
+{sect_xml}
+</w:body>
+</w:document>"""
+
+    file_dict["word/document.xml"] = novo_doc.encode("utf-8")
+    with zipfile.ZipFile(saida_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+        for fname, content in file_dict.items():
+            zout.writestr(fname, content)
+    return saida_path
+
+
 def rodar_fila(args):
     from outros.transcricao_debates import (ABA, COL, PLANILHA, clientes_google,
                                             com_retentativa, escrever_celula,
@@ -708,6 +850,7 @@ def rodar_fila(args):
     saida = Path(args.saida or "transcricoes")
     saida.mkdir(parents=True, exist_ok=True)
     col_resumo = coluna_do_resumo(ws, todas[0]) if args.drive else None
+    template_docx = Path(__file__).parent / "templates" / "timbrado_eleicoes.docx"
 
     for i, meta in fila:
         secao(f"RESUMO {meta['id']}  (linha {i})")
@@ -718,12 +861,22 @@ def rodar_fila(args):
             continue
         md = gerar(falas, meta, sem_modelo=args.sem_modelo,
                    min_falas=args.min_falas, quantos=args.eixos)
-        arq = saida / f"{meta['id'] or 'debate'}_resumo.md"
-        arq.write_text(md, encoding="utf-8")
-        log(f"{arq}  ({len(md.split())} palavras)")
+        arq_md = saida / f"{meta['id'] or 'debate'}_resumo.md"
+        arq_md.write_text(md, encoding="utf-8")
+        log(f"{arq_md}  ({len(md.split())} palavras)")
+
+        arq_upload = arq_md
+        # Se o template timbrado existir, gera o .docx com Montserrat e timbrado oficial
+        if template_docx.exists():
+            arq_docx = saida / f"{meta['id'] or 'debate'}_resumo.docx"
+            titulo_doc = meta_titulo(meta) if "meta_titulo" in globals() else f"Resumo — {meta['id']}"
+            if criar_docx_timbrado(md, titulo_doc, "Eleições 2026 • Monitoramento de Debates", template_docx, arq_docx):
+                arq_upload = arq_docx
+                log(f"DOCX Timbrado gerado: {arq_docx.name} (fonte Montserrat)")
+
         if args.drive:
             pasta = pasta_do_debate(drive, meta["uf"], meta["data"])
-            link = enviar_drive(drive, arq, f"{meta['id']}_resumo",
+            link = enviar_drive(drive, arq_upload, f"{meta['id']}_resumo",
                                 "application/vnd.google-apps.document", pasta)
             escrever_celula(ws, i, col_resumo, link)
             log(f"resumo no Drive: {link}")
