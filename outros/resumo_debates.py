@@ -504,87 +504,65 @@ def titulo(meta):
 
 
 def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_TEXTO):
-    """Markdown do resumo, mais o log do que entrou e do que ficou de fora."""
-    for i, f in enumerate(falas, 1):
-        f["id"] = i
-    medida = medir(falas)
-    cands, med = elenco(medida, meta.get("participantes"), meta.get("mediador"))
+    """Gera o Resumo Executivo completo do debate no formato oficial para clientes."""
+    from outros.resumo_debate import (
+        limpar_classificacao_procedimental,
+        calcular_metricas_debate,
+        formatar_prompt,
+    )
 
-    secao("MEDIÇÃO")
-    log(f"{len(falas)} falas, {hm(medida['total'])} de debate")
-    for n, s in medida["por_falante"].most_common(6):
-        marca = "candidato" if n in cands else ("mediador" if n == med else "")
-        log(f"    {num(s / 60):>6} min  {n}  {marca}")
-    for e, s in medida["por_eixo"].most_common(10):
-        log(f"    {num(s / 60):>6} min  {e}  ({medida['falas_por_eixo'][e]} falas)")
+    falas_limpas = limpar_classificacao_procedimental(falas)
+    metricas = calcular_metricas_debate(falas_limpas)
 
-    alvos = [e for e, _ in medida["por_eixo"].most_common()
-             if medida["falas_por_eixo"][e] >= min_falas][:quantos]
-    por_eixo_achados = {}
-    paragrafos = {}
+    secao("MEDIÇÃO DO DEBATE")
+    log(f"{len(falas)} falas, ~{metricas.get('duracao_total_min')} min de debate")
+    for c in metricas.get("candidatos", []):
+        log(f"    {c['minutos']} min ({c['percentual']}%)  {c['nome']}")
+    for t in metricas.get("ranking_temas", [])[:8]:
+        log(f"    {t['minutos']} min  {t['tema']} ({t['qtd_falas']} falas)")
 
-    if not sem_modelo and alvos:
-        if not os.getenv("GEMINI_API_KEY", "").strip():
-            sys.exit("GEMINI_API_KEY não definido (use --sem-modelo para só a medição).")
-        from google import genai
-        from outros.aprofundamento_debates import conferir, extrair
-        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    titulo_debate = titulo(meta)
 
-        for eixo in alvos:
-            secao(eixo.upper())
-            recorte = filtrar(falas, eixo)
-            log(f"{len(recorte)} falas tocam o eixo")
-            bruto = extrair(client, eixo, recorte)
-            por_id = {f["id"]: f for f in recorte}
-            por_falante = collections.defaultdict(list)
-            for f in recorte:
-                por_falante[f["falante"]].append(f)
+    if sem_modelo:
+        L = [f"# {titulo_debate}", ""]
+        L.append(f"Duração estimada: ~{metricas.get('duracao_total_min')} min\n")
+        L.append("**Tempo de fala por candidato:**")
+        for c in metricas.get("candidatos", []):
+            L.append(f"- {c['nome']}: {c['minutos']} min ({c['percentual']}%)")
+        L.append("\n**Temas mais debatidos:**")
+        for t in metricas.get("ranking_temas", [])[:quantos]:
+            L.append(f"- {t['tema']}: {t['minutos']} min ({t['qtd_falas']} falas)")
+        return "\n".join(L)
 
-            achados, descartes = [], 0
-            for a in bruto:
-                fala, nota = conferir(a, por_id, por_falante)
-                if not fala:
-                    descartes += 1
-                    continue
-                achados.append({
-                    "falante": fala["falante"],
-                    "categoria": a.get("categoria", "Balanço"),
-                    "resumo": (a.get("resumo") or "").strip(),
-                    "trecho": a["trecho"].strip(),
-                    "tempo": fala.get("tempo", ""),
-                })
-            log(f"{len(achados)} afirmações conferidas, {descartes} descartadas")
-            if not achados:
-                log("eixo sem afirmação conferível, fica fora do texto")
-                continue
-            por_eixo_achados[eixo] = achados
-            texto = redigir(client, eixo, achados, cands)
+    chave = os.getenv("GEMINI_API_KEY", "").strip()
+    if not chave:
+        sys.exit("GEMINI_API_KEY não definido (use --sem-modelo para só a medição).")
+
+    from google import genai
+    from google.genai import types
+    client = genai.Client(api_key=chave)
+
+    secao("GERAÇÃO DO RESUMO EXECUTIVO (GEMINI)")
+    prompt = formatar_prompt(titulo_debate, metricas, falas_limpas)
+
+    for n in range(1, TENTATIVAS + 1):
+        try:
+            resp = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=4000),
+            )
+            texto = (resp.text or "").strip()
             if texto:
-                paragrafos[eixo] = texto
-                log(f"parágrafo com {len(texto.split())} palavras")
-            else:
-                paragrafos[eixo] = (
-                    "[CONFERIR] a redação automática foi reprovada nas guardas. "
-                    "Seguem as afirmações conferidas, sem costura em prosa.\n\n"
-                    + lista_de_achados(achados))
-                log("parágrafo reprovado nas guardas: sai a lista de afirmações")
+                log(f"Resumo executivo gerado com sucesso ({len(texto.split())} palavras)")
+                return texto
+            log(f"tentativa {n}/{TENTATIVAS}: resposta vazia")
+        except Exception as e:
+            log(f"tentativa {n}/{TENTATIVAS} falhou: {e}")
+        if n < TENTATIVAS:
+            time.sleep(3 * n)
 
-    L = [f"# {titulo(meta)}", "", abertura(meta, medida, cands, med), "",
-         medicao(medida, len(falas)), ""]
-    # Sem subtítulo por tema: o pedido é resumo executivo em texto corrido, e o
-    # nome do tema em negrito na primeira palavra do parágrafo é o que separa
-    # um bloco do outro sem virar lista.
-    for eixo in alvos:
-        if eixo in paragrafos:
-            L += [f"**{eixo}.** {paragrafos[eixo]}", ""]
-    fecho = fechamento(por_eixo_achados, cands)
-    if fecho:
-        L += [fecho, ""]
-    confs = para_conferir(por_eixo_achados)
-    if confs:
-        L += ["## Para conferir antes de enviar", ""] + confs + [""]
-    L += ["## Como isto foi feito", "", METODOLOGIA, ""]
-    return "\n".join(L)
+    return f"# {titulo_debate}\n\n[ERRO] Falha ao gerar o resumo executivo via modelo."
 
 
 def ler_csv_local(caminho):
