@@ -73,12 +73,13 @@ FONTE_ABA = os.getenv("ABA_FONTE_DEBATES", "Debates")
 COL = {
     "id": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
     "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
-    "status": 10, "link_transcricao": 11, "link_csv": 12, "link_resumo": 13,
-    "processado_em": 14, "observacoes": 15, "id_fonte": 16, "link_audio": 17,
+    "status": 10, "link_resumo": 11, "link_transcricao": 12, "link_csv": 13,
+    "link_audio": 14, "processado_em": 15, "observacoes": 16, "id_fonte": 17,
 }
+ORDEM_COLUNAS_LOGICA = list(COL.keys())
 PASTA_MIME = "application/vnd.google-apps.folder"
-# Onde o script escreve de volta: link_transcricao até observacoes.
-FAIXA_SAIDA = "L{i}:P{i}"
+# Onde o script escreve de volta: link_resumo até observacoes.
+FAIXA_SAIDA = "L{i}:Q{i}"
 
 # Campos que vêm da fonte, na ordem em que ficam na nossa planilha (B até J).
 DA_FONTE = ["data", "horario", "cargo", "uf", "turno", "emissora",
@@ -1236,6 +1237,27 @@ def sincronizar(gc, ws):
 
     de_la = tudo_de_la[1:]
     nossas = com_retentativa("leitura da nossa planilha", ws.get_all_values)
+    cab_atual = [c.strip().lower() for c in (nossas[0] if nossas else [])]
+
+    if cab_atual and cab_atual != ORDEM_COLUNAS_LOGICA:
+        log("reordenando colunas da planilha para a ordem lógica padrão...")
+        pos_antiga = {col: idx for idx, col in enumerate(cab_atual)}
+        novas_linhas = [ORDEM_COLUNAS_LOGICA]
+        for linha in nossas[1:]:
+            nova_linha = []
+            for c in ORDEM_COLUNAS_LOGICA:
+                idx = pos_antiga.get(c)
+                val = (linha[idx] if idx is not None and idx < len(linha) else "").strip()
+                nova_linha.append(val)
+            novas_linhas.append(nova_linha)
+
+        if len(ORDEM_COLUNAS_LOGICA) > ws.col_count:
+            ws.add_cols(len(ORDEM_COLUNAS_LOGICA) - ws.col_count)
+
+        com_retentativa("reordenação das colunas", lambda: ws.update(values=novas_linhas, range_name="A1"))
+        log(f"planilha reordenada com sucesso ({len(ORDEM_COLUNAS_LOGICA)} colunas)!")
+        nossas = novas_linhas
+
     log(f"fonte '{FONTE_ABA}': {len(de_la)} linha(s) | nossa: {len(nossas) - 1} linha(s)")
 
     por_fonte = {}
@@ -1642,8 +1664,8 @@ def rodar_fila(args):
             com_retentativa(
                 f"escrita da saída na linha {i}",
                 lambda: ws.update(
-                    values=[[links.get(".txt", ""), links.get(".csv", ""), link_resumo,
-                             agora_brt(), avisos]],
+                    values=[[link_resumo, links.get(".txt", ""), links.get(".csv", ""),
+                             link_audio, agora_brt(), avisos]],
                     range_name=FAIXA_SAIDA.format(i=i),
                 ),
             )
