@@ -550,13 +550,16 @@ def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_T
             resp = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=4000),
+                config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    max_output_tokens=8192,
+                ),
             )
             texto = (resp.text or "").strip()
-            if texto:
+            if texto and len(texto.split()) >= 250:
                 log(f"Resumo executivo gerado com sucesso ({len(texto.split())} palavras)")
                 return texto
-            log(f"tentativa {n}/{TENTATIVAS}: resposta vazia")
+            log(f"tentativa {n}/{TENTATIVAS}: resposta incompleta ({len(texto.split()) if texto else 0} palavras)")
         except Exception as e:
             log(f"tentativa {n}/{TENTATIVAS} falhou: {e}")
         if n < TENTATIVAS:

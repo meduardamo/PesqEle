@@ -330,7 +330,7 @@ def gerar_resumo_debate(
         contents=prompt,
         config=types.GenerateContentConfig(
             temperature=0.2,
-            max_output_tokens=4000,
+            max_output_tokens=8192,
         ),
     )
     return (resposta.text or "").strip()
