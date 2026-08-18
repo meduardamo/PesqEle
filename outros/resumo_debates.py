@@ -130,7 +130,7 @@ def eixos_da_fala(fala):
     qual dos arquivos é o que está na mão.
     """
     marcado = (fala.get("eixo") or fala.get("assuntos") or "")
-    return [e for e in marcado.split("; ") if e.strip()]
+    return [e.strip() for e in marcado.split(";") if e.strip() and e.strip() != "Sem tema"]
 
 
 def medir(falas):
@@ -657,6 +657,8 @@ def coluna_do_resumo(ws, cabecalho):
     if ja:
         return ja
     col = len(cabecalho) + 1
+    if col > ws.col_count:
+        ws.add_cols(col - ws.col_count)
     from outros.transcricao_debates import escrever_celula
     escrever_celula(ws, 1, col, "link_resumo")
     log(f"coluna 'link_resumo' criada na planilha (coluna {col})")
