@@ -230,7 +230,7 @@ Use as informações consolidadas e a transcrição fornecida para redigir um RE
 DIRETRIZES DE FORMATO E ESTILO:
 - Escreva em português, em texto corrido (NÃO utilize bullets, listas, travessões de tópicos ou marcadores).
 - Tamanho aproximado: entre 500 e 700 palavras.
-- Tom analítico, factual, objetivo e equilibrado.
+- Tom analítico, factual, sóbrio, objetivo e equilibrado.
 - Siga ESTRITAMENTE a seguinte estrutura de 4 seções:
 
 1. Parágrafo de abertura:
@@ -251,7 +251,17 @@ DIRETRIZES DE FORMATO E ESTILO:
    - Avaliação geral: o debate trouxe propostas novas ou foi dominado por ataques e defesa de históricos de gestão?
    - Como foi o encerramento (cordial, tenso, respeitoso)?
 
-REGRAS CRÍTICAS:
+DIRETRIZES ANTI-CLICHÊ DE IA (GUIA PROF. RAFAEL SAMPAIO):
+- NÃO utilize adjetivos inflados/vagos: proibido "crucial", "fundamental", "essencial", "significativo", "robusto", "estratégico", "disruptivo", "valioso", "emblemático", "meticuloso", "notável", "profundo", "inovador".
+- NÃO utilize verbos vazios/metafóricos: proibido "destacar", "ressaltar", "enfatizar", "evidenciar", "moldar", "refletir", "simbolizar", "mergulhar", "navegar", "potencializar", "revolucionar", "sacramentar".
+- NÃO utilize substantivos abstratos e metáforas: proibido "cenário", "panorama", "mosaico", "tapeçaria", "marco", "legado duradouro", "testemunho", "ponto focal", "esfera", "horizonte".
+- NÃO utilize jargões corporativos/marqueteiros: proibido "insights", "sinergia", "multifacetado", "mudança de jogo", "chave para", "motor de crescimento", "aliado estratégico".
+- NÃO utilize gerúndios conclusivos vagos: proibido terminar frases com "...garantindo que", "...destacando sua importância", "...refletindo a relevância", "...contribuindo para", "...simbolizando o compromisso".
+- NÃO editorialize nem use chavões: proibido "é importante notar", "vale a pena mencionar", "no cenário atual", "como se sabe", "neste contexto".
+- NÃO use fórmulas artificiais: proibido paralelismos negativos ("não apenas X, mas também Y"), listas mecânicas de 3 adjetivos ou falsos intervalos ("do problema à solução").
+- Prefira SEMPRE fatos concretos, números exatos citados, nomes de leis/programas reais e verbos diretos e objetivos ("afirmou", "criticou", "prometeu", "disse", "apresentou", "rebateu", "citou").
+
+REGRAS CRÍTICAS DE CONTEÚDO:
 - NÃO invente números, dados, datas, nomes de programas ou falas que não constem na transcrição/dados.
 - Se houver dúvida ou incerteza sobre algum dado citado, sinalize entre colchetes como [CONFERIR].
 - AO FINAL DA RESPOSTA (separado por uma linha horizontal ---), liste exatamente os 5 números ou trechos mais importantes utilizados no texto, com o timestamp aproximado [MM:SS] em que aparecem na transcrição, para conferência rápida.
