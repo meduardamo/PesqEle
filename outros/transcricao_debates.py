@@ -73,12 +73,12 @@ FONTE_ABA = os.getenv("ABA_FONTE_DEBATES", "Debates")
 COL = {
     "id": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
     "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
-    "status": 10, "link_transcricao": 11, "link_csv": 12,
-    "processado_em": 13, "observacoes": 14, "id_fonte": 15, "link_audio": 16,
+    "status": 10, "link_transcricao": 11, "link_csv": 12, "link_resumo": 13,
+    "processado_em": 14, "observacoes": 15, "id_fonte": 16, "link_audio": 17,
 }
 PASTA_MIME = "application/vnd.google-apps.folder"
 # Onde o script escreve de volta: link_transcricao até observacoes.
-FAIXA_SAIDA = "L{i}:O{i}"
+FAIXA_SAIDA = "L{i}:P{i}"
 
 # Campos que vêm da fonte, na ordem em que ficam na nossa planilha (B até J).
 DA_FONTE = ["data", "horario", "cargo", "uf", "turno", "emissora",
@@ -1603,6 +1603,32 @@ def rodar_fila(args):
                 audio, contexto, saida, ident, args.inicio, args.duracao
             )
 
+            secao("RESUMO EXECUTIVO TIMBRADO")
+            link_resumo = ""
+            try:
+                from outros.resumo_debates import gerar as gerar_resumo, meta_da_linha, criar_docx_timbrado, titulo as titulo_resumo
+                meta = meta_da_linha(linha, COL, todas)
+                with open(saida / f"{ident}.csv", "r", encoding="utf-8") as f_csv:
+                    falas = list(csv.DictReader(f_csv))
+                md_resumo = gerar_resumo(falas, meta)
+                arq_md = saida / f"{ident}_resumo.md"
+                arq_md.write_text(md_resumo, encoding="utf-8")
+
+                template_docx = Path(__file__).parent / "templates" / "timbrado_eleicoes.docx"
+                arq_upload_resumo = arq_md
+                if template_docx.exists():
+                    arq_docx = saida / f"{ident}_resumo.docx"
+                    if criar_docx_timbrado(md_resumo, titulo_resumo(meta), "Eleições 2026 • Monitoramento de Debates", template_docx, arq_docx):
+                        arq_upload_resumo = arq_docx
+                        log(f"DOCX Timbrado gerado: {arq_docx.name} (fonte Montserrat)")
+
+                link_resumo = enviar_drive(drive, arq_upload_resumo, f"{ident}_resumo",
+                                           "application/vnd.google-apps.document", destino_drive)
+                log(f"resumo timbrado no Drive: {link_resumo}")
+            except Exception as e_resumo:
+                log(f"aviso: falha ao gerar resumo automático ({e_resumo})")
+                link_resumo = ""
+
             secao("DRIVE")
             links = {}
             for p in caminhos:
@@ -1616,7 +1642,7 @@ def rodar_fila(args):
             com_retentativa(
                 f"escrita da saída na linha {i}",
                 lambda: ws.update(
-                    values=[[links.get(".txt", ""), links.get(".csv", ""),
+                    values=[[links.get(".txt", ""), links.get(".csv", ""), link_resumo,
                              agora_brt(), avisos]],
                     range_name=FAIXA_SAIDA.format(i=i),
                 ),
