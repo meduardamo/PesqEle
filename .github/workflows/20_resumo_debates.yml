@@ -1,0 +1,105 @@
+name: 20 - Resumo de Debates
+
+# Roda depois da transcrição e só quando alguém pede: o resumo lê o CSV que o
+# workflow 19 já subiu para o Drive e chama o modelo uma vez por tema, então
+# custa dinheiro por rodada. Sem agendamento de propósito, pelo mesmo motivo
+# que a transcrição não tem.
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: 'Id do debate na planilha (vazio = todos os que estão "pronto" e ainda não têm resumo)'
+        required: false
+        default: ''
+      eixos:
+        description: 'Quantos temas ganham parágrafo próprio'
+        required: false
+        default: '6'
+      sem_modelo:
+        description: 'Só a parte medida (duração, tempo de fala, minutos por tema), sem chamar a API'
+        type: boolean
+        required: false
+        default: false
+      drive:
+        description: 'Sobe o resumo como Doc e grava o link na planilha'
+        type: boolean
+        required: false
+        default: true
+      refazer:
+        description: 'Gera de novo mesmo para debate que já tem resumo (sobe arquivo novo)'
+        type: boolean
+        required: false
+        default: false
+      modelo:
+        description: 'Modelo Gemini'
+        required: false
+        default: 'gemini-3.6-flash'
+
+  repository_dispatch:
+    types: [resumir-debates]
+
+# O resumo escreve na mesma planilha que a transcrição, e duas rodadas ao mesmo
+# tempo brigariam pela mesma linha.
+concurrency:
+  group: resumo-debates
+  cancel-in-progress: false
+
+jobs:
+  resumir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # pymupdf e pandas entram pelo mesmo motivo do workflow 19: o dicionário
+      # de assuntos importa o analise_planos, que importa os dois no topo.
+      - run: pip install google-genai gspread google-auth google-api-python-client pymupdf pandas
+
+      - name: Escrever credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+
+      - name: Gerar os resumos
+        env:
+          PYTHONUNBUFFERED: "1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ inputs.modelo || 'gemini-3.6-flash' }}
+          SPREADSHEET_ID_DEBATES: ${{ secrets.SPREADSHEET_ID_DEBATES }}
+          PASTA_DRIVE_DEBATES: ${{ secrets.PASTA_DRIVE_DEBATES }}
+        run: |
+          python -m outros.resumo_debates --fila \
+            ${{ inputs.id && format('--id {0}', inputs.id) || '' }} \
+            --eixos ${{ inputs.eixos || '6' }} \
+            ${{ inputs.refazer == true && '--refazer' || '' }} \
+            ${{ inputs.sem_modelo == true && '--sem-modelo' || '' }} \
+            ${{ (inputs.drive == true || github.event_name == 'repository_dispatch') && '--drive' || '' }}
+
+      - name: Resumo na página do run
+        if: always()
+        run: |
+          {
+            echo "## Resumo de debates"
+            echo ""
+            if compgen -G "transcricoes/*_resumo.md" > /dev/null; then
+              for f in transcricoes/*_resumo.md; do
+                echo "### $(basename "$f")"
+                echo ""
+                cat "$f"
+                echo ""
+              done
+            else
+              echo "Nenhum resumo gerado. Veja o log do passo anterior."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar arquivos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resumos-${{ github.run_number }}
+          path: transcricoes/*_resumo.md
+          retention-days: 30
+          if-no-files-found: warn
