@@ -631,14 +631,15 @@ def garantir_pasta(drive, nome, pai):
     return nova["id"]
 
 
-def caminho_do_debate(uf, data):
-    """Os três níveis do debate no Drive: UF, mês e dia.
+def caminho_do_debate(uf, data, ident=None):
+    """Os quatro níveis do debate no Drive: UF, mês, dia e subpasta do debate.
 
     A data vem da planilha em ISO ('2026-08-09'), que é de onde o id do debate
     já tira o ano, mas quem preenche na mão escreve '09/08/2026', e as duas
     formas entram. O mês fica como '2026-08', e não como 'agosto': o Drive
     ordena pasta por nome, e nome de mês por extenso põe abril antes de agosto.
     Debate de presidente não tem UF na planilha e cai em 'BR'.
+    Dentro de cada dia, uma subpasta para cada debate específico (ex: 2026-band-sp-gov-t1).
     """
     estado = (uf or "").strip().upper() or "BR"
     texto = (data or "").strip()
@@ -649,20 +650,25 @@ def caminho_do_debate(uf, data):
     else:
         m = re.match(r"(\d{2})/(\d{2})/(\d{4})", texto)
         if not m:
-            # Sem data legível o debate ainda precisa de destino: melhor uma
-            # pasta visível de conferência do que espalhar arquivo na raiz.
-            return [estado, "sem-data"]
+            trilha = [estado, "sem-data"]
+            if ident:
+                trilha.append(ident.strip())
+            return trilha
         dia, mes, ano = m.groups()
-    return [estado, f"{ano}-{mes}", dia]
+
+    trilha = [estado, f"{ano}-{mes}", dia]
+    if ident:
+        trilha.append(ident.strip())
+    return trilha
 
 
-def pasta_do_debate(drive, uf, data, cache=None):
-    """Desce UF > mês > dia a partir da pasta Debates, criando o que faltar.
+def pasta_do_debate(drive, uf, data, ident=None, cache=None):
+    """Desce UF > mês > dia > debate a partir da pasta Debates, criando o que faltar.
 
     O cache evita refazer a mesma busca a cada arquivo do mesmo debate: são
-    três chamadas por nível, e a reorganização passa por dezenas de arquivos.
+    quatro chamadas por nível, e a reorganização passa por dezenas de arquivos.
     """
-    trilha = caminho_do_debate(uf, data)
+    trilha = caminho_do_debate(uf, data, ident)
     if cache is not None and tuple(trilha) in cache:
         return cache[tuple(trilha)]
     pai = PASTA_DRIVE
@@ -1586,11 +1592,9 @@ def rodar_fila(args):
                 j = COL[nome]
                 return (linha[j] if j < len(linha) else "").strip()
 
-            # Uma pasta por dia de debate, dentro do mês, dentro da UF. Fica
-            # pronta antes do download: se o mp3 subir e a pasta não existir,
-            # o áudio vai para a raiz e alguém tem que caçar depois.
-            trilha = caminho_do_debate(campo("uf"), campo("data"))
-            destino_drive = pasta_do_debate(drive, campo("uf"), campo("data"))
+            # Uma pasta por dia de debate, dentro do mês, dentro da UF, com subpasta para o debate.
+            trilha = caminho_do_debate(campo("uf"), campo("data"), ident=ident)
+            destino_drive = pasta_do_debate(drive, campo("uf"), campo("data"), ident=ident)
             log(f"destino no Drive: {' / '.join(trilha)}")
 
             link_audio_existente = linha[COL["link_audio"]].strip() if COL.get("link_audio", 999) < len(linha) else ""

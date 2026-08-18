@@ -853,7 +853,7 @@ def rodar_fila(args):
                 log(f"DOCX Timbrado gerado: {arq_docx.name} (fonte Montserrat)")
 
         if args.drive:
-            pasta = pasta_do_debate(drive, meta["uf"], meta["data"])
+            pasta = pasta_do_debate(drive, meta["uf"], meta["data"], ident=meta["id"])
             link = enviar_drive(drive, arq_upload, f"{meta['id']}_resumo",
                                 "application/vnd.google-apps.document", pasta)
             escrever_celula(ws, i, col_resumo, link)
