@@ -863,11 +863,11 @@ def main() -> int:
             linhas, coe, pulo = processar(r, ANO)
         except PlanoIndisponivel as e:
             indisponiveis.append(nome)
-            # Sem o motivo no log, "fora do ar" fica indistinguível de bloqueio
-            # por IP, timeout e erro de TLS. Em 03/08/2026 o runner do Actions
-            # não baixou nenhum plano enquanto os mesmos links respondiam 200
-            # fora dele, e o log não dizia por quê.
             print(f"plano fora do ar, tenta depois ({e})")
+            if len(indisponiveis) >= 8 and feitos == 0:
+                print("\nDivulgaCand/TSE está recusando requisições consecutivas (bloqueio/WAF). "
+                      "Interrompendo rodada para tentar no próximo horário.")
+                break
             continue
         except RespostaIlegivel as e:
             ilegiveis.append(nome)
