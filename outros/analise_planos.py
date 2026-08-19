@@ -1017,17 +1017,25 @@ def baixar_plano(url: str) -> bytes:
         if candidato_local.exists():
             return candidato_local.read_bytes()
 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "application/pdf,application/octet-stream,text/html,*/*",
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
     ultimo = None
     for tentativa in range(1, BAIXAR_TENTATIVAS + 1):
         try:
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
+            r = requests.get(url, headers=headers,
                              timeout=BAIXAR_TIMEOUT, allow_redirects=True)
-            # 4xx = a requisição é que está errada, repetir não muda nada. O TSE
-            # responde 422 (não 404) para id de arquivo inexistente. Exceções:
-            # 408 e 429, que pedem justamente para tentar de novo.
-            if 400 <= r.status_code < 500 and r.status_code not in (408, 429):
+            # 4xx = requisição errada. 403, 408 e 429 são limites/bloqueios transitórios do TSE
+            # que costumam responder nas tentativas seguintes com backoff.
+            if 400 <= r.status_code < 500 and r.status_code not in (403, 408, 429):
                 raise PlanoIlegivel(
                     f"o TSE não entrega esse arquivo (HTTP {r.status_code})")
+            if r.status_code == 403:
+                ultimo = f"HTTP 403 (tentativa {tentativa})"
+                time.sleep(3 * tentativa)
+                continue
             r.raise_for_status()
             if r.content:
                 # WAF/bloqueio por IP fora do Brasil (ex: runner do GitHub Actions)
