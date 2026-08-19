@@ -1267,11 +1267,14 @@ def sincronizar(gc, ws):
     log(f"fonte '{FONTE_ABA}': {len(de_la)} linha(s) | nossa: {len(nossas) - 1} linha(s)")
 
     por_fonte = {}
+    por_id = {}
     usados = set()
     for i, l in enumerate(nossas[1:], start=2):
-        if l and l[COL["id"]].strip():
-            usados.add(l[COL["id"]].strip())
+        ident = (l[COL["id"]] if COL["id"] < len(l) else "").strip()
         idf = (l[COL["id_fonte"]] if COL["id_fonte"] < len(l) else "").strip()
+        if ident:
+            usados.add(ident)
+            por_id[ident] = (i, l)
         if idf:
             por_fonte[idf] = (i, l)
 
@@ -1282,8 +1285,18 @@ def sincronizar(gc, ws):
             continue
         campos = [(l[COL_FONTE[c]] if COL_FONTE[c] < len(l) else "").strip() for c in DA_FONTE]
         tem_url = bool(campos[DA_FONTE.index("url_youtube")])
+        ident_esperado = gerar_id(l, set())
 
-        if idf not in por_fonte:
+        # Casamento por id_fonte OU por id gerado (se id_fonte foi perdido ou desordenado)
+        i, atual = None, None
+        if idf in por_fonte:
+            i, atual = por_fonte[idf]
+        elif ident_esperado in por_id:
+            i, atual = por_id[ident_esperado]
+            edicoes.append({"range": f"R{i}", "values": [[idf]]})
+            log(f"  restaurado id_fonte {idf} na linha {i} ({ident_esperado})")
+
+        if atual is None:
             ident = gerar_id(l, usados)
             linha = [""] * len(COL)
             linha[COL["id"]] = ident
@@ -1297,7 +1310,6 @@ def sincronizar(gc, ws):
             log(f"  novo   {idf} -> {ident} ({linha[COL['status']]})")
             continue
 
-        i, atual = por_fonte[idf]
         status = (atual[COL["status"]] if COL["status"] < len(atual) else "").strip().lower()
         # Campo vazio na fonte não apaga o que já está preenchido aqui.
         merge = [
@@ -1316,8 +1328,34 @@ def sincronizar(gc, ws):
     if novas:
         com_retentativa("sync das linhas novas", lambda: ws.append_rows(novas, table_range="A1"))
 
+    # Limpeza de eventuais linhas duplicadas
+    linhas_atuais = com_retentativa("releitura para deduplicação", ws.get_all_values)
+    vistas = {}
+    duplicadas = []
+    for idx_linha, l in enumerate(linhas_atuais[1:], start=2):
+        ident = (l[COL["id"]] if COL["id"] < len(l) else "").strip()
+        idf = (l[COL["id_fonte"]] if COL["id_fonte"] < len(l) else "").strip()
+        chave = idf if idf.startswith("D") else ident
+        if not chave:
+            continue
+        status_atual = (l[COL["status"]] if COL["status"] < len(l) else "").strip().lower()
+        if chave in vistas:
+            idx_ant, status_ant = vistas[chave]
+            if status_ant == "pronto" and status_atual != "pronto":
+                duplicadas.append(idx_linha)
+            elif status_atual == "pronto" and status_ant != "pronto":
+                duplicadas.append(idx_ant)
+                vistas[chave] = (idx_linha, status_atual)
+        else:
+            vistas[chave] = (idx_linha, status_atual)
+
+    if duplicadas:
+        for d in sorted(duplicadas, reverse=True):
+            log(f"removendo linha duplicada {d}...")
+            com_retentativa(f"apagar linha duplicada {d}", lambda idx=d: ws.delete_rows(idx))
+
     log(f"sync: {len(novas)} novo(s), {len(edicoes)} atualizado(s), "
-        f"{len(promovidas)} promovido(s) para 'pendente'")
+        f"{len(promovidas)} promovido(s) para 'pendente', {len(duplicadas)} duplicada(s) removida(s)")
 
 
 RE_CABECA_BRUTO = re.compile(
