@@ -1463,10 +1463,13 @@ def _paginas_de_um_pedaco(paginas_norm: list[str], trecho: str,
     return [i + 1 for i, s in enumerate(escores) if s >= melhor * 0.9][:limite]
 
 
-# Quanto do plano vai junto do trecho. 1.400 caracteres é o que cabe numa
-# leitura sem rolar muito e costuma pegar o item inteiro da lista ou o parágrafo
-# em volta, que é o que a citação de uma frase corta pela metade.
-CHARS_CONTEXTO = 1400
+# Quanto do plano vai junto do trecho. É a janela pedida, não o que sai: os dois
+# cortes em fronteira de frase, um de cada lado, consomem até 400 caracteres
+# cada. Medido em 480 classificações de 12 planos, uma janela de 1.400 entregava
+# 795 caracteres na média. Com 2.000 o entorno fica em torno de 1.200 a 1.400,
+# que é o parágrafo ou o bloco de "ações propostas" inteiro, o formato em que a
+# maioria dos planos trata o tema.
+CHARS_CONTEXTO = 2000
 
 
 def contexto_do_trecho(paginas: list[str], paginas_norm: list[str],
