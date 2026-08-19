@@ -1204,6 +1204,26 @@ _META_DECORATIVO = [
 ]
 
 
+_META_EXTERNA_ALINHAMENTO = (
+    r"\b(pne|plano nacional de educacao|agenda 2030|ods|objetivos de desenvolvimento sustentavel|"
+    r"metas? do milenio|metas? nacionais)\b"
+)
+
+
+def _e_meta_externa_ou_terceiro(n: str) -> bool:
+    """Detecta citações onde números/prazos pertencem a leis federais ou pactos
+    externos (como PNE, ODS, metas nacionais do SUS/Fundeb) e o candidato apenas
+    manifesta intenção de 'alinhar-se', 'cumprir' ou 'superar onde possível',
+    sem fixar meta própria com verbos de ação executiva do mandato.
+    """
+    if not re.search(_META_EXTERNA_ALINHAMENTO, n):
+        return False
+    if re.search(r"\b(alinhar|alinhamento|alinhar-se|cumprir as metas|atingir as metas|aderir ao|metas aprovadas)\b", n):
+        if not re.search(r"\b(criaremos|construiremos|implantaremos|contrataremos|destinaremos|investiremos|garantiremos)\b", n):
+            return True
+    return False
+
+
 def tem_alvo_mensuravel(trecho: str) -> bool:
     """Se a citação traz alvo que dá para conferir depois: número, prazo,
     absoluto ou número por extenso. É o que separa 'Define meta' de 'Propõe
@@ -1214,6 +1234,8 @@ def tem_alvo_mensuravel(trecho: str) -> bool:
     o ano no nome de um plano, e nenhum alvo.
     """
     n = _norm_acentos(trecho)
+    if _e_meta_externa_ou_terceiro(n):
+        return False
     if (re.search(_META_PRAZO, n) or re.search(_META_ABSOLUTO, n)
             or re.search(_META_EXTENSO, n) or re.search(_META_ANO_ALVO, n)):
         return True
@@ -1705,6 +1727,12 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
         "a alcançar ('acompanhar o tempo médio de espera'): medir não é prometer "
         "chegar a um número. Só use Define meta quando a frase disser QUANTO ou "
         "ATÉ QUANDO.\n\n"
+        "ATENÇÃO 7: metas de leis federais, planos nacionais ou pactos de terceiros "
+        "(ex.: Plano Nacional de Educação / PNE, metas do Milênio/ODS da ONU, diretrizes do SUS/Fundeb) "
+        "NÃO são metas do candidato. 'Cumprir as metas do PNE', 'alinhar-se às metas do PNE "
+        "(como 90% dos estudantes no Ensino Médio)' ou 'atingir os ODS' são Propõe ação "
+        "(ou Menciona vagamente), e NÃO Define meta. Só classifique como Define meta se o candidato "
+        "fixar um alvo numérico, percentual ou prazo próprio e exclusivo para a sua gestão/mandato estadual.\n\n"
         "ATENÇÃO 2: classifique cada tema pelo que o plano diz DAQUELE tema. Um plano "
         "forte em segurança não puxa para cima os temas de educação.\n\n"
         # Medido em 09/08/2026, na base de 65 planos: 11 citações apareciam em
@@ -1986,6 +2014,9 @@ def reanalisar_tema(contexto: str, tema: str, desc: str = "") -> dict:
         "  Menciona vagamente — citado de forma vaga, sem ação ou medida definida\n"
         "  Propõe ação        — há ação ou medida concreta, sem alvo mensurável\n"
         "  Define meta        — há alvo mensurável: número, percentual ou prazo\n\n"
+        "ATENÇÃO: metas de leis federais preexistentes (como Plano Nacional de Educação / PNE, ODS) "
+        "NÃO são metas do candidato. 'Cumprir as metas do PNE' ou 'alinhar-se às metas do PNE' é Propõe ação, "
+        "NÃO Define meta. Só use Define meta se houver meta própria e exclusiva do plano.\n\n"
         "REGRA DE CITAÇÃO: 'trecho' é transcrição literal, copiada palavra por "
         "palavra do texto abaixo. Não corrija concordância, não encurte dentro da "
         "frase e não escreva frase sua. Para juntar partes distantes, marque cada "

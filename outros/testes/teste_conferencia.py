@@ -143,7 +143,11 @@ def main() -> int:
     for frase in ("Criação de frentes emergenciais de trabalho [...] para geração de "
                   "milhões de empregos",
                   "Revogação da Lei do Novo Ensino Médio e reformulação do currículo",
-                  "Ampliar a geração de emprego e renda [...] Nº de empregos gerados"):
+                  "Ampliar a geração de emprego e renda [...] Nº de empregos gerados",
+                  "O novo Plano Nacional de Educação (PNE) foi sancionado em abril de 2026 [...] "
+                  "Entre as metas aprovadas: [...] pelo menos 90% dos estudantes concluindo o Ensino Médio "
+                  "[...] O compromisso do Novo Governo é alinhar-se a essas ambições e, onde possível, "
+                  "superá-las com metas estaduais ainda mais ousadas."):
         check(f"não é meta: {frase[:48]}...", not ap.tem_alvo_mensuravel(frase))
     for frase in ("Aumentar, gradativamente, para R$ 3,00 reais por aluno",
                   "Ter no transporte público 40% dos acentos adaptados",
