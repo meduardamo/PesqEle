@@ -111,6 +111,9 @@ EIXOS = {
         "Valorização Docente": "carreira, salário, piso, concurso, formação continuada e condições de trabalho de professores e demais profissionais da educação",
         "Educação Inclusiva e EJA": "educação especial e inclusiva, estudante com deficiência, educação de jovens e adultos, educação no campo, indígena e quilombola",
         "Tecnologia na Educação": "tecnologia, conectividade, inclusão digital e uso de IA nas escolas",
+        # Entraram em 19/08/2026 a pedido do Itaú:
+        "Educação, Arte e Cultura": "integração de arte, cultura, linguagens artísticas e projetos culturais no currículo escolar e na educação integral",
+        "Recomposição das Aprendizagens": "recomposição, recuperação e aceleração de aprendizagens, reforço escolar, defasagem idade-série e superação de lacunas pedagógicas",
         # Entrou em 10/08/2026. Os outros temas de educação são por etapa, então
         # proposta de dinheiro não achava onde cair: no plano da Samara Martins
         # (UP), "10% do PIB para educação" foi classificada em Ciência,
@@ -228,6 +231,10 @@ TERMOS_ANCORA = {
     "Tecnologia na Educação": ["conectividade*", "inclusao digital", "internet nas escolas",
                                "tecnologia educacional", "internet", "laboratorio de informatica",
                                "transformacao digital", "computador", "tablet"],
+    "Educação, Arte e Cultura": ["arte e cultura", "cultura na escola", "cultura nas escolas",
+                                 "projetos culturais", "linguagens artisticas", "patrimonio cultural"],
+    "Recomposição das Aprendizagens": ["recomposicao*", "recuperacao da aprendizagem", "reforco escolar",
+                                       "defasagem", "distorcao idade serie", "lacunas de aprendizagem"],
     "Ensino Superior": ["ensino superior", "universidade", "universitari*", "vestibular",
                         "enem", "prouni", "fies", "assistencia estudantil",
                         "graduacao", "campus"],
@@ -414,6 +421,18 @@ TERMOS_AUSENCIA = {
         "tablet*", "chromebook", "plataforma de ensino", "ensino hibrido",
         "letramento digital", "transformacao digital", "banda larga",
         "celular na escola", "proibicao de celular",
+    ],
+    "Educação, Arte e Cultura": [
+        "arte e cultura", "cultura na escola", "cultura nas escolas",
+        "educacao e cultura", "projetos culturais", "linguagens artisticas",
+        "atividades culturais", "patrimonio cultural", "oficinas culturais",
+        "arte na escola", "artes na escola", "formacao artistica",
+    ],
+    "Recomposição das Aprendizagens": [
+        "recomposicao", "recomposicao da aprendizagem", "recomposicao de aprendizagem",
+        "recomposicao das aprendizagens", "recuperacao da aprendizagem",
+        "recuperacao das aprendizagens", "reforco escolar", "aceleracao da aprendizagem",
+        "defasagem idade serie", "distorcao idade serie", "lacunas de aprendizagem",
     ],
     "Ensino Superior": [
         "ensino superior", "universidade*", "universitari*", "faculdade*",

@@ -86,9 +86,8 @@ LIMIAR_CHARS = 1500
 # etapa e os de saúde por nível de atenção, então "10% do PIB para educação" e
 # "Aumento do Orçamento que permita o funcionamento de 100% da saúde pública"
 # não tinham onde cair. E Ensino Superior, que morava dentro da descrição de
-# Ciência, Tecnologia e Inovação e por isso levava "Livre acesso à universidade"
-# para o eixo de economia.
-VERSAO_ANALISE = "13"
+# Subiu para 14 em 19/08/2026: inclusão de Educação, Arte e Cultura e Recomposição das Aprendizagens.
+VERSAO_ANALISE = "14"
 # Subiu para 11 em 09/08/2026: a justificativa passou a receber nome de urna e
 # gênero do cadastro, então fala "a candidata" quando é mulher e alterna o
 # sujeito em vez de abrir toda frase com "o candidato". O painel já corrige isso
