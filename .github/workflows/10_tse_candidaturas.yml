@@ -2,11 +2,11 @@ name: 10 - TSE
 
 on:
   schedule:
-    # O DivulgaCand diz atualizar de hora em hora, então acompanhamos no mesmo
-    # ritmo. A coleta é só API, sem Gemini: 28 UEs por cargo, resposta em
-    # milissegundos, custo zero. Minuto fora do :00 porque é quando o Actions
-    # mais enfileira as rodadas agendadas.
-    - cron: '25 * * * *'
+    # Espaçado para 3 vezes ao dia após o encerramento do prazo de registro (15/08).
+    # Roda 7 minutos antes de 14 - Planos de Governo (05:15, 11:15 e 17:15 BRT).
+    - cron: '15 8 * * *'   # 05:15 BRT
+    - cron: '15 14 * * *'  # 11:15 BRT
+    - cron: '15 20 * * *'  # 17:15 BRT
   workflow_dispatch:
 
 # Rodada agendada atrasa (o Actions enfileira de 25 a 250 min) e pode alcançar a
