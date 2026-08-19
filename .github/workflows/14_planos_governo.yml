@@ -71,7 +71,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-por
 
-      - run: pip install gspread google-auth google-genai PyMuPDF pillow pytesseract pandas
+      # curl_cffi: sem ele o runner leva 403 do WAF do TSE em todo download.
+      # google-api-python-client: leitura do espelho dos planos no Drive.
+      - run: pip install gspread google-auth google-genai PyMuPDF pillow pytesseract pandas curl_cffi google-api-python-client
 
       - name: Escrever credentials.json
         run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json

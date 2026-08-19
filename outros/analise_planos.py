@@ -112,8 +112,8 @@ EIXOS = {
         "Educação Inclusiva e EJA": "educação especial e inclusiva, estudante com deficiência, educação de jovens e adultos, educação no campo, indígena e quilombola",
         "Tecnologia na Educação": "tecnologia, conectividade, inclusão digital e uso de IA nas escolas",
         # Entraram em 19/08/2026 a pedido do Itaú:
-        "Educação, Arte e Cultura": "integração de arte, cultura, linguagens artísticas e projetos culturais no currículo escolar e na educação integral",
-        "Recomposição das Aprendizagens": "recomposição, recuperação e aceleração de aprendizagens, reforço escolar, defasagem idade-série e superação de lacunas pedagógicas",
+        "Educação, Arte e Cultura": "integração de arte, cultura e linguagens artísticas no currículo escolar e na educação integral: arte na escola, oficinas e projetos culturais com estudantes — a política cultural fora da escola (fomento, editais, patrimônio, equipamentos) é o tema Cultura, no eixo de Cultura, esporte e turismo",
+        "Recomposição das Aprendizagens": "recomposição, recuperação e aceleração de aprendizagens, reforço escolar, correção de fluxo, defasagem idade-série e superação de lacunas pedagógicas, inclusive as herdadas da pandemia — alfabetizar na idade certa é o tema Alfabetização, e a etapa em si é Fundamental ou Ensino Médio",
         # Entrou em 10/08/2026. Os outros temas de educação são por etapa, então
         # proposta de dinheiro não achava onde cair: no plano da Samara Martins
         # (UP), "10% do PIB para educação" foi classificada em Ciência,
@@ -187,7 +187,7 @@ EIXOS = {
         "População LGBTQIA+": "políticas para a população LGBTQIA+, enfrentamento à LGBTfobia, nome social, acolhimento e serviços específicos",
     },
     "Cultura, esporte e turismo": {
-        "Cultura": "cultura, patrimônio, economia criativa, fomento e editais, equipamentos culturais",
+        "Cultura": "política cultural: patrimônio, economia criativa, fomento e editais, equipamentos e trabalhadores da cultura — arte e cultura dentro da escola é tema próprio, Educação, Arte e Cultura, no eixo de Educação",
         "Esporte e Lazer": "esporte, esporte escolar, lazer, equipamentos esportivos e grandes eventos",
         "Turismo": "turismo, atrativos, promoção e infraestrutura turística",
     },
@@ -233,7 +233,8 @@ TERMOS_ANCORA = {
                                "tecnologia educacional", "internet", "laboratorio de informatica",
                                "transformacao digital", "computador", "tablet"],
     "Educação, Arte e Cultura": ["arte e cultura", "cultura na escola", "cultura nas escolas",
-                                 "projetos culturais", "linguagens artisticas", "patrimonio cultural"],
+                                 "arte na escola", "artes na escola", "linguagens artisticas",
+                                 "educacao artistica", "ensino de arte"],
     "Recomposição das Aprendizagens": ["recomposicao*", "recuperacao da aprendizagem", "reforco escolar",
                                        "defasagem", "distorcao idade serie", "lacunas de aprendizagem"],
     "Ensino Superior": ["ensino superior", "universidade", "universitari*", "vestibular",
@@ -425,8 +426,8 @@ TERMOS_AUSENCIA = {
     ],
     "Educação, Arte e Cultura": [
         "arte e cultura", "cultura na escola", "cultura nas escolas",
-        "educacao e cultura", "projetos culturais", "linguagens artisticas",
-        "atividades culturais", "patrimonio cultural", "oficinas culturais",
+        "educacao e cultura", "linguagens artisticas", "educacao artistica",
+        "ensino de arte", "oficinas culturais na escola",
         "arte na escola", "artes na escola", "formacao artistica",
     ],
     "Recomposição das Aprendizagens": [
@@ -1007,8 +1008,56 @@ def extrair_texto_bytes(data: bytes, usar_ocr: bool = True,
         doc.close()
 
 
+# Como o pedido sai para a rede.
+#
+# O 403 que derrubou o dia 19/08/2026 não era instabilidade do TSE nem bloqueio
+# por IP: o domínio inteiro (divulgacandcontas, cdn.tse, www.tse) respondia
+# "Access Denied" para requests e para curl, do runner do Actions e de IP
+# residencial brasileiro, enquanto o navegador abria normalmente. O que separa
+# um do outro é a impressão digital de TLS: o WAF olha a ordem das extensões do
+# handshake, e a da urllib3 não é a de nenhum navegador. Nenhum cabeçalho
+# resolve, porque a recusa acontece antes do HTTP.
+#
+# curl_cffi refaz o handshake com o perfil do Chrome e o mesmo link volta 200
+# com o PDF. Fica opcional: sem o pacote instalado, cai no requests de antes,
+# que funciona sempre que o WAF estiver frouxo.
+_IMPERSONAR = os.getenv("TSE_IMPERSONAR", "chrome124")
+
+
+def _pegador():
+    """Devolve o `get` a usar: o do curl_cffi, se houver, senão o do requests."""
+    if os.getenv("TSE_SEM_IMPERSONAR", "").strip():
+        import requests
+        return requests.get
+    try:
+        from curl_cffi import requests as _cr
+    except Exception:
+        import requests
+        return requests.get
+
+    def _get(url, headers=None, timeout=None, allow_redirects=True, **kw):
+        return _cr.get(url, headers=headers, timeout=timeout,
+                       allow_redirects=allow_redirects,
+                       impersonate=_IMPERSONAR, **kw)
+
+    return _get
+
+
+# Fonte alternativa do PDF, ligada por outros.espelhar_planos.registrar_espelho.
+# Recebe o link do TSE e devolve os bytes da cópia guardada no Drive, ou None
+# quando aquele plano ainda não foi espelhado. Fica como variável de módulo, e
+# não como parâmetro, porque baixar_plano é chamado lá do fundo de
+# extrair_paginas_url e passar a fonte por toda a cadeia mudaria seis
+# assinaturas para um caso só.
+FONTE_ESPELHO = None
+
+
 def baixar_plano(url: str) -> bytes:
     """Baixa o arquivo do plano, repetindo em falha temporária.
+
+    Se houver espelho no Drive para este link, ele vem primeiro: o DivulgaCand
+    responde 403 de WAF por horas seguidas e a releitura de 206 planos não pode
+    depender disso. O TSE continua sendo a fonte de quem ainda não foi copiado.
 
     404/410 é definitivo (o plano não está lá) e sai na hora. Timeout, erro de
     conexão e 5xx são o DivulgaCand fora do ar: repete e, se não voltar,
@@ -1017,6 +1066,14 @@ def baixar_plano(url: str) -> bytes:
     from pathlib import Path
     import re
     import requests
+
+    if FONTE_ESPELHO is not None:
+        try:
+            do_espelho = FONTE_ESPELHO(url)
+        except Exception:
+            do_espelho = None
+        if do_espelho and do_espelho[:1024].lstrip().startswith(b"%PDF"):
+            return do_espelho
 
     if url.startswith("file://"):
         p = Path(url[7:])
@@ -1036,11 +1093,12 @@ def baixar_plano(url: str) -> bytes:
         "Referer": "https://divulgacandcontas.tse.jus.br/divulga/",
         "Origin": "https://divulgacandcontas.tse.jus.br",
     }
+    pegar = _pegador()
     ultimo = None
     for tentativa in range(1, BAIXAR_TENTATIVAS + 1):
         try:
-            r = requests.get(url, headers=headers,
-                             timeout=BAIXAR_TIMEOUT, allow_redirects=True)
+            r = pegar(url, headers=headers,
+                      timeout=BAIXAR_TIMEOUT, allow_redirects=True)
             # 4xx = requisição errada. 403, 408 e 429 são limites/bloqueios transitórios do TSE
             # que costumam responder nas tentativas seguintes com backoff.
             if 400 <= r.status_code < 500 and r.status_code not in (403, 408, 429):

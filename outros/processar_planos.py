@@ -87,7 +87,14 @@ LIMIAR_CHARS = 1500
 # "Aumento do Orçamento que permita o funcionamento de 100% da saúde pública"
 # não tinham onde cair. E Ensino Superior, que morava dentro da descrição de
 # Subiu para 14 em 19/08/2026: inclusão de Educação, Arte e Cultura e Recomposição das Aprendizagens.
-VERSAO_ANALISE = "14"
+# Subiu para 15 no mesmo dia, antes de a leva rodar. Os dois temas novos entraram
+# com descrição que não dizia o que NÃO era deles, e "Educação, Arte e Cultura"
+# ficou disputando a mesma citação com "Cultura", que já existia no eixo de
+# Cultura, esporte e turismo. É o erro que Ensino Superior e Ciência, Tecnologia
+# e Inovação já tinham dado em 10/08, e a correção é a mesma: cada descrição
+# aponta para a outra. "patrimônio cultural" saiu das âncoras do tema escolar
+# pelo mesmo motivo, é política cultural e não escola.
+VERSAO_ANALISE = "15"
 # Subiu para 11 em 09/08/2026: a justificativa passou a receber nome de urna e
 # gênero do cadastro, então fala "a candidata" quando é mulher e alterna o
 # sujeito em vez de abrir toda frase com "o candidato". O painel já corrige isso
@@ -788,6 +795,8 @@ def main() -> int:
                                      os.getenv("COLETA_SHEET_ID", "")),
                    help="ID da planilha (ou env SPREADSHEET_ID_TSE)")
     p.add_argument("--credenciais", default="", help="caminho do credentials.json")
+    p.add_argument("--sem-espelho", action="store_true",
+                   help="ignora a cópia do Drive e baixa sempre do TSE")
     # Refaz só a coerência a partir da análise gravada. É o que torna
     # barato mexer na régua: 79 chamadas em minutos, sem baixar PDF nem
     # reclassificar tema.
@@ -837,6 +846,19 @@ def main() -> int:
     if not fila:
         print("Nada a fazer: tudo já analisado e na versão atual.")
         return 0
+
+    # Cópia do PDF no Drive antes do TSE. Quando a versão da análise sobe, a fila
+    # é a base inteira, e 206 downloads seguidos do DivulgaCand é justamente o
+    # padrão que o WAF dele corta (19/08/2026, dia inteiro em 403). Sem espelho
+    # gravado, isto não faz nada e o download segue como antes.
+    if not args.sem_espelho:
+        try:
+            from outros.espelhar_planos import registrar_espelho
+            n_espelho = registrar_espelho(sh=sh, caminho_credenciais=args.credenciais)
+            if n_espelho:
+                print(f"espelho do Drive ativo para {n_espelho} planos")
+        except Exception as e:
+            print(f"espelho não pôde ser ligado ({str(e)[:120]}); seguindo no TSE")
 
     buffer_a, buffer_c = [], []
     indisponiveis, ilegiveis, erros = [], [], []

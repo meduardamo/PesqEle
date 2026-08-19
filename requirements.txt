@@ -20,3 +20,6 @@ googlenewsdecoder
 apify-client>=1.7.0
 # clipping em PDF do relatorio do Instagram (outros/instagram_relatorio.py)
 fpdf2>=2.7
+# handshake TLS com perfil de navegador: o WAF do TSE recusa o do urllib3
+# (outros/analise_planos.py, _pegador)
+curl_cffi>=0.7

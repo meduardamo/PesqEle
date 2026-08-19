@@ -1,0 +1,62 @@
+name: 24 - Espelhar Planos no Drive
+
+# Copia para o drive compartilhado "Eleições 2026" o PDF de cada plano de
+# governo registrado no TSE, e guarda no Drive a revisão anterior quando o
+# candidato registra um plano novo.
+#
+# Roda antes do workflow 14: com a cópia no Drive, a releitura dos planos deixa
+# de depender do DivulgaCand estar respondendo. Quem já foi copiado e não trocou
+# de link é pulado sem download, então a rodada diária é curta.
+
+on:
+  schedule:
+    # 04:40 BRT, uma hora e pouco antes do primeiro horário do workflow 14, para
+    # que a análise do dia já encontre o espelho atualizado. Minuto fora do :00
+    # pelo mesmo motivo dos outros: é quando o Actions mais enfileira.
+    - cron: '40 7 * * *'
+
+  repository_dispatch:
+    types: [espelhar-planos]
+
+  workflow_dispatch:
+    inputs:
+      uf:
+        description: 'Restringe a uma UF (vazio = todas)'
+        required: false
+        default: ''
+      forcar:
+        description: 'Rebaixa tudo e compara pelo sha256'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: espelhar-planos
+  cancel-in-progress: false
+
+jobs:
+  espelhar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # curl_cffi: o WAF do TSE recusa o handshake TLS do urllib3 e devolve 403
+      # no domínio inteiro. Ver o comentário em analise_planos._pegador.
+      - run: pip install gspread google-auth google-api-python-client PyMuPDF pandas curl_cffi
+
+      - name: Escrever credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+
+      - name: Espelhar planos
+        env:
+          PYTHONUNBUFFERED: "1"
+          SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
+        run: |
+          python -m outros.espelhar_planos \
+            ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }} \
+            ${{ inputs.forcar == true && '--forcar' || '' }}
