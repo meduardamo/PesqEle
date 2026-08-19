@@ -1,12 +1,10 @@
 name: 12 - TSE Atas
 
+# Desativado em 19/08/2026: o período de convenções partidárias já foi encerrado.
+# on:
+#   schedule:
+#     - cron: '40 * * * *'
 on:
-  schedule:
-    # Atas de convenção no DivulgaCand. Rodada horária, mas só baixa/reparseia
-    # PDF de ata nova ou ressincronizada (dtSincronizacao); o resto reaproveita
-    # o que já está na planilha. Minuto fora do :00 porque é quando o Actions
-    # mais enfileira as rodadas agendadas.
-    - cron: '40 * * * *'
   workflow_dispatch:
 
 # Rodada agendada atrasa (o Actions enfileira de 25 a 250 min) e pode alcançar a
