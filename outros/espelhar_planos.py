@@ -211,6 +211,35 @@ def nome_arquivo(uf: str, nome: str, partido: str, sq: str) -> str:
 
 # ── Envio ─────────────────────────────────────────────────────────────────────
 
+def liberar_leitura(drive, file_id: str) -> bool:
+    """Deixa o PDF abrir por link, sem login.
+
+    Por que: o painel passou a apontar para a cópia do Drive em vez do link do
+    TSE. O TSE serve o arquivo com `Content-Disposition: attachment`, então o
+    navegador baixa em vez de abrir e o clique parece não fazer nada; a cópia do
+    Drive abre no visualizador. Só que o drive é compartilhado e a conta de
+    serviço é a dona, então sem esta permissão quem abre o painel vê pedido de
+    acesso.
+
+    São documentos públicos: plano de governo registrado no TSE, que qualquer
+    pessoa baixa do DivulgaCand. O que muda é de onde vem o arquivo.
+
+    Idempotente: repetir devolve a mesma permissão `anyoneWithLink`.
+    """
+    try:
+        com_retentativa(
+            f"liberação de leitura de {file_id}",
+            lambda: drive.permissions().create(
+                fileId=file_id, body={"role": "reader", "type": "anyone"},
+                supportsAllDrives=True, fields="id",
+            ).execute(),
+        )
+        return True
+    except Exception as e:
+        log(f"    não consegui liberar leitura ({str(e)[:120]})")
+        return False
+
+
 def enviar_ou_atualizar(drive, dados: bytes, nome: str, pasta: str,
                         drive_id: str = "") -> dict:
     """Cria o PDF na pasta, ou grava uma revisão nova do que já está lá.
@@ -243,6 +272,7 @@ def enviar_ou_atualizar(drive, dados: bytes, nome: str, pasta: str,
                 fields="id,webViewLink",
             ).execute(),
         )
+    liberar_leitura(drive, arq["id"])
     return arq
 
 
@@ -362,6 +392,8 @@ def main() -> int:
     ap.add_argument("--limite", type=int, default=0)
     ap.add_argument("--forcar", action="store_true",
                     help="rebaixa tudo e compara pelo sha256")
+    ap.add_argument("--publicar", action="store_true",
+                    help="só garante leitura por link em tudo o que já está no Drive")
     ap.add_argument("--credenciais", default="")
     args = ap.parse_args()
 
@@ -378,6 +410,24 @@ def main() -> int:
         raise SystemExit(f"A aba {ABA_BASE} está vazia ou sem LINK_PLANO.")
     salvos = ler_aba(sh, ABA_ARQUIVOS)
     ws = aba_ou_cria(sh, ABA_ARQUIVOS, COLS)
+
+    if args.publicar:
+        # Conserto de quem foi espelhado antes de a liberação existir. É
+        # idempotente: a API devolve a mesma permissão `anyoneWithLink` quando
+        # ela já está lá, então rodar de novo não custa nada além das chamadas.
+        if salvos.empty:
+            log("nada espelhado ainda.")
+            return 0
+        ids = [str(r.get("drive_id", "")).strip() for _, r in salvos.iterrows()]
+        ids = [i for i in ids if i]
+        ok = 0
+        for n, fid in enumerate(ids, start=1):
+            if liberar_leitura(drive, fid):
+                ok += 1
+            if n % 25 == 0:
+                log(f"  {n}/{len(ids)}")
+        log(f"leitura por link garantida em {ok} de {len(ids)}.")
+        return 0
 
     fila = montar_fila(base, salvos, args.cargo, args.uf, args.sq, args.forcar)
     if args.limite:
