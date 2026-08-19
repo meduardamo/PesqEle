@@ -1463,6 +1463,82 @@ def _paginas_de_um_pedaco(paginas_norm: list[str], trecho: str,
     return [i + 1 for i, s in enumerate(escores) if s >= melhor * 0.9][:limite]
 
 
+# Quanto do plano vai junto do trecho. 1.400 caracteres é o que cabe numa
+# leitura sem rolar muito e costuma pegar o item inteiro da lista ou o parágrafo
+# em volta, que é o que a citação de uma frase corta pela metade.
+CHARS_CONTEXTO = 1400
+
+
+def contexto_do_trecho(paginas: list[str], paginas_norm: list[str],
+                       trecho: str, chars: int = CHARS_CONTEXTO) -> str:
+    """O texto do plano em volta da citação, para ler sem abrir o PDF.
+
+    Existe por reclamação do Felipe em 19/08/2026, repassada pela Lemann: o
+    painel mostra a frase que sustenta a classificação e, para entender o que
+    o plano diz de verdade sobre o tema, é preciso baixar o PDF. A frase é curta
+    porque o prompt pede citação, não resumo; o problema não é o tamanho da
+    caixa na tela, é que a frase sozinha não conta a proposta.
+
+    Devolve um pedaço contínuo da MESMA página onde a citação está, com a
+    citação dentro. Não tenta remontar citação que junta partes distantes: nesse
+    caso pega o entorno da primeira parte, que é onde a leitura começa. Vazio
+    quando a citação não foi localizada no PDF, e aí não há entorno a mostrar.
+    """
+    pedacos = _pedacos_de_citacao(trecho)
+    longos = [p for p in pedacos if len(p.split()) >= 4]
+    if not longos:
+        return ""
+    alvo = _sem_espaco(_norm_busca(longos[0]))
+    if not alvo:
+        return ""
+
+    for bruta, norm in zip(paginas, paginas_norm):
+        if not bruta or not norm:
+            continue
+        # A busca acontece no texto sem espaço (como em verificar_trecho), e a
+        # posição precisa voltar para o texto original. O mapa liga cada
+        # caractere sem espaço ao índice de onde ele veio.
+        mapa, compacto = [], []
+        for i, c in enumerate(_norm_busca(bruta)):
+            if not c.isspace():
+                compacto.append(c)
+                mapa.append(i)
+        pos = "".join(compacto).find(alvo)
+        if pos < 0:
+            continue
+        ini_orig = mapa[pos]
+        fim_orig = mapa[min(pos + len(alvo) - 1, len(mapa) - 1)] + 1
+        # A normalização de _norm_busca preserva o comprimento (tira acento,
+        # baixa a caixa), então o índice vale no texto original da página.
+        sobra = max(0, chars - (fim_orig - ini_orig))
+        ini = max(0, ini_orig - sobra // 2)
+        fim = min(len(bruta), fim_orig + sobra // 2)
+        # Fecha em fronteira de frase, para o pedaço não começar no meio de uma
+        # palavra. Se não houver ponto por perto, corta onde estava mesmo.
+        corte = bruta.rfind(". ", ini, ini_orig)
+        if corte != -1 and ini_orig - corte < 400:
+            ini = corte + 2
+        # No fim, fecha na ÚLTIMA frase que cabe na janela, não na primeira
+        # depois da citação: fechar na primeira devolvia o entorno cortado logo
+        # ali, e o pedido era justamente ver mais do plano.
+        corte = bruta.rfind(". ", fim_orig, fim)
+        if corte != -1 and fim - corte < 400:
+            fim = corte + 1
+        else:
+            corte = bruta.find(". ", fim, fim + 300)
+            if corte != -1:
+                fim = corte + 1
+        pedaco = " ".join(bruta[ini:fim].split())
+        # O PDF quebra palavra no fim da linha e a extração vira "produ- tores".
+        # Sem juntar, o entorno chega à tela com a palavra partida.
+        pedaco = re.sub(r"(\w)- (\w)", r"\1\2", pedaco)
+        if not pedaco:
+            return ""
+        return (("… " if ini > 0 else "") + pedaco
+                + (" …" if fim < len(bruta) else ""))
+    return ""
+
+
 def extrair_texto_url(url: str, usar_ocr: bool = True) -> str:
     """Baixa o PDF do link (coluna LINK_PLANO) e extrai o texto, na hora da análise."""
     return extrair_texto_bytes(baixar_plano(url), usar_ocr=usar_ocr)

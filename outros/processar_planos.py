@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analise_planos import (  # noqa: E402
     NIVEIS, NIVEIS_LEGADO, TEMAS, PlanoIndisponivel, RespostaIlegivel,
     _norm_busca, _sem_espaco, citacao_sustenta, classificar_plano, resumir_plano,
+    contexto_do_trecho,
     contexto_do_tema, contexto_do_vocabulario, posicoes_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
     normalizar_responsavel, tem_alvo_mensuravel, tema_e_item_de_enumeracao,
@@ -114,10 +115,14 @@ VERSAO_ANALISE = "15"
 # de cada plano, então nada de antes serve.
 VERSAO_COERENCIA = "13"
 
+# `contexto` entrou em 19/08/2026: o texto do plano em volta da citação, para o
+# painel mostrar a proposta inteira sem obrigar a abrir o PDF. Fica na análise, e
+# não é calculado na visita, pelo mesmo motivo de `pagina`: o PDF já está aberto
+# aqui, e lá custaria um download de até 10 MB por pessoa que abre a página.
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
-        "tema", "nivel", "trecho", "responsavel", "prazo", "publico_alvo",
-        "programa_nome", "pagina", "verificacao", "entes", "chars",
-        "chars_analisados", "versao", "analisado_em"]
+        "tema", "nivel", "trecho", "contexto", "responsavel", "prazo",
+        "publico_alvo", "programa_nome", "pagina", "verificacao", "entes",
+        "chars", "chars_analisados", "versao", "analisado_em"]
 # score_coerencia saiu em 10/08/2026 e a coluna fica, vazia, para não quebrar
 # quem já leu a aba. O que a tela usa agora é `resumo`, que descreve o plano em
 # vez de justificar um número.
@@ -566,6 +571,10 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
 
     linhas = [dict(comum, tema=tema, versao=VERSAO_ANALISE,
                    nivel=res["nivel"], trecho=res["trecho"],
+                   # O entorno da citação no PDF. Vazio quando a citação não foi
+                   # localizada, que é o mesmo caso em que `pagina` fica vazia.
+                   contexto=contexto_do_trecho(paginas, paginas_norm,
+                                               res["trecho"]),
                    responsavel=res.get("responsavel", ""),
                    # `responsavel` é texto livre e chegou a 198 valores
                    # distintos. `entes` é a mesma informação reduzida à esfera
