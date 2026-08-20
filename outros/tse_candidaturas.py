@@ -274,6 +274,13 @@ def _id_plano(detalhe):
               if str(f.get('codTipo')) == "5" and f.get('idArquivo')]
     if not planos:
         return None
+    
+    if len(planos) > 1:
+        bad_words = ["requerimento", "manifesta", "peti", "juntada"]
+        planos_bons = [f for f in planos if not any(w in f.get('nome', '').lower() for w in bad_words)]
+        if planos_bons:
+            planos = planos_bons
+
     return max(planos, key=lambda f: int(f['idArquivo']))['idArquivo']
 
 
