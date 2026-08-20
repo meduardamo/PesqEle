@@ -19,7 +19,7 @@ import zipfile
 from pathlib import Path
 
 import gspread
-import requests
+from curl_cffi import requests
 import pandas as pd
 
 from compartilhado.relatorios_sheets_utils import reescrever_aba
@@ -62,7 +62,7 @@ def _get(url):
     # falharam em 22/07 com 3 tentativas de 1s; a rodada seguinte passava).
     for tentativa in range(1, 6):
         try:
-            r = requests.get(url, headers=HEADERS, timeout=40)
+            r = requests.get(url, headers=HEADERS, timeout=40, impersonate="chrome")
             r.raise_for_status()
             time.sleep(PAUSA)
             return r.json()

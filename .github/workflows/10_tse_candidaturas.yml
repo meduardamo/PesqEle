@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install gspread requests pandas
+      - run: pip install gspread requests pandas curl_cffi
 
       - name: Escrever credentials.json
         run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
