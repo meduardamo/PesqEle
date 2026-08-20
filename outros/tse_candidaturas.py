@@ -50,6 +50,12 @@ CARGOS_VINCULADOS = (2, 4, 9, 10)
 CARGOS_PROPORCIONAIS = (6, 7, 8)   # deputado federal, estadual, distrital
 CARGOS_PADRAO = CARGOS_TITULARES + CARGOS_VINCULADOS + CARGOS_PROPORCIONAIS
 
+# Palavras dos arquivos que o TSE marca como proposta de governo (codTipo 5) mas
+# são peça de advogado, não plano. Comparadas sem acento e em minúscula.
+PECA_PROCESSUAL = ("requerimento", "manifesta", "peticao", "juntada",
+                   "procuracao", "substabelecimento", "despacho", "certidao")
+NOME_DE_PLANO = ("plano", "proposta", "programa", "diretriz")
+
 
 def _get(url):
     # 5 tentativas com backoff: a API do TSE tem blips curtos (2 rodadas
@@ -274,14 +280,23 @@ def _id_plano(detalhe):
               if str(f.get('codTipo')) == "5" and f.get('idArquivo')]
     if not planos:
         return None
-    
-    if len(planos) > 1:
-        bad_words = ["requerimento", "manifesta", "peti", "juntada"]
-        planos_bons = [f for f in planos if not any(w in f.get('nome', '').lower() for w in bad_words)]
-        if planos_bons:
-            planos = planos_bons
 
-    return max(planos, key=lambda f: int(f['idArquivo']))['idArquivo']
+    def _nome(f):
+        return unicodedata.normalize("NFKD", f.get('nome') or "") \
+                          .encode("ascii", "ignore").decode().lower()
+
+    # O advogado protocola a petição de juntada com o MESMO codTipo 5 do plano,
+    # e ela entra depois (idArquivo maior). Moro e Hildon Chaves em 20/08/2026:
+    # o robô leu 771 e 465 caracteres de petição no lugar do plano inteiro.
+    peticao = [f for f in planos if any(w in _nome(f) for w in PECA_PROCESSUAL)]
+    plano = [f for f in planos if any(w in _nome(f) for w in NOME_DE_PLANO)]
+
+    # Nome que diz "plano"/"proposta" ganha de tudo; senão, vale qualquer um que
+    # não seja petição; se só sobrou petição, devolve ela e a extração pobre do
+    # processar_planos barra a análise (melhor pular do que analisar petição).
+    escolha = [f for f in plano if f not in peticao] or \
+              [f for f in planos if f not in peticao] or planos
+    return max(escolha, key=lambda f: int(f['idArquivo']))['idArquivo']
 
 
 CREDS_FILE = Path("credentials.json")
