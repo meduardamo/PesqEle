@@ -28,7 +28,7 @@ jobs:
       - name: Checkout site (planos-governo-2026)
         uses: actions/checkout@v4
         with:
-          repository: eixo-eleicoes/planos-governo-2026
+          repository: eleicoes2026-dados/planos-governo-2026
           token: ${{ secrets.PAT_GITHUB }}
           path: site
 
