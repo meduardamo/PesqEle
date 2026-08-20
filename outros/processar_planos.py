@@ -130,13 +130,13 @@ VERSAO_COERENCIA = "13"
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "contexto", "responsavel", "prazo",
         "publico_alvo", "programa_nome", "pagina", "verificacao", "entes",
-        "chars", "chars_analisados", "versao", "analisado_em"]
+        "chars", "chars_analisados", "versao", "analisado_em", "resumos_eixos"]
 # score_coerencia saiu em 10/08/2026 e a coluna fica, vazia, para não quebrar
 # quem já leu a aba. O que a tela usa agora é `resumo`, que descreve o plano em
 # vez de justificar um número.
 COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
             "resumo", "pontes", "score_coerencia", "justificativa_coerencia",
-            "chars", "chars_analisados", "versao", "analisado_em"]
+            "chars", "chars_analisados", "versao", "analisado_em", "resumos_eixos"]
 
 # Só 2026. A aba planos_2022 continua na planilha, mas saiu do fluxo.
 ANO = "2026"
@@ -603,7 +603,8 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
               for tema, res in classif.items()]
     linha_coe = dict(comum, versao=VERSAO_COERENCIA,
                      resumo=coe["resumo"],
-                     pontes=coe.get("pontes_texto", ""))
+                     pontes=coe.get("pontes_texto", ""),
+                     resumos_eixos=coe.get("resumos_eixos", ""))
     return linhas, linha_coe, ""
 
 
@@ -684,6 +685,7 @@ def refazer_coerencia(sh, uf: str = "", limite: int = 0, sq: str = "") -> int:
             "cargo": primeira.get("cargo", ""), "link": primeira.get("link", ""),
             "resumo": coe["resumo"],
             "pontes": coe.get("pontes_texto", ""),
+            "resumos_eixos": coe.get("resumos_eixos", ""),
             "chars": primeira.get("chars", ""),
             "chars_analisados": primeira.get("chars_analisados", ""),
             "versao": VERSAO_COERENCIA, "analisado_em": agora,
