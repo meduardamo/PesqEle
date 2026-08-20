@@ -10,8 +10,11 @@ on:
     # trabalho, para pegar o que o monitoramento preencheu de manhã e de tarde.
     # Rodada agendada só sincroniza (veja o --so-sync forçado lá embaixo);
     # transcrição continua saindo no botão.
+    - cron: '17 10 * * *'   # 07:17 Brasil
     - cron: '17 12 * * *'   # 09:17 Brasil
+    - cron: '17 15 * * *'   # 12:17 Brasil
     - cron: '17 21 * * *'   # 18:17 Brasil
+    - cron: '17 1 * * *'    # 22:17 Brasil (do dia anterior/noite)
 
   workflow_dispatch:
     inputs:
