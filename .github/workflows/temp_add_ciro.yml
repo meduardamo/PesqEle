@@ -1,4 +1,4 @@
-name: Temp Add Ciro Fixed
+name: Temp Add Ciro Final
 on:
   push:
     branches:
@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install gspread google-auth
-      - run: python add_ciro_fixed.py
+      - run: python add_ciro_final.py
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID_INTERNO: ${{ secrets.SPREADSHEET_ID_INTERNO }}
