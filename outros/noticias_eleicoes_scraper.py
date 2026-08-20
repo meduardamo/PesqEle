@@ -1427,7 +1427,6 @@ def _html_alertas(alertas, agora):
         {agora.strftime('%d/%m/%Y %H:%M')} · {len(alertas)} alerta(s) novo(s)
       </div>
       <div style="background:#eef0f6;border-left:3px solid {EIXO_MARINHO};padding:10px 12px;margin:0 0 16px 0;font-size:13px">
-        <strong style="color:{EIXO_MARINHO}">Plantão agora:</strong> {', '.join(plantao(agora))}.
         O texto pronto pra WhatsApp de cada alerta está na coluna <b>resumo</b> da aba
         <b>noticias</b>, e no botão de envelope do
         <a href="{PAINEL_URL}" style="color:{EIXO_MARINHO}">painel interno</a>.
