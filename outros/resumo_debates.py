@@ -803,7 +803,7 @@ def rodar_fila(args):
     from outros.transcricao_debates import (COL, PLANILHA, clientes_google,
                                             com_retentativa, escrever_celula,
                                             enviar_drive, pasta_do_debate)
-    aba_alvo = "sabatinas" if args.sabatina else "debates"
+    aba_alvo = "eventos"
     
     if not PLANILHA:
         sys.exit("defina SPREADSHEET_ID_DEBATES (secret do repo).")
