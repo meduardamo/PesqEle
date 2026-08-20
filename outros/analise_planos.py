@@ -2593,6 +2593,57 @@ def pontes_de_programa(classif: dict) -> dict:
     return {rotulo.get(p, p): t for p, t in juntos.items() if len(t) >= 2}
 
 
+
+
+def gerar_resumos_eixos(classif: dict, temas: dict = TEMAS, nome: str = "", genero: str = "") -> dict:
+    from google.genai import types
+    import json
+    
+    eixos_validos = {}
+    for tema, result in classif.items():
+        nivel = result.get("nivel")
+        if nivel and nivel not in ["Não menciona", ""]:
+            eixo = EIXO_DO_TEMA.get(tema, "Outros")
+            if eixo != "Outros":
+                eixos_validos.setdefault(eixo, {})[tema] = result
+                
+    if not eixos_validos:
+        return {}
+        
+    prompt = (
+        "Você é repórter de política escrevendo resumos jornalísticos (estilo G1/Folha) "
+        "sobre as propostas de um candidato, divididas por eixos temáticos.\n\n"
+        "Para CADA eixo, escreva um texto corrido de até 3 frases. Regras:\n"
+        "1. Comece resumindo o foco principal do candidato para a área (Ex: 'O plano foca em...', 'A proposta tem como principais eixos...').\n"
+        "2. Use verbos objetivos (propõe, defende, prioriza, prevê, centra-se). Sem adjetivos ou jargões.\n"
+        "3. Vá direto para as propostas concretas: números, programas, metas e prazos (ex: 'fixar piso salarial de R$ 8,5 mil', 'implantação de prontuário eletrônico').\n"
+        "4. Texto corrido e fluido. Use conectivos ('Entre as ações previstas estão...', 'Também prevê...'). SEM BULLET POINTS, sem listas.\n"
+        "5. NUNCA cite os nomes dos temas usados na grade desta análise.\n\n"
+        + _regras_sujeito(nome, genero) +
+        f"\n\n{RESTRICOES_LINGUAGEM}\n\n"
+        "DADOS DO CANDIDATO POR EIXO:\n"
+    )
+    
+    for eixo, tms in eixos_validos.items():
+        prompt += f"\nEixo: {eixo}\n"
+        for t, res in tms.items():
+            prompt += f"  - {t}: {res.get('trecho')}\n"
+            
+    prompt += "\nResponda APENAS um objeto JSON com as chaves sendo o nome de cada eixo acima e os valores sendo o resumo gerado."
+    
+    resp = _gemini_client().models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
+    try:
+        raw_text = (getattr(resp, "text", "") or "").strip()
+        data = _carregar_json(raw_text, "resposta")
+        # Remove empty or non-string values
+        return {k: _limpa(v, n=800) for k, v in data.items() if isinstance(v, str) and v.strip()}
+    except Exception as e:
+        print(f"(erro ao gerar resumos de eixo: {e})", end=" ", flush=True)
+        return {}
 def resumir_plano(classif: dict, temas: dict = TEMAS,
                   nome: str = "", genero: str = "") -> dict:
     """Escreve o resumo do plano, em 3 ou 4 frases, e devolve as pontes.
@@ -2702,11 +2753,16 @@ def resumir_plano(classif: dict, temas: dict = TEMAS,
             print("(continuou nomeando tema)", end=" ", flush=True)
 
     citacoes = [(classif.get(t) or {}).get("trecho", "") for t in temas]
+    
+    # Gera os resumos de cada eixo usando a nova funcionalidade
+    resumos_eixos = gerar_resumos_eixos(classif, temas, nome, genero)
+    
     return {"resumo": tirar_aspas_sem_lastro(resumo, citacoes),
             "pontes": pontes,
             "pontes_texto": " | ".join(
                 f"{n}: {', '.join(sorted(t))}"
-                for n, t in sorted(pontes.items(), key=lambda x: -len(x[1])))}
+                for n, t in sorted(pontes.items(), key=lambda x: -len(x[1]))),
+            "resumos_eixos": __import__('json').dumps(resumos_eixos, ensure_ascii=False) if resumos_eixos else ""}
 
 
 def sintetizar_comparacao(candidatos_info: list, tema: str) -> str:
