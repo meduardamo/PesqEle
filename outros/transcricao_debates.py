@@ -178,7 +178,7 @@ Regras:
 # 09/08 voltou inteiro como "[01:56.00] FERNANDO HADDAD: ...", e as 96 linhas
 # foram descartadas por causa do ".00". Eram 10 minutos de debate.
 RE_LINHA = re.compile(
-    r"^\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?\]\s*([^:]{1,60}?)\s*:\s*(.+)$")
+    r"^\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?\]\s*([^:\[\]]{1,60}?)\s*:\s*(.+)$")
 
 _T0 = time.time()
 
@@ -431,8 +431,16 @@ def transcrever(client, arq, contexto, uso):
 # Marcador de fala no meio da linha, para reparar bloco que voltou sem quebra
 # de linha nenhuma. Exige o nome e os dois pontos depois do tempo, senão um
 # "[00:15]" citado dentro da fala também viraria troca de turno.
+#
+# O nome não pode ter colchete. Sem essa restrição ele atravessa o timestamp
+# seguinte e engole o marcador de verdade: na sabatina do PontoPoder de 20/08
+# o trecho "[06:27] no ensino médio do Ceará. [06:28] JORNALISTA:" casou de
+# uma vez só, a quebra entrou antes do [06:27] e não antes do [06:28], e a
+# fala do jornalista virou uma linha com falante "NO ENSINO MÉDIO DO CEARÁ.
+# [06". Só acontece quando o tempo solto no meio da fala está a menos de 60
+# caracteres do próximo marcador, que é o que torna isso raro e difícil de ver.
 RE_MARCADOR = re.compile(
-    r"(?<!^)\s*(\[\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?\]\s*[^:\n]{1,60}?\s*:)")
+    r"(?<!^)\s*(\[\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?\]\s*[^:\n\[\]]{1,60}?\s*:)")
 
 # Variante sem colchete, "02:08 - MATEUS SIMÕES:", às vezes com a fala só na
 # linha seguinte e entre aspas. Foi como voltou o bloco 11 do debate de MG de

@@ -71,6 +71,24 @@ def test_timestamp_citado_dentro_da_fala_nao_parte_o_turno():
     assert "[00:15]" in linhas[0]["fala"]
 
 
+def test_tempo_solto_perto_do_marcador_nao_rouba_a_fala_seguinte():
+    """Sabatina do PontoPoder de 20/08: um turno inteiro foi para o falante errado.
+
+    O modelo pôs um tempo solto no meio da fala do Ciro e o marcador do
+    jornalista veio 29 caracteres depois. O nome do falante podia conter
+    colchete, então casou de "[06:27]" até os dois pontos de "[06:28]", a
+    quebra entrou no lugar errado e a pergunta do jornalista saiu com falante
+    "NO ENSINO MÉDIO DO CEARÁ. [06".
+    """
+    linhas, _, _ = parsear(
+        "[06:20] CIRO GOMES: a grande novidade [06:27] no ensino médio do "
+        "Ceará. [06:28] JORNALISTA: Candidato, a chapa do senhor não tem "
+        "mulheres.", 0, None)
+    assert [l["falante"] for l in linhas] == ["CIRO GOMES", "JORNALISTA"]
+    assert linhas[0]["fala"].endswith("no ensino médio do Ceará.")
+    assert linhas[1]["fala"].startswith("Candidato,")
+
+
 def test_formato_normal_continua_igual():
     linhas, ignoradas, _ = parsear(
         "[00:00] A: um\n[00:05] B: dois\n[01:00] A: três", 0, None)
