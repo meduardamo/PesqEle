@@ -490,12 +490,15 @@ def para_conferir(por_eixo_achados, quantos=5):
             for eixo, a in escolhidas]
 
 
-def titulo(meta):
+def titulo(meta, eh_sabatina=False):
     ordem = meta.get("ordinal")
-    qual = f"{ORDINAIS[ordem - 1]} debate" if ordem and ordem <= len(ORDINAIS) else "Debate"
+    if eh_sabatina:
+        qual = "Sabatina"
+    else:
+        qual = f"{ORDINAIS[ordem - 1]} debate" if ordem and ordem <= len(ORDINAIS) else "Debate"
     emissora = (meta.get("emissora") or "").strip()
     data = (meta.get("data") or "").strip()
-    t = f"Resumo do {qual} {cargo_por_extenso(meta.get('cargo'), meta.get('uf'))}"
+    t = f"Resumo da {qual} {cargo_por_extenso(meta.get('cargo'), meta.get('uf'))}" if eh_sabatina else f"Resumo do {qual} {cargo_por_extenso(meta.get('cargo'), meta.get('uf'))}"
     if emissora:
         t += f", {emissora}"
     if data:
