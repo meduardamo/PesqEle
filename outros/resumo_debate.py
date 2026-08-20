@@ -223,9 +223,9 @@ def calcular_metricas_debate(linhas: List[Dict[str, Any]]) -> Dict[str, Any]:
 # 3. PROMPT E GERAÇÃO DO RESUMO EXECUTIVO (GEMINI)
 # ==============================================================================
 
-PROMPT_RESUMO_EXECUTIVO = """Você é um analista político sênior responsável por redigir resumos executivos de debates eleitorais para envio direto a clientes corporativos e institucionais.
+PROMPT_RESUMO_EXECUTIVO = """Você é um analista político sênior responsável por redigir resumos executivos de eventos eleitorais para envio direto a clientes corporativos e institucionais.
 
-Use as informações consolidadas e a transcrição fornecida para redigir um RESUMO EXECUTIVO do debate.
+Use as informações consolidadas e a transcrição fornecida para redigir um RESUMO EXECUTIVO do evento.
 
 DIRETRIZES DE FORMATO E ESTILO:
 - Escreva em português, em texto corrido (NÃO utilize bullets, listas, travessões de tópicos ou marcadores).
@@ -234,22 +234,22 @@ DIRETRIZES DE FORMATO E ESTILO:
 - Siga ESTRITAMENTE a seguinte estrutura de 4 seções:
 
 1. Parágrafo de abertura:
-   - Quem debateu (nome completo e candidatura/cargo de cada candidato).
-   - Data do debate, veículo/emissora e nome do mediador.
-   - Duração total e tempo de fala de cada candidato (utilize os dados exatos informados abaixo em minutos e percentual).
-   - Tom geral do debate (cordial, agressivo, técnico, confrontador etc.).
+   - Quem participou (nome completo e candidatura/cargo).
+   - Data do evento, veículo/emissora e nome do(s) entrevistador(es)/mediador(es).
+   - Duração total{tempo_candidato}.
+   - Tom geral do evento.
 
-2. Parágrafo com o ranking dos 5 a 8 temas mais debatidos:
+2. Parágrafo com o ranking dos 5 a 8 temas mais abordados:
    - Cite os principais temas em ordem decrescente de tempo/menções, mencionando a minutagem estimada de cada um (utilize os números da medição fornecida).
 
-3. Um parágrafo para cada um dos principais temas debatidos (do mais para o menos debatido):
+3. Um parágrafo para cada um dos principais temas abordados (do mais para o menos abordado):
    - Comece o parágrafo com o nome do tema em negrito (exemplo: **Segurança pública —** texto...).
-   - Explique a posição e os principais argumentos de cada candidato sobre esse tema, incluindo números, dados ou programas que cada um citou.
-   - Aponte o principal ponto de divergência, confronto ou réplica entre os candidatos.
+   - Explique a posição e os principais argumentos expostos sobre esse tema, incluindo números, dados ou programas citados.
+{confronto_candidatos}
 
 4. Parágrafo de fechamento:
-   - Avaliação geral: o debate trouxe propostas novas ou foi dominado por ataques e defesa de históricos de gestão?
-   - Como foi o encerramento (cordial, tenso, respeitoso)?
+   - Avaliação geral: o evento trouxe propostas novas ou foi dominado por defesa de históricos de gestão e respostas defensivas?
+   - Como foi o encerramento?
 
 DIRETRIZES ANTI-CLICHÊ DE IA (GUIA PROF. RAFAEL SAMPAIO):
 - NÃO utilize adjetivos inflados/vagos: proibido "crucial", "fundamental", "essencial", "significativo", "robusto", "estratégico", "disruptivo", "valioso", "emblemático", "meticuloso", "notável", "profundo", "inovador".
@@ -267,7 +267,7 @@ REGRAS CRÍTICAS DE CONTEÚDO:
 - AO FINAL DA RESPOSTA (separado por uma linha horizontal ---), liste exatamente os 5 números ou trechos mais importantes utilizados no texto, com o timestamp aproximado [MM:SS] em que aparecem na transcrição, para conferência rápida.
 
 ---
-DADOS CONSOLIDADOS DO DEBATE:
+DADOS CONSOLIDADOS DO EVENTO:
 - Título/Contexto: {contexto}
 - Duração total calculada: ~{duracao_total} minutos
 - Tempo de fala medido:
@@ -285,11 +285,22 @@ def formatar_prompt(
     contexto: str,
     metricas: Dict[str, Any],
     linhas_transcricao: List[Dict[str, Any]],
+    eh_sabatina: bool = False,
 ) -> str:
-    cands_str = "\n".join(
-        f"  * {c['nome']}: {c['minutos']} min ({c['percentual']}% do tempo entre candidatos, {c['palavras']} palavras)"
-        for c in metricas.get("candidatos", [])
-    )
+    if eh_sabatina:
+        cands_str = "\n".join(
+            f"  * {c['nome']}: {c['minutos']} min ({c['palavras']} palavras)"
+            for c in metricas.get("candidatos", [])
+        )
+        tempo_candidato = " e tempo de fala do candidato (utilize o tempo medido)"
+        confronto_candidatos = ""
+    else:
+        cands_str = "\n".join(
+            f"  * {c['nome']}: {c['minutos']} min ({c['percentual']}% do tempo entre candidatos, {c['palavras']} palavras)"
+            for c in metricas.get("candidatos", [])
+        )
+        tempo_candidato = " e tempo de fala de cada candidato (utilize os dados exatos informados abaixo em minutos e percentual)"
+        confronto_candidatos = "   - Aponte o principal ponto de divergência, confronto ou réplica entre os candidatos."
 
     temas_str = "\n".join(
         f"  {i+1}. {t['tema']} (~{t['minutos']} min, {t['qtd_falas']} falas)"
@@ -303,6 +314,8 @@ def formatar_prompt(
             amostras.append(f"[{tr['tempo']}] {tr['falante']}: {tr['fala'][:350]}")
 
     return PROMPT_RESUMO_EXECUTIVO.format(
+        tempo_candidato=tempo_candidato,
+        confronto_candidatos=confronto_candidatos,
         contexto=contexto.strip(),
         duracao_total=metricas.get("duracao_total_min", 0),
         metricas_candidatos=cands_str,
@@ -315,6 +328,7 @@ def gerar_resumo_debate(
     linhas_csv: List[Dict[str, Any]],
     contexto: str = "Debate Eleitoral 2026",
     api_key: str | None = None,
+    eh_sabatina: bool = False,
 ) -> str:
     chave = api_key or os.getenv("GEMINI_API_KEY", "")
     if not chave:
@@ -322,7 +336,7 @@ def gerar_resumo_debate(
 
     linhas_limpas = limpar_classificacao_procedimental(linhas_csv)
     metricas = calcular_metricas_debate(linhas_limpas)
-    prompt = formatar_prompt(contexto, metricas, linhas_limpas)
+    prompt = formatar_prompt(contexto, metricas, linhas_limpas, eh_sabatina=eh_sabatina)
 
     client = genai.Client(api_key=chave)
     resposta = client.models.generate_content(
@@ -346,6 +360,7 @@ def main():
     parser.add_argument("--contexto", default="Debate ao Governo de São Paulo — Band, 09/08/2026", help="Título/contexto do debate")
     parser.add_argument("--saida", default=None, help="Caminho para salvar o resumo em Markdown (.md)")
     parser.add_argument("--apenas-metricas", action="store_true", help="Apenas calcula e exibe as métricas de tempo e temas")
+    parser.add_argument("--sabatina", action="store_true", help="O evento é uma sabatina (apenas um candidato)")
     args = parser.parse_args()
 
     if not args.csv:
@@ -364,12 +379,15 @@ def main():
     metricas = calcular_metricas_debate(linhas_limpas)
 
     print("\n" + "=" * 60)
-    print("MÉTRICAS DO DEBATE")
+    print("MÉTRICAS DO EVENTO")
     print("=" * 60)
     print(f"Duração total estimada: {metricas.get('duracao_total_min')} min")
-    print("\nTempos por candidato:")
+    print("\nTempos de fala:")
     for c in metricas.get("candidatos", []):
-        print(f"  - {c['nome']}: {c['minutos']} min ({c['percentual']}%) | {c['palavras']} palavras")
+        if args.sabatina:
+            print(f"  - {c['nome']}: {c['minutos']} min | {c['palavras']} palavras")
+        else:
+            print(f"  - {c['nome']}: {c['minutos']} min ({c['percentual']}%) | {c['palavras']} palavras")
 
     print("\nRanking de Temas:")
     for i, t in enumerate(metricas.get("ranking_temas", [])[:10]):
@@ -381,7 +399,7 @@ def main():
 
     print("[+] Chamando Gemini para redigir o Resumo Executivo...")
     try:
-        resumo = gerar_resumo_debate(linhas, contexto=args.contexto)
+        resumo = gerar_resumo_debate(linhas, contexto=args.contexto, eh_sabatina=args.sabatina)
         print("\n" + "=" * 60)
         print("RESUMO EXECUTIVO GERADO")
         print("=" * 60)

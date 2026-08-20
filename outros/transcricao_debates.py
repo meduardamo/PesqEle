@@ -73,18 +73,18 @@ FONTE_ABA = os.getenv("ABA_FONTE_DEBATES", "Debates")
 COL = {
     "id": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
     "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
-    "status": 10, "link_resumo": 11, "link_transcricao": 12, "link_csv": 13,
-    "link_audio": 14, "processado_em": 15, "observacoes": 16, "id_fonte": 17,
+    "tipo": 10, "status": 11, "link_resumo": 12, "link_transcricao": 13, "link_csv": 14,
+    "link_audio": 15, "processado_em": 16, "observacoes": 17, "id_fonte": 18,
 }
 ORDEM_COLUNAS_LOGICA = list(COL.keys())
 PASTA_MIME = "application/vnd.google-apps.folder"
 # Onde o script escreve de volta: link_resumo até observacoes.
-FAIXA_SAIDA = "L{i}:Q{i}"
+FAIXA_SAIDA = "M{i}:R{i}"
 
-# Campos que vêm da fonte, na ordem em que ficam na nossa planilha (B até J).
+# Campos que vêm da fonte, na ordem em que ficam na nossa planilha (B até K).
 DA_FONTE = ["data", "horario", "cargo", "uf", "turno", "emissora",
-            "url_youtube", "mediador", "participantes"]
-FAIXA_FONTE = "B{i}:J{i}"
+            "url_youtube", "mediador", "participantes", "tipo"]
+FAIXA_FONTE = "B{i}:K{i}"
 
 BLOCO_SEG = 600          # 10 min de conteúdo por bloco
 SOBREPOSICAO_SEG = 20    # o bloco vai 20s além, para não cortar frase na borda
@@ -1153,7 +1153,7 @@ def gerar_id(linha_fonte, usados):
 COL_FONTE_PADRAO = {
     "id_debate": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
     "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
-    "observacoes": 10,
+    "tipo": 10, "observacoes": 11,
 }
 COL_FONTE = dict(COL_FONTE_PADRAO)
 
@@ -1171,6 +1171,7 @@ NOMES_FONTE = {
     "url_youtube": ("url_youtube", "url", "link", "link_youtube", "youtube", "url_do_video"),
     "mediador": ("mediador", "mediadores", "mediacao"),
     "participantes": ("participantes", "candidatos"),
+    "tipo": ("tipo", "tipo_evento", "sabatina_ou_debate"),
     "observacoes": ("observacoes", "observacao", "obs"),
 }
 
@@ -1347,7 +1348,7 @@ def sincronizar(gc, ws):
             edicoes.append({"range": FAIXA_FONTE.format(i=i), "values": [merge]})
             log(f"  atualiza {idf} (linha {i})")
         if tem_url and status == "agendado":
-            promovidas.append({"range": f"K{i}", "values": [["pendente"]]})
+            promovidas.append({"range": f"L{i}", "values": [["pendente"]]})
             log(f"  {idf} ganhou link -> pendente")
 
     if edicoes or promovidas:
@@ -1673,9 +1674,10 @@ def rodar_fila(args):
             try:
                 from outros.resumo_debates import gerar as gerar_resumo, meta_da_linha, criar_docx_timbrado, titulo as titulo_resumo
                 meta = meta_da_linha(linha, COL, todas)
+                sabatina_flag = meta.get("tipo", "") == "Sabatina" or getattr(args, "sabatina", False)
                 with open(saida / f"{ident}.csv", "r", encoding="utf-8") as f_csv:
                     falas = list(csv.DictReader(f_csv))
-                md_resumo = gerar_resumo(falas, meta)
+                md_resumo = gerar_resumo(falas, meta, eh_sabatina=sabatina_flag)
                 arq_md = saida / f"{ident}_resumo.md"
                 arq_md.write_text(md_resumo, encoding="utf-8")
 
@@ -1683,7 +1685,7 @@ def rodar_fila(args):
                 arq_upload_resumo = arq_md
                 if template_docx.exists():
                     arq_docx = saida / f"{ident}_resumo.docx"
-                    if criar_docx_timbrado(md_resumo, titulo_resumo(meta), "Eleições 2026 • Monitoramento de Debates", template_docx, arq_docx):
+                    if criar_docx_timbrado(md_resumo, titulo_resumo(meta, eh_sabatina=sabatina_flag), "Eleições 2026 • Monitoramento", template_docx, arq_docx):
                         arq_upload_resumo = arq_docx
                         log(f"DOCX Timbrado gerado: {arq_docx.name} (fonte Montserrat)")
 
@@ -1765,6 +1767,7 @@ def main():
     ap.add_argument("--contexto", default=None, help="participantes; só nos modos avulsos")
     ap.add_argument("--saida", default="transcricoes", help="pasta de saída local")
     ap.add_argument("--nome", default="debate", help="prefixo dos arquivos, nos modos avulsos")
+    ap.add_argument("--sabatina", action="store_true", help="O evento é uma sabatina (lê da aba 'sabatinas')")
     args = ap.parse_args()
 
     # Arrumar pasta não chama o modelo e não depende de chave nenhuma.
@@ -1787,6 +1790,11 @@ def main():
         sys.exit("GEMINI_API_KEY não definido.")
 
     secao("CONFIGURAÇÃO")
+    if args.sabatina:
+        global ABA, PASTA_DRIVE
+        ABA = "sabatinas"
+        PASTA_DRIVE = os.getenv("PASTA_DRIVE_SABATINAS", PASTA_DRIVE)
+        
     log(f"modelo   : {GEMINI_MODEL}")
     log(f"bloco    : {BLOCO_SEG}s + {SOBREPOSICAO_SEG}s de sobreposição")
     log(f"modo     : {'fila' if args.fila else ('url' if args.url else 'áudio local')}")
@@ -1794,6 +1802,7 @@ def main():
     log(f"saída    : {Path(args.saida).resolve()}")
     if args.fila:
         log(f"planilha : {PLANILHA}")
+        log(f"aba      : {ABA}")
         log(f"pasta    : {PASTA_DRIVE}")
         rodar_fila(args)
         return

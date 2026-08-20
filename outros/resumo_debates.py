@@ -503,8 +503,8 @@ def titulo(meta):
     return t[0].upper() + t[1:]
 
 
-def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_TEXTO):
-    """Gera o Resumo Executivo completo do debate no formato oficial para clientes."""
+def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_TEXTO, eh_sabatina=False):
+    """Gera o Resumo Executivo completo do evento no formato oficial para clientes."""
     from outros.resumo_debate import (
         limpar_classificacao_procedimental,
         calcular_metricas_debate,
@@ -514,22 +514,28 @@ def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_T
     falas_limpas = limpar_classificacao_procedimental(falas)
     metricas = calcular_metricas_debate(falas_limpas)
 
-    secao("MEDIÇÃO DO DEBATE")
-    log(f"{len(falas)} falas, ~{metricas.get('duracao_total_min')} min de debate")
+    secao("MEDIÇÃO DO EVENTO")
+    log(f"{len(falas)} falas, ~{metricas.get('duracao_total_min')} min de evento")
     for c in metricas.get("candidatos", []):
-        log(f"    {c['minutos']} min ({c['percentual']}%)  {c['nome']}")
+        if eh_sabatina:
+            log(f"    {c['minutos']} min  {c['nome']}")
+        else:
+            log(f"    {c['minutos']} min ({c['percentual']}%)  {c['nome']}")
     for t in metricas.get("ranking_temas", [])[:8]:
         log(f"    {t['minutos']} min  {t['tema']} ({t['qtd_falas']} falas)")
 
-    titulo_debate = titulo(meta)
+    titulo_evento = titulo(meta, eh_sabatina)
 
     if sem_modelo:
-        L = [f"# {titulo_debate}", ""]
+        L = [f"# {titulo_evento}", ""]
         L.append(f"Duração estimada: ~{metricas.get('duracao_total_min')} min\n")
-        L.append("**Tempo de fala por candidato:**")
+        L.append("**Tempo de fala:**")
         for c in metricas.get("candidatos", []):
-            L.append(f"- {c['nome']}: {c['minutos']} min ({c['percentual']}%)")
-        L.append("\n**Temas mais debatidos:**")
+            if eh_sabatina:
+                L.append(f"- {c['nome']}: {c['minutos']} min")
+            else:
+                L.append(f"- {c['nome']}: {c['minutos']} min ({c['percentual']}%)")
+        L.append("\n**Temas mais abordados:**")
         for t in metricas.get("ranking_temas", [])[:quantos]:
             L.append(f"- {t['tema']}: {t['minutos']} min ({t['qtd_falas']} falas)")
         return "\n".join(L)
@@ -543,7 +549,7 @@ def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_T
     client = genai.Client(api_key=chave)
 
     secao("GERAÇÃO DO RESUMO EXECUTIVO (GEMINI)")
-    prompt = formatar_prompt(titulo_debate, metricas, falas_limpas)
+    prompt = formatar_prompt(titulo_evento, metricas, falas_limpas, eh_sabatina=eh_sabatina)
 
     for n in range(1, TENTATIVAS + 1):
         try:
@@ -565,7 +571,7 @@ def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_T
         if n < TENTATIVAS:
             time.sleep(3 * n)
 
-    return f"# {titulo_debate}\n\n[ERRO] Falha ao gerar o resumo executivo via modelo."
+    return f"# {titulo_evento}\n\n[ERRO] Falha ao gerar o resumo executivo via modelo."
 
 
 def ler_csv_local(caminho):
@@ -618,6 +624,7 @@ def meta_da_linha(linha, COL, todas):
         "cargo": campo("cargo"), "uf": campo("uf"), "turno": campo("turno"),
         "mediador": campo("mediador"), "participantes": participantes,
         "ordinal": ordem, "link_csv": campo("link_csv"),
+        "tipo": campo("tipo") if "tipo" in COL else "",
     }
 
 
@@ -789,17 +796,20 @@ def criar_docx_timbrado(texto_md: str, titulo: str, subtitulo: str, template_pat
 
 
 def rodar_fila(args):
-    from outros.transcricao_debates import (ABA, COL, PLANILHA, clientes_google,
+    import outros.transcricao_debates as td
+    from outros.transcricao_debates import (COL, PLANILHA, clientes_google,
                                             com_retentativa, escrever_celula,
                                             enviar_drive, pasta_do_debate)
+    aba_alvo = "sabatinas" if args.sabatina else "debates"
+    
     if not PLANILHA:
         sys.exit("defina SPREADSHEET_ID_DEBATES (secret do repo).")
     gc, drive = clientes_google()
-    ws = com_retentativa("abertura da planilha de debates",
-                         lambda: gc.open_by_key(PLANILHA).worksheet(ABA))
+    ws = com_retentativa(f"abertura da planilha de {aba_alvo}",
+                         lambda: gc.open_by_key(PLANILHA).worksheet(aba_alvo))
     todas = com_retentativa("leitura da fila", ws.get_all_values)
 
-    # Debate que já tem resumo fica de fora da fila: cada rodada chama o modelo
+    # Evento que já tem resumo fica de fora da fila: cada rodada chama o modelo
     # uma vez por tema e paga de novo por texto que já está no Drive. Com --id
     # ou --refazer o resumo sai mesmo assim, e sobe como arquivo novo.
     ja_tem = indice_do_resumo(todas[0])
@@ -826,7 +836,7 @@ def rodar_fila(args):
     if not fila:
         log("nada para resumir.")
         return
-    log(f"{len(fila)} debate(s): {', '.join(m['id'] or f'linha {i}' for i, m in fila)}")
+    log(f"{len(fila)} evento(s): {', '.join(m['id'] or f'linha {i}' for i, m in fila)}")
 
     saida = Path(args.saida or "transcricoes")
     saida.mkdir(parents=True, exist_ok=True)
@@ -840,8 +850,9 @@ def rodar_fila(args):
         except Exception as e:
             log(f"csv não pôde ser lido: {type(e).__name__}: {e}")
             continue
+        sabatina_flag = meta.get("tipo", "") == "Sabatina" or args.sabatina
         md = gerar(falas, meta, sem_modelo=args.sem_modelo,
-                   min_falas=args.min_falas, quantos=args.eixos)
+                   min_falas=args.min_falas, quantos=args.eixos, eh_sabatina=sabatina_flag)
         arq_md = saida / f"{meta['id'] or 'debate'}_resumo.md"
         arq_md.write_text(md, encoding="utf-8")
         log(f"{arq_md}  ({len(md.split())} palavras)")
@@ -878,6 +889,7 @@ def main():
                     help=f"quantos temas ganham parágrafo (padrão {EIXOS_NO_TEXTO})")
     ap.add_argument("--min-falas", type=int, default=MIN_FALAS)
     ap.add_argument("--saida", default=None)
+    ap.add_argument("--sabatina", action="store_true", help="O evento é uma sabatina (apenas um candidato)")
     # Só no modo avulso: sem a planilha, ninguém sabe a data nem quem mediou.
     ap.add_argument("--data", default=None)
     ap.add_argument("--emissora", default=None)
@@ -909,7 +921,7 @@ def main():
                               if p.strip()],
         }
         md = gerar(falas, meta, sem_modelo=args.sem_modelo,
-                   min_falas=args.min_falas, quantos=args.eixos)
+                   min_falas=args.min_falas, quantos=args.eixos, eh_sabatina=args.sabatina)
         destino = Path(args.saida) if args.saida else entrada.with_name(
             entrada.stem + "_resumo.md")
         destino.write_text(md, encoding="utf-8")

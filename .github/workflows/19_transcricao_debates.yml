@@ -23,6 +23,12 @@ on:
         description: 'Participantes, só no teste avulso (vazio = o padrão do script)'
         required: false
         default: ''
+      sabatina:
+        description: 'É uma sabatina? (usa aba "sabatinas")'
+        type: boolean
+        required: false
+        default: false
+
       so_sync:
         description: 'Só puxa o calendário do monitoramento, sem transcrever nada'
         type: boolean
@@ -173,12 +179,14 @@ jobs:
             # Teste avulso: não sincroniza, não escreve na planilha, não sobe
             # para o Drive. Só o artefato do run, para conferir qualidade.
             echo "modo avulso: planilha e Drive intocados"
-            python -m outros.transcricao_debates --url "$URL" --nome teste $RECORTE
+            python -m outros.transcricao_debates --url "$URL" --nome teste $RECORTE \
+              ${{ inputs.sabatina == true && '--sabatina' || '' }}
           else
             # A rodada agendada é sempre só sync: 'schedule' não manda input
             # nenhum, e sem isto ela cairia na fila normal e transcreveria
             # tudo que estivesse 'pendente', sem ninguém pedir nem conferir.
             python -m outros.transcricao_debates --fila $RECORTE \
+              ${{ inputs.sabatina == true && '--sabatina' || '' }} \
               ${{ (inputs.so_sync == true || github.event_name == 'schedule') && '--so-sync' || '' }} \
               ${{ inputs.id && format('--id {0}', inputs.id) || '' }}
           fi
