@@ -271,6 +271,44 @@ class CalculosPollingDataTest(unittest.TestCase):
         self.assertAlmostEqual(linha[COLUNA_MODELO_AMOSTRAL], 40.0)
         self.assertNotAlmostEqual(linha[COLUNA_MODELO_HIBRIDO], 40.0)
 
+    def test_presidencial_t1_exige_lula_e_flavio_no_cenario(self):
+        completas = linhas_cenario("completa", "2026-03-01", 40)
+        sem_flavio = [
+            row for row in linhas_cenario("sem_flavio", "2026-03-02", 10)
+            if row["candidato"] != "Flávio Bolsonaro"
+        ]
+        pesquisas = metadados_amostra(
+            ("completa", 1000, "2026-03-01"),
+            ("sem_flavio", 1000, "2026-03-02"),
+        )
+
+        calculado = calcular_agregadores_paralelos_resultados_bi(
+            pd.DataFrame(completas + sem_flavio),
+            pesquisas,
+        )
+        serie = calculado[calculado["candidato_partido"].eq("Candidato teste (P)")]
+
+        # A pesquisa sem Flávio sai da série: ela para em 01/03, com 40.
+        self.assertEqual(serie["data_campo"].max(), "2026-03-01")
+        self.assertAlmostEqual(serie[COLUNA_MODELO_HIBRIDO].iloc[-1], 40.0)
+
+    def test_cargo_sem_lula_e_flavio_nao_e_afetado(self):
+        linhas = []
+        for candidato, percentual in (("Fulano", 55), ("Beltrano", 45)):
+            linha = pesquisa("gov1", "2026-03-01", percentual, "A+", candidato=candidato)
+            linha["cargo"] = "governador"
+            linha["uf"] = "SP"
+            linhas.append(linha)
+        pesquisas = metadados_amostra(("gov1", 1000, "2026-03-01"))
+
+        calculado = calcular_agregadores_paralelos_resultados_bi(
+            pd.DataFrame(linhas),
+            pesquisas,
+        )
+        linha_gov = calculado[calculado["candidato_partido"].eq("Fulano (P)")].iloc[0]
+
+        self.assertAlmostEqual(linha_gov[COLUNA_MODELO_HIBRIDO], 55.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1869,6 +1869,16 @@ def _normalizar_candidato_agregador(valor) -> str:
     return "".join(ch for ch in txt if not unicodedata.combining(ch)).lower()
 
 
+def _polls_com_todos_os_nomes(df: pd.DataFrame, nomes) -> list:
+    """poll_ids cujo cenário selecionado testa todos os nomes informados."""
+    ids = []
+    for poll_id, grupo in df.groupby("poll_id", dropna=False):
+        presentes = " | ".join(grupo["candidato"].map(_normalizar_candidato_agregador))
+        if all(nome in presentes for nome in nomes):
+            ids.append(poll_id)
+    return ids
+
+
 def _anexar_metadados_pesquisa(
     df_resultados: pd.DataFrame,
     df_pesquisas: pd.DataFrame | None,
@@ -2022,6 +2032,24 @@ def calcular_agregadores_paralelos_resultados_bi(
     principal = principal.sort_values(["poll_id", "scenario_id", "candidato_partido"])
     principal = principal.drop_duplicates(["poll_id", "candidato_partido"], keep="first")
 
+    # Presidencial de 1º turno só entra quando o cenário escolhido testa Lula e
+    # Flávio juntos. Sem isso a série mistura disputas diferentes na mesma linha
+    # (cenário com Michelle no lugar do Flávio, por exemplo) e o percentual de
+    # cada candidato vira média de confrontos que não são o mesmo confronto.
+    presidencial_t1 = (
+        principal["cargo"].astype(str).str.lower().str.contains("president", na=False)
+        & principal["turno"].astype(str).str.strip().str.lower().eq("t1")
+    )
+    if presidencial_t1.any():
+        polls_ok = _polls_com_todos_os_nomes(principal[presidencial_t1], ("lula", "flavio"))
+        descartar = presidencial_t1 & ~principal["poll_id"].isin(polls_ok)
+        if descartar.any():
+            n_fora = principal.loc[descartar, "poll_id"].nunique()
+            print(f"  [agregador] {n_fora} pesquisa(s) presidenciais de 1o turno fora da serie: cenario sem Lula e Flavio juntos")
+            principal = principal[~descartar].copy()
+        if principal.empty:
+            return pd.DataFrame()
+
     chaves_escopo = ["ano", "uf", "cargo", "turno", "disputa", "tipo"]
     datas_finais_escopo = (
         principal.groupby(chaves_escopo, dropna=False)["_data_disponivel"].max().to_dict()
@@ -2043,11 +2071,7 @@ def calcular_agregadores_paralelos_resultados_bi(
         & principal["_data_disponivel"].ge(pd.Timestamp("2026-01-01"))
     )
     abc_base = principal[scope_abc].copy()
-    poll_ids_abc = []
-    for poll_id, grupo in abc_base.groupby("poll_id", dropna=False):
-        nomes = " | ".join(grupo["candidato"].map(_normalizar_candidato_agregador))
-        if all(nome in nomes for nome in ("lula", "flavio", "caiado")):
-            poll_ids_abc.append(poll_id)
+    poll_ids_abc = _polls_com_todos_os_nomes(abc_base, ("lula", "flavio", "caiado"))
     abc_base = abc_base[abc_base["poll_id"].isin(poll_ids_abc)]
     abc = _calcular_serie_agregada_30d(
         abc_base,
