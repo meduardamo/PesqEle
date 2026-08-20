@@ -106,7 +106,7 @@ EIXOS = {
         "Primeira Infância": "creches, pré-escola, educação infantil, primeira infância (0–5 anos)",
         "Fundamental": "ensino fundamental anos iniciais (2º ao 5º ano) e anos finais (6º ao 9º ano) — exclui alfabetização do 1º ano, que é tema próprio",
         "Ensino Médio": "ensino médio regular da rede estadual: matrícula, evasão, novo ensino médio, currículo e resultado de aprendizagem — o tempo integral é tema próprio",
-        "Tempo Integral": "educação em tempo integral e jornada escolar ampliada, em qualquer etapa da educação básica",
+        "Tempo Integral": "educação em tempo integral e jornada escolar ampliada, em qualquer etapa da educação básica: desenho da jornada, vagas, escolas de tempo integral — o conteúdo que ocupa a jornada ampliada, quando é arte ou cultura, é o tema Educação, Arte e Cultura",
         "Educação Profissional": "educação profissional e técnica (EPT, SENAI, SENAC, institutos federais, cursos técnicos)",
         "Valorização Docente": "carreira, salário, piso, concurso, formação continuada e condições de trabalho de professores e demais profissionais da educação",
         "Educação Inclusiva e EJA": "educação especial e inclusiva, estudante com deficiência, educação de jovens e adultos, educação no campo, indígena e quilombola",
@@ -176,7 +176,7 @@ EIXOS = {
         "Transparência e Combate à Corrupção": "transparência, controle interno, dados abertos, combate à corrupção, integridade pública, fiscalização de emendas parlamentares e orçamento secreto",
         "Regulação de Plataformas Digitais": "regulação de plataformas digitais e redes sociais, moderação de conteúdo, combate à desinformação e fake news, soberania digital, proteção de dados e inteligência artificial",
         "Governo Digital": "digitalização de serviços, atendimento ao cidadão, governo eletrônico",
-        "Servidores e Municípios": "servidor público estadual, carreira e concurso, e a relação do estado com os municípios (consórcio, repasse, apoio técnico)",
+        "Servidores e Municípios": "servidor público estadual em geral, carreira e concurso, e a relação do estado com os municípios (consórcio, repasse, apoio técnico) — professor e demais profissionais da educação são o tema Valorização Docente, no eixo de Educação",
     },
     "Direitos humanos e igualdade": {
         "Igualdade Racial": "promoção da igualdade racial, população negra, racismo, cotas e ações afirmativas",

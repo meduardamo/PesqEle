@@ -95,7 +95,15 @@ LIMIAR_CHARS = 1500
 # e Inovação já tinham dado em 10/08, e a correção é a mesma: cada descrição
 # aponta para a outra. "patrimônio cultural" saiu das âncoras do tema escolar
 # pelo mesmo motivo, é política cultural e não escola.
-VERSAO_ANALISE = "15"
+# Subiu para 16 antes de a leva de 15 sair do lugar. A varredura de vocabulário
+# entre os 49 temas apontou dois pares que dividiam palavra discriminante sem
+# nenhuma das descrições dizer de quem era o quê. "Tempo Integral" e "Educação,
+# Arte e Cultura" dividiam "educação integral", e é exatamente a frase que o
+# Itaú citou ao pedir o tema ("arte e cultura na educação integral", do plano do
+# Lula): sem separar, o pedido deles cairia no tema errado. "Valorização
+# Docente" e "Servidores e Municípios" dividiam carreira e concurso, e professor
+# é servidor estadual.
+VERSAO_ANALISE = "16"
 # Subiu para 11 em 09/08/2026: a justificativa passou a receber nome de urna e
 # gênero do cadastro, então fala "a candidata" quando é mulher e alterna o
 # sujeito em vez de abrir toda frase com "o candidato". O painel já corrige isso
