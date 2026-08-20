@@ -7,7 +7,7 @@ Uso:
     pytest tests/test_transcricao_debates.py
 """
 
-from outros.transcricao_debates import (em_segundos, parsear,
+from outros.transcricao_debates import (aviso_actions, em_segundos, parsear,
                                         unificar_falantes)
 
 
@@ -138,3 +138,29 @@ def test_falante_vence_por_palavra_e_nao_por_turno():
     ]
     unificar_falantes(linhas)
     assert {r["falante"] for r in linhas} == {"MATEUS SIMÕES"}
+
+
+def test_aviso_actions_vira_anotacao_no_actions(capsys, monkeypatch):
+    """Fora do Actions é só log; dentro, sai a anotação que aparece no run."""
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    aviso_actions("resumo automático falhou")
+    assert "::warning::" not in capsys.readouterr().out
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    aviso_actions("resumo automático falhou")
+    assert "::warning::resumo automático falhou" in capsys.readouterr().out
+
+
+def test_aviso_actions_nao_quebra_a_anotacao_em_varias_linhas():
+    """Quebra de linha corta a anotação e o resto vira log solto."""
+    import io, contextlib, os
+    os.environ["GITHUB_ACTIONS"] = "true"
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            aviso_actions("Traceback\nlinha 2\nlinha 3")
+    finally:
+        os.environ.pop("GITHUB_ACTIONS", None)
+    anotacao = [l for l in buf.getvalue().splitlines() if l.startswith("::warning::")]
+    assert len(anotacao) == 1
+    assert "linha 3" in anotacao[0]

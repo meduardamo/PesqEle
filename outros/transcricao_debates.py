@@ -194,6 +194,21 @@ def log(msg=""):
     print(f"[{m:02d}:{s:02d}] {msg}", flush=True)
 
 
+def aviso_actions(msg):
+    """Aviso que aparece no topo da página do run, e não só enterrado no log.
+
+    Falha que não derruba a rodada some: o resumo automático da sabatina do
+    PontoPoder de 20/08 quebrou, o log registrou uma linha no meio de 4 mil, o
+    run terminou verde e a linha foi marcada 'pronto' com link_resumo vazio.
+    Ninguém viu até alguém abrir a planilha e perguntar cadê o resumo.
+    """
+    log(f"aviso: {msg}")
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        # Anotação do Actions: uma linha só, sem quebra, senão o resto vira log
+        # solto e a anotação sai truncada.
+        print(f"::warning::{str(msg)[:800].replace(chr(10), ' ')}", flush=True)
+
+
 def secao(titulo):
     log()
     log("=" * 68)
@@ -1701,8 +1716,15 @@ def rodar_fila(args):
                                            "application/vnd.google-apps.document", destino_drive)
                 log(f"resumo timbrado no Drive: {link_resumo}")
             except Exception as e_resumo:
-                log(f"aviso: falha ao gerar resumo automático ({e_resumo})")
+                aviso_actions(f"{ident}: resumo automático falhou "
+                              f"({type(e_resumo).__name__}: {e_resumo}). "
+                              f"Rode o workflow 20 com --id {ident}.")
                 link_resumo = ""
+                # Entra em observacoes junto com o gasto: é o único lugar que
+                # quem lê a planilha olha, e link_resumo vazio sozinho não
+                # distingue "falhou" de "ainda não rodou".
+                avisos = "; ".join(x for x in (
+                    avisos, f"resumo automático falhou: {type(e_resumo).__name__}") if x)
 
             secao("DRIVE")
             links = {}
