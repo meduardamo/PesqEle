@@ -57,7 +57,7 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 # dele já guarda id de planilha em secret.
 PASTA_DRIVE = os.getenv("PASTA_DRIVE_DEBATES", "").strip()
 PLANILHA = os.getenv("SPREADSHEET_ID_DEBATES", "").strip()
-ABA = "debates"
+ABA = "eventos"
 
 ESCOPOS = [
     "https://www.googleapis.com/auth/drive",
@@ -67,7 +67,7 @@ ESCOPOS = [
 # Aba 'Debates' da planilha [interno] ELEIÇÕES 2026, mantida pelo monitoramento.
 # É de lá que vem o calendário; aqui ninguém digita debate na mão.
 FONTE_PLANILHA = os.getenv("SPREADSHEET_ID_INTERNO", "").strip()
-FONTE_ABA = os.getenv("ABA_FONTE_DEBATES", "Debates")
+FONTE_ABA = os.getenv("ABA_FONTE_DEBATES", "Eventos")
 
 # Ordem das colunas da aba 'debates'. Mexeu na planilha, mexe aqui.
 COL = {
