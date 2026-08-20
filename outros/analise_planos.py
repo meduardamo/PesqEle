@@ -2612,16 +2612,17 @@ def gerar_resumos_eixos(classif: dict, temas: dict = TEMAS, nome: str = "", gene
         
     prompt = (
         "Você é repórter de política escrevendo resumos jornalísticos (estilo G1/Folha) "
-        "sobre as propostas de um candidato, divididas por eixos temáticos.\n\n"
-        "Para CADA eixo, escreva um texto corrido de até 3 frases. Regras:\n"
-        "1. Comece resumindo o foco principal do candidato para a área (Ex: 'O plano foca em...', 'A proposta tem como principais eixos...').\n"
-        "2. Use verbos objetivos (propõe, defende, prioriza, prevê, centra-se). Sem adjetivos ou jargões.\n"
-        "3. Vá direto para as propostas concretas: números, programas, metas e prazos (ex: 'fixar piso salarial de R$ 8,5 mil', 'implantação de prontuário eletrônico').\n"
-        "4. Texto corrido e fluido. Use conectivos ('Entre as ações previstas estão...', 'Também prevê...'). SEM BULLET POINTS, sem listas.\n"
-        "5. NUNCA cite os nomes dos temas usados na grade desta análise.\n\n"
+        "sobre as propostas de um candidato.\n\n"
+        "Sua tarefa tem duas partes:\n"
+        "PARTE 1: Para CADA EIXO, escreva um texto corrido de até 3 frases.\n"
+        "PARTE 2: Para CADA TEMA específico, escreva um resumo super curto de 1 única frase condensando a proposta.\n\n"
+        "Regras de estilo:\n"
+        "1. Vá direto para as propostas concretas, metas e prazos com verbos objetivos (propõe, defende).\n"
+        "2. Texto fluido, SEM BULLET POINTS, sem listas.\n"
+        "3. NUNCA cite os nomes das categorias da grade.\n\n"
         + _regras_sujeito(nome, genero) +
         f"\n\n{RESTRICOES_LINGUAGEM}\n\n"
-        "DADOS DO CANDIDATO POR EIXO:\n"
+        "DADOS DO CANDIDATO:\n"
     )
     
     for eixo, tms in eixos_validos.items():
@@ -2629,7 +2630,7 @@ def gerar_resumos_eixos(classif: dict, temas: dict = TEMAS, nome: str = "", gene
         for t, res in tms.items():
             prompt += f"  - {t}: {res.get('trecho')}\n"
             
-    prompt += "\nResponda APENAS um objeto JSON com as chaves sendo o nome de cada eixo acima e os valores sendo o resumo gerado."
+    prompt += "\nResponda APENAS um objeto JSON plano contendo as chaves com o nome de CADA EIXO e de CADA TEMA analisado, e os valores sendo os resumos gerados."
     
     resp = _gemini_client().models.generate_content(
         model=GEMINI_MODEL,
