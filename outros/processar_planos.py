@@ -860,7 +860,12 @@ def main() -> int:
     if args.uf:
         base = base[base["SG_UF"].astype(str).str.strip().str.upper() == args.uf.upper()]
     if args.sq:
-        base = base[base["SQ_CANDIDATO"].astype(str).str.strip() == args.sq.strip()]
+        # Lista separada por vírgula, e não um SQ só. Antes a lista só valia com
+        # --so-coerencia, e no caminho completo a string inteira era comparada
+        # como se fosse um SQ: em 21/08/2026 uma rodada com 15 SQs devolveu
+        # "0 candidatos com plano · 0 a processar" e não reanalisou nada.
+        _alvos = {x.strip() for x in str(args.sq).split(",") if x.strip()}
+        base = base[base["SQ_CANDIDATO"].astype(str).str.strip().isin(_alvos)]
 
     salvas = ler_aba(sh, ANALISE_ABA)
     coes = ler_aba(sh, COERENCIA_ABA)
