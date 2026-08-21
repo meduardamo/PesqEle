@@ -814,8 +814,8 @@ def main() -> int:
     # inteira junto. Serve quando um tema novo entra e o efeito precisa ser visto
     # em um plano antes de valer para todos.
     p.add_argument("--sq", default="",
-                   help="restringe a um SQ_CANDIDATO (ou a vários, separados "
-                        "por vírgula, com --so-coerencia)")
+                   help="restringe a um SQ_CANDIDATO, ou a vários "
+                        "separados por vírgula")
     p.add_argument("--forcar", action="store_true",
                    help="reprocessa mesmo quem já está gravado e atualizado")
     p.add_argument("--planilha",
