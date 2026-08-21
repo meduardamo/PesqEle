@@ -2355,16 +2355,22 @@ def _regras_sujeito(nome: str, genero: str) -> str:
 # Instrução sozinha não segura, então a lista vira conferência depois da
 # resposta. Palavra inteira, e "fundamental" fica de fora porque no corpus é
 # quase sempre a etapa de ensino, não o adjetivo.
+# Fora da lista de propósito, medido nos 10.385 resumos de 21/08/2026:
+# "horizonte" só aparecia em Belo Horizonte (7 de 7), "solido" e variantes só em
+# resíduos sólidos (7 de 7), e "essencial" em serviços, alimentos e trechos
+# rodoviários essenciais (9 de 9), que é uso corrente e não adjetivo de reforço.
+# Eram 23 dos 48 acusados. A régua existe para barrar escrita inflada, não o
+# nome da coisa.
 TERMOS_PROIBIDOS = [
-    "abrangente", "abrangentes", "crucial", "cruciais", "essencial", "essenciais",
+    "abrangente", "abrangentes", "crucial", "cruciais",
     "estrategico", "estrategica", "estrategicos", "estrategicas",
     "robusto", "robusta", "robustos", "robustas", "significativo", "significativa",
-    "notavel", "notaveis", "solido", "solida", "solidos", "solidas",
+    "notavel", "notaveis",
     "consistente", "consistentes", "inovador", "inovadora", "multifacetado",
     "apresenta", "apresentam", "possui", "possuem", "oferece", "oferecem",
     "ressalta", "ressaltam", "enfatiza", "enfatizam", "evidencia", "evidenciam",
     "aprimorar", "aprimora", "vale destacar", "cabe ressaltar", "e importante notar",
-    "panorama", "otica", "mosaico", "horizonte",
+    "panorama", "otica", "mosaico",
     # Eco da própria régua. O prompt já pedia para não repetir as palavras da
     # escala, e a justificativa da Samara de 10/08/2026 saiu com "Ela estabelece
     # duas ligações sustentadas por um mesmo instrumento em eixos distintos".
@@ -2376,15 +2382,50 @@ TERMOS_PROIBIDOS = [
 _PROIBIDOS_RE = re.compile(r"\b(" + "|".join(TERMOS_PROIBIDOS) + r")\b")
 
 
+def _sem_acento_mesmo_tamanho(t: str) -> str:
+    """Como _norm_acentos, mas um caractere entra, um caractere sai.
+
+    _norm_acentos decompõe em NFD e joga fora os acentos, o que encurta a
+    string e desalinha as posições. Aqui a busca precisa devolver o índice do
+    achado no texto original, para olhar a letra que ele tem lá.
+    """
+    saida = []
+    for c in str(t or "").lower():
+        d = unicodedata.normalize("NFD", c)
+        saida.append(d[0] if d else c)
+    return "".join(saida)
+
+
+def _e_nome_proprio(texto: str, ini: int) -> bool:
+    """O achado começa com maiúscula e não é a primeira palavra da frase."""
+    if not texto[ini:ini + 1].isupper():
+        return False
+    antes = texto[:ini].rstrip()
+    return bool(antes) and antes[-1] not in ".!?:;"
+
+
 def termos_proibidos(texto: str) -> list[str]:
-    """Termos proibidos presentes no texto, fora das aspas.
+    """Termos proibidos presentes no texto, fora das aspas e fora de nome próprio.
 
     Fora das aspas porque nome de programa citado do plano não é escolha de
     quem escreve: "Consolidar Política Integrada de Governo Digital" e
     "Instituto Estadual de Robótica" são do candidato, não do analista.
+
+    Fora de nome próprio pelo mesmo motivo, e porque o plano nomeia sem aspas.
+    Medido nos 10.385 resumos de 21/08/2026: 16 dos 48 acusados eram nome
+    próprio, entre eles Fundo Estadual de Recursos Estratégicos, Sistema
+    Estadual de Governança Estratégica e Programa Piauí Inovador. Pedir ao
+    modelo que reescreva sem essas palavras é pedir que ele mude o nome do
+    programa, e ele não muda: era isso que travava a rodada de refação.
+
+    Maiúscula no meio da frase, e não em qualquer lugar: senão a primeira
+    palavra de toda frase escaparia da régua.
     """
     sem_citacao = re.sub(r'["“][^"“”]*["”]', " ", str(texto or ""))
-    return sorted(set(_PROIBIDOS_RE.findall(_norm_acentos(sem_citacao))))
+    normalizado = _sem_acento_mesmo_tamanho(sem_citacao)
+    achados = [m.group(1) for m in _PROIBIDOS_RE.finditer(normalizado)
+               if not _e_nome_proprio(sem_citacao, m.start())]
+    return sorted(set(achados))
 
 
 # ─── Nome de tema vazando para o texto do resumo ──────────────────────────────
