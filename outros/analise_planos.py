@@ -2597,7 +2597,6 @@ def pontes_de_programa(classif: dict) -> dict:
 
 def gerar_resumos_eixos(classif: dict, temas: dict = TEMAS, nome: str = "", genero: str = "") -> dict:
     from google.genai import types
-    import json
     
     eixos_validos = {}
     for tema, result in classif.items():
@@ -2718,6 +2717,8 @@ def _casar_chaves(data: dict, validas: set) -> dict:
         # resposta, o texto do rótulo exato é o que descreve o eixo inteiro.
         saida.setdefault(alvo, texto)
     return saida
+
+
 def resumir_plano(classif: dict, temas: dict = TEMAS,
                   nome: str = "", genero: str = "") -> dict:
     """Escreve o resumo do plano, em 3 ou 4 frases, e devolve as pontes.
