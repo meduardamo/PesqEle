@@ -130,7 +130,10 @@ VERSAO_COERENCIA = "13"
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "contexto", "responsavel", "prazo",
         "publico_alvo", "programa_nome", "pagina", "verificacao", "entes",
-        "chars", "chars_analisados", "versao", "analisado_em", "resumos_eixos"]
+        "chars", "chars_analisados", "versao", "analisado_em"]
+# `resumos_eixos` não entra aqui: quem escreve a coluna é a aba de coerência,
+# uma linha por candidato. Listada em COLS, o reindex de `gravar` criava uma
+# coluna 23 sempre vazia na aba de análise, que tem uma linha por tema.
 # score_coerencia saiu em 10/08/2026 e a coluna fica, vazia, para não quebrar
 # quem já leu a aba. O que a tela usa agora é `resumo`, que descreve o plano em
 # vez de justificar um número.
@@ -633,7 +636,11 @@ def refazer_coerencia(sh, uf: str = "", limite: int = 0, sq: str = "") -> int:
     if uf:
         salvas = salvas[salvas["uf"].astype(str).str.strip().str.upper() == uf.upper()]
     if sq:
-        salvas = salvas[salvas["sq_candidato"].astype(str).str.strip() == sq.strip()]
+        # Lista separada por vírgula, e não um SQ só: a correção de 21/08/2026
+        # pegou 33 planos espalhados por 20 UFs, e refazer um por um é uma
+        # leitura da aba inteira por candidato.
+        alvos = {x.strip() for x in str(sq).split(",") if x.strip()}
+        salvas = salvas[salvas["sq_candidato"].astype(str).str.strip().isin(alvos)]
 
     # O gênero não está na análise, e sem ele a justificativa escreve "o
     # candidato" sobre uma mulher.
@@ -806,7 +813,9 @@ def main() -> int:
     # Para reprocessar um candidato só, sem subir versão e sem arrastar a base
     # inteira junto. Serve quando um tema novo entra e o efeito precisa ser visto
     # em um plano antes de valer para todos.
-    p.add_argument("--sq", default="", help="restringe a um SQ_CANDIDATO")
+    p.add_argument("--sq", default="",
+                   help="restringe a um SQ_CANDIDATO (ou a vários, separados "
+                        "por vírgula, com --so-coerencia)")
     p.add_argument("--forcar", action="store_true",
                    help="reprocessa mesmo quem já está gravado e atualizado")
     p.add_argument("--planilha",

@@ -2632,19 +2632,92 @@ def gerar_resumos_eixos(classif: dict, temas: dict = TEMAS, nome: str = "", gene
             
     prompt += "\nResponda APENAS um objeto JSON plano contendo as chaves com o nome de CADA EIXO e de CADA TEMA analisado, e os valores sendo os resumos gerados."
     
-    resp = _gemini_client().models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json"),
-    )
+    # As chaves que a tela sabe procurar. Ela busca por igualdade exata
+    # (`resumos_eixos[rotulo]`), então chave que o modelo inventou é resumo que
+    # não aparece para ninguém.
+    validas = set(eixos_validos) | {t for tms in eixos_validos.values() for t in tms}
+
+    def pedir(evitar: list[str] | None = None) -> dict:
+        texto = prompt
+        if evitar:
+            texto += ("\n\nSUA RESPOSTA ANTERIOR FOI RECUSADA porque usou: "
+                      + ", ".join(evitar)
+                      + ". Reescreva sem nenhuma dessas palavras, sem trocar por "
+                      "sinônimo do mesmo tipo.")
+        resp = _gemini_client().models.generate_content(
+            model=GEMINI_MODEL,
+            contents=texto,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        data = _carregar_json((getattr(resp, "text", "") or "").strip(), "resposta")
+        return {k: _limpa(v, n=800) for k, v in data.items()
+                if isinstance(v, str) and v.strip()}
+
     try:
-        raw_text = (getattr(resp, "text", "") or "").strip()
-        data = _carregar_json(raw_text, "resposta")
-        # Remove empty or non-string values
-        return {k: _limpa(v, n=800) for k, v in data.items() if isinstance(v, str) and v.strip()}
+        data = pedir()
     except Exception as e:
         print(f"(erro ao gerar resumos de eixo: {e})", end=" ", flush=True)
         return {}
+
+    # Uma rodada de recusa, como no resumo do plano. Sem ela o texto do eixo
+    # saía com a linguagem que `termos_proibidos` barra no resumo: em 21/08/2026
+    # eram 47 textos na base, com "estratégicas", "horizonte" e "essenciais".
+    sujos = sorted({t for v in data.values() for t in termos_proibidos(v)})
+    if sujos:
+        print(f"(linguagem proibida nos resumos de eixo: {', '.join(sujos)}, refazendo)",
+              end=" ", flush=True)
+        time.sleep(3)
+        try:
+            nova = pedir(evitar=sujos)
+        except Exception as e:
+            print(f"(refazer falhou: {e})", end=" ", flush=True)
+            nova = {}
+        # Só troca se melhorou: resposta pior devolveria menos texto com o mesmo
+        # defeito, e o primeiro conteúdo já estava escrito.
+        restantes = sorted({t for v in nova.values() for t in termos_proibidos(v)})
+        if nova and len(restantes) < len(sujos):
+            data = nova
+            if restantes:
+                print(f"(continuou com {', '.join(restantes)})", end=" ", flush=True)
+        else:
+            print("(continuou com a mesma linguagem)", end=" ", flush=True)
+
+    return _casar_chaves(data, validas)
+
+
+def _casar_chaves(data: dict, validas: set) -> dict:
+    """Casa a chave que o modelo devolveu com o rótulo que a tela procura.
+
+    O modelo às vezes junta dois rótulos numa chave só. Em 21/08/2026 o plano do
+    Carlos Cley (PSTU/AP) voltou com "Primeira Infância: Educação Infantil", e o
+    tema Primeira Infância dele ficou sem resumo na tela, porque a busca é por
+    igualdade exata.
+
+    Casa em três passos, do mais estrito para o mais frouxo: igual, igual sem
+    acento e sem caixa, e o pedaço antes de ':', '/' ou '(' pelas mesmas duas
+    réguas. Chave que não casa em nenhum dos três sai: texto sob rótulo errado é
+    pior do que rótulo sem texto, porque ninguém percebe.
+    """
+    por_norma = {_norm_acentos(v): v for v in validas}
+    saida = {}
+    for bruto, texto in data.items():
+        chave = str(bruto).strip()
+        candidatos = [chave, re.split(r"[:/(]", chave)[0].strip()]
+        alvo = ""
+        for c in candidatos:
+            if c in validas:
+                alvo = c
+                break
+            if _norm_acentos(c) in por_norma:
+                alvo = por_norma[_norm_acentos(c)]
+                break
+        if not alvo:
+            print(f"(chave fora da grade descartada: {chave!r})", end=" ", flush=True)
+            continue
+        # Primeira grafia vence: com "Saúde" e "Saude: Atenção Básica" na mesma
+        # resposta, o texto do rótulo exato é o que descreve o eixo inteiro.
+        saida.setdefault(alvo, texto)
+    return saida
 def resumir_plano(classif: dict, temas: dict = TEMAS,
                   nome: str = "", genero: str = "") -> dict:
     """Escreve o resumo do plano, em 3 ou 4 frases, e devolve as pontes.
