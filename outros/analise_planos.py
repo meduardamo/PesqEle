@@ -1282,6 +1282,40 @@ def _e_meta_externa_ou_terceiro(n: str) -> bool:
     return False
 
 
+# Horizonte maior que um mandato. A eleição de 2026 dá um mandato de 2027 a
+# 2030, então "nos próximos 10 anos" não é compromisso de quem está pedindo o
+# voto: é promessa para depois de qualquer mandato dele. Decisão da Eduarda em
+# 21/08/2026, olhando o plano do Escritor Augusto Cury (AVANTE/BR), que promete
+# dobrar cooperados e produção de alimentos "nos próximos 10 anos".
+_ANOS_EXTENSO = {"cinco": 5, "seis": 6, "sete": 7, "oito": 8, "nove": 9,
+                 "dez": 10, "onze": 11, "doze": 12, "quinze": 15, "vinte": 20,
+                 "trinta": 30}
+_MANDATO_ANOS = 4
+_ANO_FIM_MANDATO = 2030
+_RE_HORIZONTE = re.compile(
+    r"\b(?:em|nos? proximos?|ao longo dos proximos?|dentro de|num prazo de|"
+    r"no prazo de|ate)\s+(\d{1,2}|" + "|".join(_ANOS_EXTENSO) + r")\s+anos?\b")
+_RE_ANO_ALVO_LONGE = re.compile(r"\b(?:ate|em|para)\s+(20[3-9]\d)\b")
+
+
+def _prazo_alem_do_mandato(n: str) -> bool:
+    """O único horizonte da frase passa do mandato que está em disputa."""
+    for m in _RE_HORIZONTE.finditer(n):
+        _v = m.group(1)
+        _anos = _ANOS_EXTENSO.get(_v, None)
+        if _anos is None:
+            try:
+                _anos = int(_v)
+            except ValueError:
+                continue
+        if _anos > _MANDATO_ANOS:
+            return True
+    for m in _RE_ANO_ALVO_LONGE.finditer(n):
+        if int(m.group(1)) > _ANO_FIM_MANDATO:
+            return True
+    return False
+
+
 def tem_alvo_mensuravel(trecho: str) -> bool:
     """Se a citação traz alvo que dá para conferir depois: número, prazo,
     absoluto ou número por extenso. É o que separa 'Define meta' de 'Propõe
@@ -1294,6 +1328,12 @@ def tem_alvo_mensuravel(trecho: str) -> bool:
     n = _norm_acentos(trecho)
     if _e_meta_externa_ou_terceiro(n):
         return False
+    if _prazo_alem_do_mandato(n):
+        return False
+    # "perseguir o deficit proximo de zero" não é alvo: "proximo de" diz que o
+    # número é aproximação, não compromisso. Sem isto, o zero da frase contava
+    # como número e o trecho subia para Define meta.
+    n = re.sub(r"\bproximo[s]?\s+(?:de|a|do|da)\s+\S+", " ", n)
     if (re.search(_META_PRAZO, n) or re.search(_META_ABSOLUTO, n)
             or re.search(_META_EXTENSO, n) or re.search(_META_ANO_ALVO, n)):
         return True
