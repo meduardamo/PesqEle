@@ -337,15 +337,30 @@ def por_extenso(data):
     return f"{DIAS[dt.weekday()]}, {d} de {MESES[mes - 1]} de {ano}"
 
 
+# Artigo definido de cada estado, para o título não sair como "ao governo de
+# Ceará". Ficam de fora os que não levam artigo: São Paulo, Minas Gerais,
+# Goiás, Pernambuco, Alagoas, Sergipe, Rondônia, Roraima, Santa Catarina,
+# Mato Grosso e Mato Grosso do Sul.
+ARTIGO_UF = {
+    "AC": "o", "AP": "o", "AM": "o", "BA": "a", "CE": "o", "DF": "o",
+    "ES": "o", "MA": "o", "PA": "o", "PB": "a", "PR": "o", "PI": "o",
+    "RJ": "o", "RN": "o", "RS": "o", "TO": "o", "BR": "o",
+}
+
+
 def cargo_por_extenso(cargo, uf):
-    lugar = UFS.get((uf or "").strip().upper(), (uf or "").strip())
+    sigla = (uf or "").strip().upper()
+    lugar = UFS.get(sigla, (uf or "").strip())
+    artigo = ARTIGO_UF.get(sigla, "")
+    de = {"o": "do", "a": "da"}.get(artigo, "de")
+    por = {"o": "pelo", "a": "pela"}.get(artigo, "por")
     c = (cargo or "").strip().lower()
     if c.startswith("gov"):
-        return f"ao governo de {lugar}" if lugar else "ao governo"
+        return f"ao governo {de} {lugar}" if lugar else "ao governo"
     if c.startswith("pref"):
-        return f"à prefeitura de {lugar}" if lugar else "à prefeitura"
+        return f"à prefeitura {de} {lugar}" if lugar else "à prefeitura"
     if c.startswith("sen"):
-        return f"ao Senado por {lugar}" if lugar else "ao Senado"
+        return f"ao Senado {por} {lugar}" if lugar else "ao Senado"
     if c.startswith("pres"):
         return "à Presidência da República"
     return f"{c} {lugar}".strip() or "ao cargo em disputa"
@@ -493,7 +508,7 @@ def para_conferir(por_eixo_achados, quantos=5):
 def titulo(meta, eh_sabatina=False):
     ordem = meta.get("ordinal")
     if eh_sabatina:
-        qual = "Sabatina"
+        qual = "sabatina"
     else:
         qual = f"{ORDINAIS[ordem - 1]} debate" if ordem and ordem <= len(ORDINAIS) else "Debate"
     emissora = (meta.get("emissora") or "").strip()
@@ -502,7 +517,10 @@ def titulo(meta, eh_sabatina=False):
     if emissora:
         t += f", {emissora}"
     if data:
-        t += f", {data}"
+        # A planilha guarda aaaa-mm-dd, e a capa do documento que vai ao
+        # cliente não é lugar de data em formato de banco.
+        m = re.match(r"(\d{4})-(\d{2})-(\d{2})$", data)
+        t += f", {m.group(3)}/{m.group(2)}/{m.group(1)}" if m else f", {data}"
     return t[0].upper() + t[1:]
 
 

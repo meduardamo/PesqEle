@@ -195,3 +195,20 @@ def test_coluna_que_ja_existe_nao_e_criada_de_novo(monkeypatch):
     cabecalho = ["id", "link_resumo", "resumo_md"]
     assert rd.coluna_por_nome(ws, cabecalho, "resumo_md") == 3
     assert ws.escritas == []
+
+
+def test_titulo_concorda_com_o_artigo_do_estado():
+    # A capa do documento vai para o cliente: "ao governo de Ceará" e a data em
+    # aaaa-mm-dd eram as duas coisas que apareciam lá.
+    from outros.resumo_debates import cargo_por_extenso, titulo
+    assert cargo_por_extenso("Governador", "CE") == "ao governo do Ceará"
+    assert cargo_por_extenso("Governador", "BA") == "ao governo da Bahia"
+    assert cargo_por_extenso("Governador", "SP") == "ao governo de São Paulo"
+    assert cargo_por_extenso("Senador", "RJ") == "ao Senado pelo Rio de Janeiro"
+    assert cargo_por_extenso("Senador", "SP") == "ao Senado por São Paulo"
+    assert titulo({"ordinal": 1, "emissora": "Band", "data": "2026-08-09",
+                   "cargo": "Governador", "uf": "SP"}) == (
+        "Resumo do 1º debate ao governo de São Paulo, Band, 09/08/2026")
+    assert titulo({"emissora": "PontoPoder", "data": "20/08/2026",
+                   "cargo": "Governador", "uf": "CE"}, True) == (
+        "Resumo da sabatina ao governo do Ceará, PontoPoder, 20/08/2026")
