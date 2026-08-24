@@ -45,6 +45,11 @@ on:
         type: boolean
         required: false
         default: false
+      preencher_meta:
+        description: 'Só medir de novo os eventos que já têm resumo, para o sumário do painel (não chama o modelo)'
+        type: boolean
+        required: false
+        default: false
 
   repository_dispatch:
     types: [resumir-debates]
@@ -84,8 +89,18 @@ jobs:
           PASTA_DRIVE_DEBATES: ${{ secrets.PASTA_DRIVE_DEBATES }}
         run: python -m outros.resumo_debates --preencher-texto
 
+      # A medição que vira o sumário do painel. Também não chama o modelo: a
+      # conta sai do CSV que já está no Drive.
+      - name: Medir os eventos para o sumário
+        if: inputs.preencher_meta == true
+        env:
+          PYTHONUNBUFFERED: "1"
+          SPREADSHEET_ID_DEBATES: ${{ secrets.SPREADSHEET_ID_DEBATES }}
+          PASTA_DRIVE_DEBATES: ${{ secrets.PASTA_DRIVE_DEBATES }}
+        run: python -m outros.resumo_debates --preencher-meta
+
       - name: Gerar os resumos
-        if: inputs.preencher_texto != true
+        if: inputs.preencher_texto != true && inputs.preencher_meta != true
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

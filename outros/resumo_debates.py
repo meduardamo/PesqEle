@@ -656,10 +656,36 @@ def meta_da_linha(linha, COL, todas):
 # resumo chega ao painel como um bloco de texto corrido.
 COLUNA_TEXTO = "resumo_md"
 
+# Os mesmos números que o resumo cita, em JSON, para o painel montar o sumário
+# sem ter de garimpar número dentro da prosa. Medido em Python, como tudo que
+# vira número aqui.
+COLUNA_META = "resumo_meta"
+
 # Limite de uma célula do Sheets é 50 mil caracteres. O resumo mais longo até
 # agora tem cerca de 9 mil, mas a célula que estoura derruba a escrita da linha
 # inteira, então o texto grande fica só no Drive e o painel avisa.
 MAX_CELULA = 45000
+
+
+def meta_medida(falas):
+    """Duração, tempo de fala e minutos por tema, para o sumário do painel.
+
+    Sai da mesma medição que alimenta o texto, então os dois nunca divergem.
+    Os trechos de cada tema ficam de fora: quem lê o sumário quer a ordem e o
+    tamanho de cada assunto, e a citação já está no corpo do resumo.
+    """
+    from outros.resumo_debate import (calcular_metricas_debate,
+                                      limpar_classificacao_procedimental)
+    m = calcular_metricas_debate(limpar_classificacao_procedimental(falas))
+    return {
+        "duracao_min": m.get("duracao_total_min"),
+        "candidatos": [{"nome": c["nome"], "minutos": c["minutos"],
+                        "percentual": c.get("percentual")}
+                       for c in m.get("candidatos", [])],
+        "temas": [{"tema": t["tema"], "minutos": t["minutos"],
+                   "falas": t["qtd_falas"]}
+                  for t in m.get("ranking_temas", [])],
+    }
 
 
 def indice_da_coluna(cabecalho, nome):
@@ -904,6 +930,54 @@ def preencher_texto(_args):
     log(f"{feitos} resumo(s) preenchido(s).")
 
 
+def preencher_meta(_args):
+    """Grava a medição dos eventos que já têm resumo, sem chamar o modelo.
+
+    O sumário do painel (duração, tempo de fala, minutos por tema) sai daqui.
+    A conta é a mesma do resumo e roda só em Python, sobre o CSV que já está
+    no Drive: preencher é barato e não reescreve uma linha do texto.
+    """
+    from outros.transcricao_debates import (COL, PLANILHA, clientes_google,
+                                            com_retentativa, escrever_celula)
+    if not PLANILHA:
+        sys.exit("defina SPREADSHEET_ID_DEBATES (secret do repo).")
+    gc, _ = clientes_google()
+    ws = com_retentativa("abertura da planilha de eventos",
+                         lambda: gc.open_by_key(PLANILHA).worksheet("eventos"))
+    todas = com_retentativa("leitura da planilha", ws.get_all_values)
+    cabecalho = list(todas[0])
+    col_link = indice_do_resumo(cabecalho)
+    if not col_link:
+        log("nenhum resumo na planilha ainda.")
+        return
+    col_meta = coluna_por_nome(ws, cabecalho, COLUNA_META)
+
+    def campo(linha, col):
+        return (linha[col - 1] if col - 1 < len(linha) else "").strip()
+
+    feitos = 0
+    for i, linha in enumerate(todas[1:], start=2):
+        if not linha:
+            continue
+        if not campo(linha, col_link).startswith("http") or campo(linha, col_meta):
+            continue
+        link_csv = (linha[COL["link_csv"]] if COL["link_csv"] < len(linha) else "").strip()
+        if not link_csv:
+            log(f"linha {i}: sem link_csv, pulando")
+            continue
+        try:
+            falas = ler_csv_drive(gc, link_csv)
+        except Exception as e:
+            log(f"linha {i}: csv não pôde ser lido ({type(e).__name__}: {e})")
+            continue
+        medida = meta_medida(falas)
+        escrever_celula(ws, i, col_meta, json.dumps(medida, ensure_ascii=False))
+        feitos += 1
+        log(f"linha {i}: {len(medida['temas'])} tema(s), "
+            f"{medida['duracao_min']} min de evento")
+    log(f"{feitos} evento(s) medido(s).")
+
+
 def rodar_fila(args):
     import outros.transcricao_debates as td
     from outros.transcricao_debates import (COL, PLANILHA, clientes_google,
@@ -952,6 +1026,7 @@ def rodar_fila(args):
     cabecalho = list(todas[0])
     col_resumo = coluna_do_resumo(ws, cabecalho) if args.drive else None
     col_texto = coluna_por_nome(ws, cabecalho, COLUNA_TEXTO) if args.drive else None
+    col_meta = coluna_por_nome(ws, cabecalho, COLUNA_META) if args.drive else None
     template_docx = Path(__file__).parent / "templates" / "timbrado_eleicoes.docx"
 
     for i, meta in fila:
@@ -996,6 +1071,8 @@ def rodar_fila(args):
             else:
                 escrever_celula(ws, i, col_texto, md)
                 log(f"texto do resumo gravado na coluna '{COLUNA_TEXTO}'")
+            escrever_celula(ws, i, col_meta,
+                            json.dumps(meta_medida(falas), ensure_ascii=False))
 
 
 def main():
@@ -1017,6 +1094,9 @@ def main():
     ap.add_argument("--preencher-texto", action="store_true",
                     help="copia para a planilha o texto dos resumos que já estão "
                          "no Drive, sem chamar o modelo")
+    ap.add_argument("--preencher-meta", action="store_true",
+                    help="grava a medição (duração, tempo de fala, minutos por "
+                         "tema) dos resumos que já existem, sem chamar o modelo")
     # Só no modo avulso: sem a planilha, ninguém sabe a data nem quem mediou.
     ap.add_argument("--data", default=None)
     ap.add_argument("--emissora", default=None)
@@ -1033,6 +1113,8 @@ def main():
 
     if args.preencher_texto:
         preencher_texto(args)
+    elif args.preencher_meta:
+        preencher_meta(args)
     elif args.fila or args.id:
         rodar_fila(args)
     elif args.csv:
