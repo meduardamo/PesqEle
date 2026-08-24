@@ -160,3 +160,38 @@ def test_fechamento_conta_so_candidato_e_concorda_no_singular():
 def test_minuto_sai_com_virgula_e_sem_zero_a_toa():
     assert num(53.42) == "53,4"
     assert num(52.0) == "52"
+
+
+class _AbaFalsa:
+    """Aba de planilha só com o que coluna_por_nome usa."""
+
+    def __init__(self, col_count=20):
+        self.col_count = col_count
+        self.escritas = []
+
+    def update_cell(self, linha, coluna, valor):
+        self.escritas.append((linha, coluna, valor))
+
+
+def test_coluna_nova_entra_no_fim_e_a_seguinte_nao_repete_o_indice(monkeypatch):
+    # As duas colunas de saída (link e texto) são pedidas a partir do mesmo
+    # cabeçalho lido uma vez. Sem atualizar a lista, a segunda cairia em cima
+    # da primeira e o texto do resumo sobrescreveria o link do Drive.
+    from outros import resumo_debates as rd
+    import outros.transcricao_debates as td
+    monkeypatch.setattr(td, "com_retentativa", lambda _d, fn: fn())
+    ws = _AbaFalsa()
+    cabecalho = ["id", "data", "cargo"]
+    assert rd.coluna_por_nome(ws, cabecalho, "link_resumo") == 4
+    assert rd.coluna_por_nome(ws, cabecalho, "resumo_md") == 5
+    assert cabecalho[-2:] == ["link_resumo", "resumo_md"]
+
+
+def test_coluna_que_ja_existe_nao_e_criada_de_novo(monkeypatch):
+    from outros import resumo_debates as rd
+    import outros.transcricao_debates as td
+    monkeypatch.setattr(td, "com_retentativa", lambda _d, fn: fn())
+    ws = _AbaFalsa()
+    cabecalho = ["id", "link_resumo", "resumo_md"]
+    assert rd.coluna_por_nome(ws, cabecalho, "resumo_md") == 3
+    assert ws.escritas == []

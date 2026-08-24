@@ -40,6 +40,11 @@ on:
         description: 'Modelo Gemini'
         required: false
         default: 'gemini-3.6-flash'
+      preencher_texto:
+        description: 'Só copiar para a planilha o texto dos resumos que já estão no Drive (não chama o modelo)'
+        type: boolean
+        required: false
+        default: false
 
   repository_dispatch:
     types: [resumir-debates]
@@ -68,7 +73,19 @@ jobs:
       - name: Escrever credentials.json
         run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
 
+      # O painel lê o texto do resumo da planilha, e os resumos gerados antes
+      # da coluna existir estão só no Drive. Este passo copia o texto deles sem
+      # chamar o modelo; é rodado uma vez e depois fica ocioso.
+      - name: Preencher o texto dos resumos antigos
+        if: inputs.preencher_texto == true
+        env:
+          PYTHONUNBUFFERED: "1"
+          SPREADSHEET_ID_DEBATES: ${{ secrets.SPREADSHEET_ID_DEBATES }}
+          PASTA_DRIVE_DEBATES: ${{ secrets.PASTA_DRIVE_DEBATES }}
+        run: python -m outros.resumo_debates --preencher-texto
+
       - name: Gerar os resumos
+        if: inputs.preencher_texto != true
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

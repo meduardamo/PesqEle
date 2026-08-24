@@ -631,29 +631,56 @@ def meta_da_linha(linha, COL, todas):
     }
 
 
+# O painel lê o texto do resumo desta coluna. Guardar o markdown na própria
+# planilha em vez de fazer o painel exportar o Google Doc: o .docx timbrado
+# formata título e subtítulo com run direto (negrito azul), não com estilo de
+# heading, então a exportação do Doc volta sem a estrutura de markdown e o
+# resumo chega ao painel como um bloco de texto corrido.
+COLUNA_TEXTO = "resumo_md"
+
+# Limite de uma célula do Sheets é 50 mil caracteres. O resumo mais longo até
+# agora tem cerca de 9 mil, mas a célula que estoura derruba a escrita da linha
+# inteira, então o texto grande fica só no Drive e o painel avisa.
+MAX_CELULA = 45000
+
+
+def indice_da_coluna(cabecalho, nome):
+    """Índice 1-based da coluna, ou None se ela ainda não existe."""
+    nomes = [c.strip().lower() for c in cabecalho]
+    return nomes.index(nome) + 1 if nome in nomes else None
+
+
 def indice_do_resumo(cabecalho):
     """Índice 1-based da coluna link_resumo, ou None se ela ainda não existe."""
-    nomes = [c.strip().lower() for c in cabecalho]
-    return nomes.index("link_resumo") + 1 if "link_resumo" in nomes else None
+    return indice_da_coluna(cabecalho, "link_resumo")
 
 
-def coluna_do_resumo(ws, cabecalho):
-    """Índice 1-based da coluna link_resumo, criada no fim se ainda não existir.
+def coluna_por_nome(ws, cabecalho, nome):
+    """Índice 1-based da coluna, criada no fim se ainda não existir.
 
     Criar em vez de exigir mexer na planilha à mão: o script já escreve nessa
     aba, e uma coluna a mais no fim não desloca nenhuma das que o
     transcricao_debates endereça por posição.
+
+    `cabecalho` é atualizado no lugar quando a coluna é criada, para a chamada
+    seguinte não calcular o mesmo índice a partir de um cabeçalho velho.
     """
-    ja = indice_do_resumo(cabecalho)
+    ja = indice_da_coluna(cabecalho, nome)
     if ja:
         return ja
     col = len(cabecalho) + 1
     if col > ws.col_count:
         ws.add_cols(col - ws.col_count)
     from outros.transcricao_debates import escrever_celula
-    escrever_celula(ws, 1, col, "link_resumo")
-    log(f"coluna 'link_resumo' criada na planilha (coluna {col})")
+    escrever_celula(ws, 1, col, nome)
+    cabecalho.append(nome)
+    log(f"coluna '{nome}' criada na planilha (coluna {col})")
     return col
+
+
+def coluna_do_resumo(ws, cabecalho):
+    """Índice 1-based da coluna link_resumo, criada no fim se ainda não existir."""
+    return coluna_por_nome(ws, cabecalho, "link_resumo")
 
 
 def criar_docx_timbrado(texto_md: str, titulo: str, subtitulo: str, template_path: Path, saida_path: Path) -> Path | None:
@@ -798,6 +825,67 @@ def criar_docx_timbrado(texto_md: str, titulo: str, subtitulo: str, template_pat
     return saida_path
 
 
+def preencher_texto(_args):
+    """Copia para a planilha o texto dos resumos que só existem no Drive.
+
+    Existe para o histórico: os resumos gerados antes da coluna `resumo_md`
+    estão só como documento no Drive, e o painel lê da planilha. Exportar o
+    documento e colar o texto é mais barato e mais fiel que mandar o modelo
+    redigir tudo de novo, e não muda nem uma palavra do que já foi conferido.
+
+    O que sai daqui é o texto do documento, sem a estrutura de markdown: o
+    .docx timbrado formata título e destaque com formatação direta, não com
+    estilo de heading, e a exportação não tem como adivinhar isso. Resumo novo
+    já nasce com o markdown certo pela mão do rodar_fila.
+    """
+    from outros.transcricao_debates import (PLANILHA, clientes_google,
+                                            com_retentativa, escrever_celula,
+                                            extrair_id_drive)
+    if not PLANILHA:
+        sys.exit("defina SPREADSHEET_ID_DEBATES (secret do repo).")
+    gc, drive = clientes_google()
+    ws = com_retentativa("abertura da planilha de eventos",
+                         lambda: gc.open_by_key(PLANILHA).worksheet("eventos"))
+    todas = com_retentativa("leitura da planilha", ws.get_all_values)
+    cabecalho = list(todas[0])
+    col_link = indice_do_resumo(cabecalho)
+    if not col_link:
+        log("nenhum resumo na planilha ainda.")
+        return
+    col_texto = coluna_por_nome(ws, cabecalho, COLUNA_TEXTO)
+
+    def campo(linha, col):
+        return (linha[col - 1] if col - 1 < len(linha) else "").strip()
+
+    feitos = 0
+    for i, linha in enumerate(todas[1:], start=2):
+        if not linha:
+            continue
+        link = campo(linha, col_link)
+        if not link.startswith("http") or campo(linha, col_texto):
+            continue
+        try:
+            bruto = com_retentativa(
+                f"exportação do resumo da linha {i}",
+                lambda l=link: drive.files().export(
+                    fileId=extrair_id_drive(l), mimeType="text/plain").execute(),
+            )
+        except Exception as e:
+            log(f"linha {i}: não deu para exportar ({type(e).__name__}: {e})")
+            continue
+        texto = bruto.decode("utf-8", "replace").strip() if isinstance(bruto, bytes) else str(bruto).strip()
+        if not texto:
+            log(f"linha {i}: documento veio vazio")
+            continue
+        if len(texto) > MAX_CELULA:
+            log(f"linha {i}: {len(texto)} caracteres, acima do limite da célula")
+            continue
+        escrever_celula(ws, i, col_texto, texto)
+        feitos += 1
+        log(f"linha {i}: {len(texto.split())} palavras gravadas")
+    log(f"{feitos} resumo(s) preenchido(s).")
+
+
 def rodar_fila(args):
     import outros.transcricao_debates as td
     from outros.transcricao_debates import (COL, PLANILHA, clientes_google,
@@ -843,7 +931,9 @@ def rodar_fila(args):
 
     saida = Path(args.saida or "transcricoes")
     saida.mkdir(parents=True, exist_ok=True)
-    col_resumo = coluna_do_resumo(ws, todas[0]) if args.drive else None
+    cabecalho = list(todas[0])
+    col_resumo = coluna_do_resumo(ws, cabecalho) if args.drive else None
+    col_texto = coluna_por_nome(ws, cabecalho, COLUNA_TEXTO) if args.drive else None
     template_docx = Path(__file__).parent / "templates" / "timbrado_eleicoes.docx"
 
     for i, meta in fila:
@@ -875,6 +965,15 @@ def rodar_fila(args):
                                 "application/vnd.google-apps.document", pasta)
             escrever_celula(ws, i, col_resumo, link)
             log(f"resumo no Drive: {link}")
+            # O texto vai para a planilha porque é de lá que o painel lê. O
+            # Drive continua guardando o documento timbrado, que é o que se
+            # manda para fora.
+            if len(md) > MAX_CELULA:
+                log(f"resumo com {len(md)} caracteres, acima do limite da célula: "
+                    f"texto não gravado na planilha (só o link do Drive)")
+            else:
+                escrever_celula(ws, i, col_texto, md)
+                log(f"texto do resumo gravado na coluna '{COLUNA_TEXTO}'")
 
 
 def main():
@@ -893,6 +992,9 @@ def main():
     ap.add_argument("--min-falas", type=int, default=MIN_FALAS)
     ap.add_argument("--saida", default=None)
     ap.add_argument("--sabatina", action="store_true", help="O evento é uma sabatina (apenas um candidato)")
+    ap.add_argument("--preencher-texto", action="store_true",
+                    help="copia para a planilha o texto dos resumos que já estão "
+                         "no Drive, sem chamar o modelo")
     # Só no modo avulso: sem a planilha, ninguém sabe a data nem quem mediou.
     ap.add_argument("--data", default=None)
     ap.add_argument("--emissora", default=None)
@@ -907,7 +1009,9 @@ def main():
     secao("CONFIGURAÇÃO")
     log(f"modelo : {GEMINI_MODEL if not args.sem_modelo else 'nenhum (--sem-modelo)'}")
 
-    if args.fila or args.id:
+    if args.preencher_texto:
+        preencher_texto(args)
+    elif args.fila or args.id:
         rodar_fila(args)
     elif args.csv:
         entrada = Path(args.csv)
