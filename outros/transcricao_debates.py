@@ -623,6 +623,45 @@ def enviar_drive(drive, caminho, nome, mime_destino=None, pasta=None):
     return arq["webViewLink"]
 
 
+def enviar_ou_substituir(drive, caminho, nome, mime_destino=None, pasta=None):
+    """Sobe o arquivo, ou grava por cima do que já tem esse nome na pasta.
+
+    Existe pelo mesmo motivo do enviar_ou_atualizar do resumo: `enviar_drive`
+    cria um item novo toda vez, e reprocessar um debate deixava a pasta com
+    duas transcrições e dois `_bruto.md` do mesmo evento, com a planilha
+    apontando só para os últimos. Um nome, um arquivo: o id não muda, o link
+    que já está na planilha continua valendo e o conteúdo anterior fica no
+    histórico de revisões.
+    """
+    from googleapiclient.http import MediaFileUpload
+
+    alvo = pasta or PASTA_DRIVE
+    seguro = nome.replace("\\", "\\\\").replace("'", "\\'")
+    achados = com_retentativa(
+        f"busca de {nome} na pasta",
+        lambda: drive.files().list(
+            q=f"name = '{seguro}' and '{alvo}' in parents and trashed = false",
+            fields="files(id)", supportsAllDrives=True,
+            includeItemsFromAllDrives=True, pageSize=2,
+        ).execute(),
+    ).get("files", [])
+    if not achados:
+        return enviar_drive(drive, caminho, nome, mime_destino, pasta)
+
+    grande = Path(caminho).stat().st_size > 10e6
+    midia = MediaFileUpload(str(caminho), resumable=grande)
+    arq = com_retentativa(
+        f"atualização de {nome}",
+        lambda: drive.files().update(
+            fileId=achados[0]["id"], media_body=midia, body={"name": nome},
+            supportsAllDrives=True, keepRevisionForever=True,
+            fields="id,webViewLink",
+        ).execute(),
+    )
+    log(f"{nome} gravado por cima do arquivo que já estava na pasta")
+    return arq["webViewLink"]
+
+
 def garantir_pasta(drive, nome, pai):
     """Id da subpasta 'nome' dentro de 'pai', criada se ainda não existir.
 
@@ -1682,7 +1721,7 @@ def rodar_fila(args):
             # precisa baixar de novo do YouTube, que é a parte que trava.
             if not link_audio_existente:
                 secao("ÁUDIO NO DRIVE")
-                link_audio = enviar_drive(
+                link_audio = enviar_ou_substituir(
                     drive, audio, f"{ident}.mp3", pasta=destino_drive
                 )
                 escrever_celula(ws, i, COL["link_audio"] + 1, link_audio)
@@ -1712,8 +1751,8 @@ def rodar_fila(args):
                         arq_upload_resumo = arq_docx
                         log(f"DOCX Timbrado gerado: {arq_docx.name} (fonte Montserrat)")
 
-                link_resumo = enviar_drive(drive, arq_upload_resumo, f"{ident}_resumo",
-                                           "application/vnd.google-apps.document", destino_drive)
+                link_resumo = enviar_ou_substituir(drive, arq_upload_resumo, f"{ident}_resumo",
+                                                   "application/vnd.google-apps.document", destino_drive)
                 log(f"resumo timbrado no Drive: {link_resumo}")
             except Exception as e_resumo:
                 aviso_actions(f"{ident}: resumo automático falhou "
@@ -1733,7 +1772,7 @@ def rodar_fila(args):
                 # depois. O bruto fica como arquivo, que é material de conferência.
                 destino = {".txt": "application/vnd.google-apps.document",
                            ".csv": "application/vnd.google-apps.spreadsheet"}.get(p.suffix)
-                links[p.suffix] = enviar_drive(drive, p, p.name, destino, destino_drive)
+                links[p.suffix] = enviar_ou_substituir(drive, p, p.name, destino, destino_drive)
                 log(f"{p.name} -> {links[p.suffix]}")
 
             com_retentativa(
