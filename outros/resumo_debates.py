@@ -570,7 +570,9 @@ def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_T
     client = genai.Client(api_key=chave)
 
     secao("GERAÇÃO DO RESUMO EXECUTIVO (GEMINI)")
-    prompt = formatar_prompt(titulo_evento, metricas, falas_limpas, eh_sabatina=eh_sabatina)
+    prompt = formatar_prompt(titulo_evento, metricas, falas_limpas,
+                             eh_sabatina=eh_sabatina,
+                             participantes=meta.get("participantes"))
 
     for n in range(1, TENTATIVAS + 1):
         try:

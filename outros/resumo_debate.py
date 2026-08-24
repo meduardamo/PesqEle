@@ -263,12 +263,15 @@ DIRETRIZES ANTI-CLICHÊ DE IA (GUIA PROF. RAFAEL SAMPAIO):
 
 REGRAS CRÍTICAS DE CONTEÚDO:
 - NÃO invente números, dados, datas, nomes de programas ou falas que não constem na transcrição/dados.
-- Se houver dúvida ou incerteza sobre algum dado citado, sinalize entre colchetes como [CONFERIR].
+- Se um dado não constar dos DADOS CONSOLIDADOS nem da transcrição, omita-o. NÃO escreva ressalvas, bilhetes de revisão nem marcações entre colchetes no meio do texto: o resumo é publicado como está e vai para o cliente.
+- Os participantes e seus partidos estão nos DADOS CONSOLIDADOS. Use exatamente esses rótulos e não hesite sobre filiação partidária.
 - AO FINAL DA RESPOSTA (separado por uma linha horizontal ---), liste exatamente os 5 números ou trechos mais importantes utilizados no texto, com o timestamp aproximado [MM:SS] em que aparecem na transcrição, para conferência rápida.
 
 ---
 DADOS CONSOLIDADOS DO EVENTO:
 - Título/Contexto: {contexto}
+- Participantes e partidos (fonte oficial, use estes rótulos):
+{participantes}
 - Duração total calculada: ~{duracao_total} minutos
 - Tempo de fala medido:
 {metricas_candidatos}
@@ -286,7 +289,15 @@ def formatar_prompt(
     metricas: Dict[str, Any],
     linhas_transcricao: List[Dict[str, Any]],
     eh_sabatina: bool = False,
+    participantes: List[str] | None = None,
 ) -> str:
+    """Prompt do resumo.
+
+    `participantes` vem da planilha, com o partido, e é a fonte de filiação:
+    a transcrição só traz o nome de quem fala. Sem isso o modelo escreveu
+    '[CONFERIR partidos de Kalil, Cleitinho e Roscoe na ocasião]' dentro do
+    resumo do debate de Minas, e o bilhete foi parar no painel do cliente.
+    """
     if eh_sabatina:
         cands_str = "\n".join(
             f"  * {c['nome']}: {c['minutos']} min ({c['palavras']} palavras)"
@@ -313,7 +324,9 @@ def formatar_prompt(
         for tr in t.get("trechos", [])[:4]:
             amostras.append(f"[{tr['tempo']}] {tr['falante']}: {tr['fala'][:350]}")
 
+    lista_participantes = "\n".join(f"  * {p}" for p in (participantes or []))
     return PROMPT_RESUMO_EXECUTIVO.format(
+        participantes=lista_participantes or "  (não informados)",
         tempo_candidato=tempo_candidato,
         confronto_candidatos=confronto_candidatos,
         contexto=contexto.strip(),
