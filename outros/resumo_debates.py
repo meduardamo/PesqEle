@@ -954,7 +954,11 @@ def rodar_fila(args):
         # Se o template timbrado existir, gera o .docx com Montserrat e timbrado oficial
         if template_docx.exists():
             arq_docx = saida / f"{meta['id'] or 'debate'}_resumo.docx"
-            titulo_doc = meta_titulo(meta) if "meta_titulo" in globals() else f"Resumo — {meta['id']}"
+            # O título do documento é o mesmo do texto: 'Resumo do 1º debate ao
+            # governo de São Paulo, Band, 09/08/2026'. Antes caía no `else` de
+            # um meta_titulo que nunca existiu e o cliente recebia o PDF com o
+            # id da linha na capa ('Resumo — 2026-band-sp-gov-t1').
+            titulo_doc = titulo(meta, sabatina_flag)
             if criar_docx_timbrado(md, titulo_doc, "Eleições 2026 • Monitoramento de Debates", template_docx, arq_docx):
                 arq_upload = arq_docx
                 log(f"DOCX Timbrado gerado: {arq_docx.name} (fonte Montserrat)")
