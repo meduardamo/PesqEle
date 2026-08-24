@@ -645,6 +645,7 @@ def meta_da_linha(linha, COL, todas):
         "cargo": campo("cargo"), "uf": campo("uf"), "turno": campo("turno"),
         "mediador": campo("mediador"), "participantes": participantes,
         "ordinal": ordem, "link_csv": campo("link_csv"),
+        "link_resumo": campo("link_resumo") if "link_resumo" in COL else "",
         "tipo": campo("tipo") if "tipo" in COL else "",
     }
 
@@ -930,6 +931,41 @@ def preencher_texto(_args):
     log(f"{feitos} resumo(s) preenchido(s).")
 
 
+def enviar_ou_atualizar(drive, caminho, nome, pasta, link_atual=""):
+    """Sobe o resumo, ou grava por cima do documento que a planilha já aponta.
+
+    Criar arquivo novo a cada rodada foi o que encheu a pasta do Drive: três e
+    quatro versões do mesmo resumo por evento, e só a última na planilha. Aqui
+    o documento é o mesmo, o link não muda e o Google Docs guarda o histórico
+    de versões. Conferido no Drive: o arquivo continua sendo Google Doc depois
+    da troca, e a versão anterior fica no histórico.
+
+    Se a atualização falhar (documento apagado à mão, permissão trocada), sobe
+    um arquivo novo em vez de deixar o evento sem resumo.
+    """
+    from googleapiclient.http import MediaFileUpload
+    from outros.transcricao_debates import (com_retentativa, enviar_drive,
+                                            extrair_id_drive)
+    GDOC = "application/vnd.google-apps.document"
+    fid = extrair_id_drive(link_atual) if str(link_atual).startswith("http") else ""
+    if fid:
+        try:
+            arq = com_retentativa(
+                f"atualização de {nome}",
+                lambda: drive.files().update(
+                    fileId=fid, media_body=MediaFileUpload(str(caminho)),
+                    body={"name": nome}, supportsAllDrives=True,
+                    keepRevisionForever=True, fields="id,webViewLink",
+                ).execute(),
+            )
+            log(f"documento atualizado no lugar (sem arquivo novo)")
+            return arq["webViewLink"]
+        except Exception as e:
+            log(f"não deu para atualizar o documento ({type(e).__name__}: {e}); "
+                f"subindo arquivo novo")
+    return enviar_drive(drive, caminho, nome, GDOC, pasta)
+
+
 def preencher_meta(_args):
     """Grava a medição dos eventos que já têm resumo, sem chamar o modelo.
 
@@ -1058,8 +1094,8 @@ def rodar_fila(args):
 
         if args.drive:
             pasta = pasta_do_debate(drive, meta["uf"], meta["data"], ident=meta["id"])
-            link = enviar_drive(drive, arq_upload, f"{meta['id']}_resumo",
-                                "application/vnd.google-apps.document", pasta)
+            link = enviar_ou_atualizar(drive, arq_upload, f"{meta['id']}_resumo",
+                                       pasta, meta.get("link_resumo", ""))
             escrever_celula(ws, i, col_resumo, link)
             log(f"resumo no Drive: {link}")
             # O texto vai para a planilha porque é de lá que o painel lê. O

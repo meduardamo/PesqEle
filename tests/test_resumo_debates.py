@@ -212,3 +212,23 @@ def test_titulo_concorda_com_o_artigo_do_estado():
     assert titulo({"emissora": "PontoPoder", "data": "20/08/2026",
                    "cargo": "Governador", "uf": "CE"}, True) == (
         "Resumo da sabatina ao governo do Ceará, PontoPoder, 20/08/2026")
+
+
+def test_meta_leva_o_link_do_resumo_que_ja_existe():
+    # É por ele que o rodar_fila decide entre gravar por cima do documento e
+    # subir um arquivo novo. Sem isso cada rodada deixava mais uma cópia.
+    from outros.transcricao_debates import COL
+    linha = [""] * len(COL)
+    linha[COL["id"]] = "2026-band-sp-gov-t1"
+    linha[COL["data"]] = "2026-08-09"
+    linha[COL["link_resumo"]] = "https://docs.google.com/document/d/abc123/edit"
+    meta = meta_da_linha(linha, COL, [[], linha])
+    assert meta["link_resumo"] == "https://docs.google.com/document/d/abc123/edit"
+
+
+def test_meta_sem_link_de_resumo_vem_vazio():
+    from outros.transcricao_debates import COL
+    linha = [""] * len(COL)
+    linha[COL["id"]] = "2026-band-mg-gov-t1"
+    meta = meta_da_linha(linha, COL, [[], linha])
+    assert meta["link_resumo"] == ""
