@@ -41,7 +41,9 @@ jobs:
 
       - name: Escrever credentials.json
         working-directory: codigo
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+        run: printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
 
       - name: Baixar PDFs e montar árvore do site
         working-directory: codigo
@@ -55,13 +57,16 @@ jobs:
 
       - name: Commit e push
         working-directory: site
+        env:
+          PAT_GITHUB: ${{ secrets.PAT_GITHUB }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${PAT_GITHUB}@github.com/eleicoes2026-dados/planos-governo-2026.git"
           git add .
           if git diff --staged --quiet; then
             echo "Nenhuma mudança nos PDFs."
           else
             git commit -m "Atualiza PDFs dos planos de governo"
-            git push
+            git push origin main
           fi
