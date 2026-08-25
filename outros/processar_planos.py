@@ -39,7 +39,8 @@ from analise_planos import (  # noqa: E402
     contexto_do_trecho,
     contexto_do_tema, contexto_do_vocabulario, posicoes_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
-    normalizar_responsavel, tem_alvo_mensuravel, tema_e_item_de_enumeracao,
+    normalizar_responsavel, tem_alvo_absoluto, tem_alvo_mensuravel,
+    tema_e_item_de_enumeracao,
     verificar_trecho,
 )
 
@@ -354,6 +355,9 @@ def conferir_classificacao(classif: dict, texto: str,
     classif = _conferir_enumeracao(classif, texto, texto_norm, paginas_norm)
     classif = _conferir_subclassificacao(classif, texto, texto_norm, paginas_norm)
     classif = _conferir_meta(classif)
+    # Depois de _conferir_meta, nunca antes: o que acabou de descer por
+    # falta de alvo não pode subir de volta na mesma passada.
+    classif = _conferir_acao(classif)
     return _conferir_nivel_por_citacao(classif)
 
 
@@ -474,6 +478,27 @@ def _conferir_meta(classif: dict) -> dict:
         if item["nivel"] == "Define meta" and not tem_alvo_mensuravel(item["trecho"]):
             classif[tema] = dict(item, nivel="Propõe ação",
                                  score=NIVEIS.index("Propõe ação"))
+    return classif
+
+
+def _conferir_acao(classif: dict) -> dict:
+    """Sobe para 'Define meta' a ação cuja citação já traz alvo absoluto.
+
+    A régua só descia. Sem o caminho de subida, a mesma construção ficava em
+    dois níveis conforme o candidato: em 25/08/2026, 72 citações com
+    "universalizar" estavam em Propõe ação e 18 em Define meta, e o código já
+    declara universalizar como alvo ("universalizar é 100%, zerar é 0"). O
+    cliente lia isso como o plano de um sendo mais vago que o do outro.
+
+    Sobe um degrau só, e só a partir de "Propõe ação": subir "Menciona
+    vagamente" direto para meta pularia a pergunta de se existe ação, que é
+    outra coisa. tem_alvo_absoluto é mais estreita que tem_alvo_mensuravel
+    justamente por isso.
+    """
+    for tema, item in classif.items():
+        if item["nivel"] == "Propõe ação" and tem_alvo_absoluto(item["trecho"]):
+            classif[tema] = dict(item, nivel="Define meta",
+                                 score=NIVEIS.index("Define meta"))
     return classif
 
 

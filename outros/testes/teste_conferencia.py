@@ -161,6 +161,48 @@ def main() -> int:
           baixado["Geração de Emprego"]["nivel"] == "Propõe ação"
           and baixado["Geração de Emprego"]["trecho"] != "")
 
+    print("\nprazo sozinho: vale como alvo, menos com advérbio no lugar do número")
+    for frase in ("Reduzir a violência no estado, sobretudo os assaltos, de forma "
+                  "significativa já no primeiro ano de mandato",
+                  "Nossa prioridade será recuperar, já no primeiro ano de governo, "
+                  "os principais territórios dominados pelas facções",
+                  "Plano plurianual de concurso (meta de inverter a proporção ao "
+                  "longo do mandato)",
+                  "assegurem tolerância zero ao feminicídio"):
+        check(f"não é meta: {frase[:46]}...", not ap.tem_alvo_mensuravel(frase))
+    for frase in ("Cadastro nacional de infratores no ar até o fim do primeiro ano de mandato",
+                  "Alfabetização até o fim do segundo ano, com o resultado publicado",
+                  "convocar todos os concursados que aguardam já no primeiro ano de governo"):
+        check(f"é meta: {frase[:46]}...", ap.tem_alvo_mensuravel(frase))
+
+    print("\nalvo absoluto sobe ação para meta, e só quando é compromisso")
+    for frase in ("Universalizar a oferta do Ensino Médio em tempo integral em Pernambuco",
+                  "Criar um programa emergencial para zerar a fila de espera por cadeiras de rodas",
+                  "Criar um programa estadual de erradicação do analfabetismo",
+                  "Dobrar o orçamento estadual da Educação no estado"):
+        check(f"sobe: {frase[:46]}...", ap.tem_alvo_absoluto(frase))
+    for frase in ("Em 2026, a modalidade foi universalizada em 148 municípios, "
+                  "com expansão em andamento",
+                  "Vamos organizar o planejamento tomando como referência as metas de "
+                  "universalização previstas no Marco Legal do Saneamento",
+                  "Principais desafios: a dificuldade de levar internet a todos os municípios",
+                  "implantaremos o ensino 100% público e gratuito, das creches à pós-graduação",
+                  "Universalização do saneamento, um direito de todos"):
+        check(f"não sobe: {frase[:46]}...", not ap.tem_alvo_absoluto(frase))
+    subido = pp._conferir_acao({"Tempo Integral": item(
+        nivel="Propõe ação", score=2,
+        trecho="Universalizar a oferta do Ensino Médio em tempo integral")})
+    check("ação com alvo absoluto sobe um degrau, sem perder a citação",
+          subido["Tempo Integral"]["nivel"] == "Define meta"
+          and subido["Tempo Integral"]["trecho"] != "")
+    # A ordem no pipeline importa: o que desceu por falta de alvo não pode
+    # voltar a subir na mesma passada.
+    desceu = pp._conferir_meta({"Violência contra a Mulher": item(
+        nivel="Define meta", score=3,
+        trecho="ações que assegurem tolerância zero ao feminicídio")})
+    check("o que desce por falta de alvo não volta a subir",
+          pp._conferir_acao(desceu)["Violência contra a Mulher"]["nivel"] == "Propõe ação")
+
     print("\ntema muito citado não fica como menção vaga sem conferência")
     cheios = [t for t in ap.TEMAS
               if len(ap.ocorrencias_ancora(zema_norm, t)) >= pp.OCORRENCIAS_TEMA_TRATADO]

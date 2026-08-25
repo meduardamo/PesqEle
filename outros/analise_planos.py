@@ -1262,6 +1262,40 @@ _META_DECORATIVO = [
 ]
 
 
+# Absoluto que é nome de programa ou figura de linguagem, não alvo. "Tolerância
+# zero ao feminicídio" (Mailza Assis, PP/AC) e "ensino 100% público" (Edmilson
+# Costa, PCB/BR) davam Define meta sem que houvesse número nenhum na frase: o
+# primeiro é retórica, o segundo é modelo de propriedade, não cobertura.
+_ABSOLUTO_DECORATIVO = [
+    r"\btoleranci\w*\s+zero\b",
+    r"\b(juros?|lixo|papel|burocracia|fome)\s+zero\b",
+    r"\bzero\s+(papel|burocracia)\b",
+    r"\b100\s*%\s*(estatal|publica?|privada?|nacional|brasileir\w+|gratuit\w+)\b",
+    r"\bmarco\s+zero\b",
+]
+
+
+def _sem_absoluto_decorativo(n: str) -> str:
+    for padrao in _ABSOLUTO_DECORATIVO:
+        n = re.sub(padrao, " ", n)
+    return n
+
+
+# Quantificador vago no lugar exato onde deveria estar o número. Prazo sozinho
+# continua valendo como alvo: "cadastro no ar até o fim do primeiro ano"
+# (Veterinário Wilson Grassi, DEMOCRATA/BR) é entregável com data e dá para
+# conferir depois. O que não vale é "reduzir a violência de forma significativa
+# já no primeiro ano" (Eduardo Paes, PSD/RJ), que não diz quanto, nem "meta de
+# inverter a proporção ao longo do mandato" (Economista Renato Gomes, DC/MS),
+# que nomeia o indicador sem fixar valor. Medido em 25/08/2026: 7 linhas.
+_QUANTUM_VAGO = re.compile(
+    r"\bde forma significativa\b|\bsignificativamente\b|\bdrasticamente\b|"
+    r"\bconsideravelmente\b|\bsubstancialmente\b|\bexpressivamente\b|"
+    r"\bos principais\b|\bas principais\b|"
+    r"\bmetas? de (inverter|ampliar|reduzir|aumentar|elevar|melhorar|inclusao)\b|"
+    r"\b(percentual|indice|numero|proporcao) minim\w+ de (?!\d)\w")
+
+
 _META_EXTERNA_ALINHAMENTO = (
     r"\b(pne|plano nacional de educacao|agenda 2030|ods|objetivos de desenvolvimento sustentavel|"
     r"metas? do milenio|metas? nacionais)\b"
@@ -1334,17 +1368,88 @@ def tem_alvo_mensuravel(trecho: str) -> bool:
     # número é aproximação, não compromisso. Sem isto, o zero da frase contava
     # como número e o trecho subia para Define meta.
     n = re.sub(r"\bproximo[s]?\s+(?:de|a|do|da)\s+\S+", " ", n)
-    if (re.search(_META_PRAZO, n) or re.search(_META_ABSOLUTO, n)
-            or re.search(_META_EXTENSO, n) or re.search(_META_ANO_ALVO, n)):
+    # O absoluto conta depois de tirar o que é nome de programa ou retórica.
+    if (re.search(_META_ABSOLUTO, _sem_absoluto_decorativo(n))
+            or re.search(_META_ANO_ALVO, n)):
         return True
+    n_num = n
     for padrao in _META_DECORATIVO:
-        n = re.sub(padrao, " ", n)
-    return bool(re.search(_META_NUMERO, n))
+        n_num = re.sub(padrao, " ", n_num)
+    if re.search(_META_EXTENSO, n_num) or re.search(_META_NUMERO, n_num):
+        return True
+    # Sobrou só o prazo. Vale, menos quando a frase põe um advérbio vago
+    # exatamente onde deveria estar o número.
+    return bool(re.search(_META_PRAZO, n) and not _QUANTUM_VAGO.search(n))
 
 
 def _norm_acentos(t: str) -> str:
     t = unicodedata.normalize("NFD", str(t or "").lower())
     return "".join(c for c in t if unicodedata.category(c) != "Mn")
+
+
+# Meta que é de lei federal, e não do candidato. _e_meta_externa_ou_terceiro só
+# olha PNE e ODS; a universalização do saneamento tem prazo próprio no Marco
+# Legal de 2020, e "tomar como referência as metas do Marco" é adesão, não meta
+# fixada por quem pede o voto.
+_META_DE_LEI = re.compile(
+    r"\bmarco legal\b|\bmarco do saneamento\b|"
+    r"\bmetas? de universalizacao (previstas?|fixadas?|do marco)\b|"
+    r"\bavanco das metas de universalizacao\b")
+
+# As duas famílias em que o alvo é o próprio verbo: universalizar vale 100% e
+# zerar vale 0, sem depender do que vem depois. "100%", "toda a rede", "todas
+# as escolas" e "todos os municípios" ficaram DE FORA de propósito: medido em
+# 25/08/2026, nessas quatro o absoluto quase sempre descreve o alcance de um
+# sistema ("prontuário que integra toda a rede") ou o modelo de propriedade
+# ("ensino 100% público"), e não um alvo de cobertura. Promover por elas
+# trocava um erro por outro.
+_ABSOLUTO_FORTE = re.compile(
+    r"\buniversaliza\w*|\bzerar\b|\berradica\w*|"
+    r"\bdobrar\b|\btriplicar\b|\bquadruplicar\b")
+# Verbo que compromete o mandato. Sem ele a frase é diagnóstico, título ou
+# princípio, e promover viraria erro novo.
+_VERBO_COMPROMISSO = re.compile(
+    r"\b(vamos|iremos|ira|irao|"
+    r"\w+aremos|\w+eremos|\w+iremos|\w+ara|\w+arao|\w+era|\w+erao|"
+    r"universalizar|zerar|erradicar|dobrar|triplicar|garantir|assegurar|"
+    r"implantar|implementar|ampliar|expandir|criar|construir|atingir|alcancar|"
+    r"elevar|reduzir|concluir|entregar|instituir)\b")
+# Descreve o que já foi feito. "Em 2026, a modalidade foi universalizada em 148
+# municípios" (Elmano de Freitas, PT/CE) estava como Define meta e é balanço.
+_PASSADO = re.compile(
+    r"\b(foi|foram|passou|passaram|ja (foi|foram|temos|alcancamos)|"
+    r"em 20(1\d|2[0-6]),)\b")
+# Frase que enuncia problema, não compromisso.
+_DIAGNOSTICO = re.compile(
+    r"\b(principais desafios|o desafio e|diagnostico|cenario atual|"
+    r"situacao atual|hoje o estado|atualmente)\b")
+
+
+def tem_alvo_absoluto(trecho: str) -> bool:
+    """Alvo absoluto verificável, dito como compromisso do mandato.
+
+    É a régua que falta para o caminho de subida. tem_alvo_mensuravel só era
+    usada para rebaixar "Define meta" sem alvo, nunca para subir "Propõe ação"
+    que tem alvo, e a inconsistência do modelo sobrevivia inteira: em
+    25/08/2026, "Universalizar, em todas as escolas estaduais, o ensino de
+    tempo integral" (Jerônimo Rodrigues, PT/BA) era Define meta e "Universalizar
+    a oferta do Ensino Médio em tempo integral em Pernambuco" (João Campos,
+    PSB/PE) era Propõe ação. Eram 62 linhas assim na base.
+
+    Mais estreita que tem_alvo_mensuravel de propósito: subir de nível é
+    afirmar coisa mais forte sobre o plano do candidato, então só entra o que a
+    frase sustenta sozinha.
+    """
+    n = _norm_acentos(trecho)
+    if _e_meta_externa_ou_terceiro(n) or _prazo_alem_do_mandato(n):
+        return False
+    if _META_DE_LEI.search(n):
+        return False
+    if _PASSADO.search(n) or _DIAGNOSTICO.search(n):
+        return False
+    if not _ABSOLUTO_FORTE.search(_sem_absoluto_decorativo(n)):
+        return False
+    return bool(_VERBO_COMPROMISSO.search(n))
 
 
 def tema_e_item_de_enumeracao(trecho: str, tema: str) -> bool:
