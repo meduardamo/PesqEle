@@ -243,7 +243,7 @@ DIRETRIZES DE FORMATO E ESTILO:
    - Cite os principais temas em ordem decrescente de tempo/menções, mencionando a minutagem estimada de cada um (utilize os números da medição fornecida).
 
 3. Um parágrafo para cada um dos principais temas abordados (do mais para o menos abordado):
-   - Comece o parágrafo com o nome do tema em negrito (exemplo: **Segurança pública —** texto...).
+   - Comece o parágrafo com o nome do tema em negrito e dois pontos (exemplo: **Segurança pública:** texto...).
    - Explique a posição e os principais argumentos expostos sobre esse tema, incluindo números, dados ou programas citados.
 {confronto_candidatos}
 
