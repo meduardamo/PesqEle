@@ -14,7 +14,7 @@ jobs:
       - run: pip install gspread google-auth google-api-python-client pymupdf pandas google-genai
       - name: Escrever credentials.json
         run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
-      - run: python -m outros.retimbrar
+      - run: python upload_fixes.py
         env:
           PYTHONUNBUFFERED: "1"
           SPREADSHEET_ID_DEBATES: ${{ secrets.SPREADSHEET_ID_DEBATES }}
