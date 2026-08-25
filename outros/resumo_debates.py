@@ -863,31 +863,27 @@ def criar_docx_timbrado(texto_md: str, titulo: str, subtitulo: str, template_pat
         </w:p>""")
 
 
-    # Mover o footer image para word/footer1.xml
-    if "word/footer1.xml" in file_dict and drawings_xml:
-        footer_xml = file_dict["word/footer1.xml"].decode("utf-8")
-        import re
-        # Troca rId7 (do document.xml) para rId1 (do footer1.xml)
-        drawing_footer = drawings_xml.replace('r:embed="rId7"', 'r:embed="rId1"')
-        
-        # O Google Docs NÃO suporta wp:anchor (imagens flutuantes fixas) no footer direito,
-        # então vamos converter o xml da imagem para wp:inline (imagem em linha)
-        drawing_footer = re.sub(r'<wp:anchor[^>]*>.*?<wp:extent', '<wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent', drawing_footer)
-        drawing_footer = drawing_footer.replace('</wp:anchor>', '</wp:inline>')
-        drawing_footer = re.sub(r'<wp:positionH.*?</wp:positionH>', '', drawing_footer)
-        drawing_footer = re.sub(r'<wp:positionV.*?</wp:positionV>', '', drawing_footer)
-        drawing_footer = re.sub(r'<wp:wrapNone/>', '', drawing_footer)
-        drawing_footer = re.sub(r'<wp:simplePos[^>]*/>', '', drawing_footer)
 
-        if "</w:ftr>" in footer_xml:
-            footer_xml = footer_xml.replace("</w:ftr>", drawing_footer + "</w:ftr>")
-        file_dict["word/footer1.xml"] = footer_xml.encode("utf-8")
+    # Mover o footer image para word/header1.xml para que repita em todas as paginas e o Google Docs aceite
+    if "word/header1.xml" in file_dict and drawings_xml:
+        header_xml = file_dict["word/header1.xml"].decode("utf-8")
         
-        # Cria as dependencias do footer1.xml
-        rels_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image2.png"/></Relationships>'
-        file_dict["word/_rels/footer1.xml.rels"] = rels_xml.encode("utf-8")
+        # Troca rId7 (do document.xml) para rId2 (do header1.xml)
+        drawing_footer = drawings_xml.replace('r:embed="rId7"', 'r:embed="rId2"')
+        
+        if "</w:hdr>" in header_xml:
+            header_xml = header_xml.replace("</w:hdr>", drawing_footer + "</w:hdr>")
+        file_dict["word/header1.xml"] = header_xml.encode("utf-8")
+        
+        # Adicionar rId2 no header1.xml.rels
+        if "word/_rels/header1.xml.rels" in file_dict:
+            rels_xml = file_dict["word/_rels/header1.xml.rels"].decode("utf-8")
+            if "</Relationships>" in rels_xml:
+                rels_xml = rels_xml.replace("</Relationships>", '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image2.png"/></Relationships>')
+            file_dict["word/_rels/header1.xml.rels"] = rels_xml.encode("utf-8")
 
-    novo_doc = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    novo_doc = f"""<?xml version="1.0"
+ encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:wp="http://schemas.openxmlformats.org/wordprocessingDrawing" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
 <w:body>
 {''.join(body_paragraphs)}
