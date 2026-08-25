@@ -58,6 +58,17 @@ CONJUNTO = pathlib.Path(__file__).with_name("aferir_acao.json")
 
 
 def main() -> int:
+    # Cópia do PDF no Drive antes do TSE. O DivulgaCand devolve 403 para IP de
+    # datacenter, e a primeira rodada deste script no Actions caiu nos 19 planos
+    # por isso, com o log dizendo "corrigiu 0 de 20" sem ter medido nada. É o
+    # mesmo motivo do espelho no processar_planos, ver 19/08/2026.
+    try:
+        from outros.espelhar_planos import registrar_espelho
+        n = registrar_espelho()
+        print(f"espelho do Drive ativo para {n} planos\n")
+    except Exception as e:  # noqa: BLE001
+        print(f"espelho não pôde ser ligado ({str(e)[:120]}); seguindo no TSE\n")
+
     casos = json.loads(CONJUNTO.read_text(encoding="utf-8"))
     # Agrupa por plano: baixar e OCRar o PDF é o caro, e dois casos do mesmo
     # candidato não podem custar dois downloads.

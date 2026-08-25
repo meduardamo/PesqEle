@@ -33,10 +33,14 @@ jobs:
           sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-por
 
       # pandas entra porque analise_planos importa no topo, mesmo sem usar aqui.
-      - run: pip install google-genai PyMuPDF pillow pytesseract pandas
+      - run: pip install google-genai PyMuPDF pillow pytesseract pandas gspread google-auth google-api-python-client
+
+      - name: Escrever credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
 
       - name: Aferir
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
         run: python -m outros.aferir_acao
