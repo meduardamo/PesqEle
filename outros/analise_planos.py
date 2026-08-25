@@ -802,8 +802,8 @@ def _gemini_client():
 # O link também falha sozinho (blip da API). Cada uma dessas situações tem
 # tratamento próprio aqui; o objetivo é nunca devolver vazio sem dizer por quê.
 
-PAGINAS_OCR_MAX = 80      # teto de páginas OCRadas por plano
-OCR_DPI = 250
+PAGINAS_OCR_MAX = 400      # teto de páginas OCRadas por plano
+OCR_DPI = 300
 OCR_DPI_FALLBACK = 150    # 2ª tentativa quando o pixmap estoura memória
 BAIXAR_TENTATIVAS = 4
 BAIXAR_TIMEOUT = 90
@@ -854,21 +854,60 @@ def tesseract_disponivel() -> bool:
 
 
 def _ocr_pagina(page, dpi: int = OCR_DPI, lang: str = "por") -> str:
-    if not tesseract_disponivel():
-        return ""
+    import subprocess
+    import tempfile
+
     for tentativa_dpi in (dpi, OCR_DPI_FALLBACK):
         try:
-            import pytesseract
-            from PIL import Image
-            pm = page.get_pixmap(dpi=tentativa_dpi, alpha=False)
-            img = Image.frombytes("RGB", (pm.width, pm.height), pm.samples)
-            return pytesseract.image_to_string(img, lang=lang) or ""
-        except MemoryError:
-            continue            # página gigante: tenta de novo em resolução menor
-        except Exception:
+            pixmap = page.get_pixmap(dpi=tentativa_dpi, alpha=False)
+            with tempfile.NamedTemporaryFile(suffix=".png") as f:
+                pixmap.save(f.name)
+                # O comando tesseract precisa saber que a saída vai para o stdout
+                res = subprocess.run(
+                    ["tesseract", f.name, "stdout", "-l", lang],
+                    capture_output=True, text=True, check=True
+                )
+                return res.stdout
+        except RuntimeError as e:
+            if "allocation failed" in str(e).lower() and tentativa_dpi == dpi:
+                continue
+            return ""
+        except Exception as e:
             return ""
     return ""
+    
+COMUNS_CIFRA = {
+    "a", "o", "as", "os", "de", "da", "do", "das", "dos", "e", "em",
+    "um", "uma", "para", "com", "que", "por", "mais", "como", "ser",
+    "sera", "governo", "estado", "politica", "programa", "acoes", "todos",
+    "publico", "educacao", "saude", "social", "desenvolvimento", "municipios",
+}
 
+def _decodificar_linha(linha: str) -> str:
+    """Tenta desfazer deslocamentos de fonte (como cifra de César) na linha."""
+    linha_strip = linha.strip()
+    if len(linha_strip) < 18:
+        return linha
+
+    def score(t: str) -> int:
+        t = unicodedata.normalize("NFD", t.lower())
+        t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+        return sum(p in COMUNS_CIFRA for p in re.findall(r"\b[a-z]{1,20}\b", t))
+
+    base = score(linha_strip)
+    melhor_score = base
+    melhor_texto = linha_strip
+
+    for d in range(1, 13):
+        dec = "".join(chr(ord(c) - d) if ord(c) >= d else c for c in linha_strip)
+        s = score(dec)
+        if s > melhor_score:
+            melhor_score = s
+            melhor_texto = dec
+
+    if melhor_score >= 3 and (melhor_score - base) >= 3:
+        return linha.replace(linha_strip, melhor_texto)
+    return linha
 
 def _texto_da_pagina(page) -> str:
     """Texto de uma página, tentando os modos do PyMuPDF em ordem de qualidade.
@@ -881,7 +920,7 @@ def _texto_da_pagina(page) -> str:
         if modo == "blocks":
             bruto = " ".join(b[4] for b in (bruto or []) if len(b) > 4 and isinstance(b[4], str))
         if (bruto or "").strip():
-            return bruto
+            return "\n".join(_decodificar_linha(linha) for linha in bruto.splitlines())
     return ""
 
 
@@ -964,6 +1003,13 @@ def desduplicar_linhas(texto: str) -> str:
     return " ".join(saida)
 
 
+class PaginasExtraidas(list):
+    def __init__(self, items, paginas_total: int, paginas_precisam_ocr: int, paginas_ocr_cortadas: int):
+        super().__init__(items)
+        self.paginas_total = paginas_total
+        self.paginas_precisam_ocr = paginas_precisam_ocr
+        self.paginas_ocr_cortadas = paginas_ocr_cortadas
+
 def _extrair_paginas(doc, usar_ocr: bool, min_chars: int) -> list[str]:
     """Texto de cada página, na ordem do documento.
 
@@ -971,11 +1017,14 @@ def _extrair_paginas(doc, usar_ocr: bool, min_chars: int) -> list[str]:
     permite dizer depois em que página do PDF está o trecho citado.
     """
     partes, ocradas = [], 0
+    precisam_ocr = 0
     for page in doc:
         raw = _texto_da_pagina(page)
         # OCR quando a página está sem texto OU quando a camada de texto veio
         # embaralhada (codificação de fonte quebrada).
         precisa = len(raw.strip()) < min_chars or _frac_invalido(raw) > 0.10
+        if precisa:
+            precisam_ocr += 1
         if usar_ocr and precisa and ocradas < PAGINAS_OCR_MAX:
             ocr = _ocr_pagina(page)
             ocradas += 1
@@ -984,7 +1033,9 @@ def _extrair_paginas(doc, usar_ocr: bool, min_chars: int) -> list[str]:
         # Depois do OCR: a duplicata pode vir da camada de texto ou da leitura,
         # e a decisão de OCRar olha o texto como o PDF entrega.
         partes.append(desduplicar_linhas(raw))
-    return partes
+    
+    cortadas = max(0, precisam_ocr - PAGINAS_OCR_MAX)
+    return PaginasExtraidas(partes, len(partes), precisam_ocr, cortadas)
 
 
 def _extrair_doc(doc, usar_ocr: bool, min_chars: int) -> str:

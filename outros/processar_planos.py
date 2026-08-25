@@ -140,7 +140,8 @@ COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
 # vez de justificar um número.
 COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
             "resumo", "pontes", "score_coerencia", "justificativa_coerencia",
-            "chars", "chars_analisados", "versao", "analisado_em", "resumos_eixos"]
+            "chars", "chars_analisados", "versao", "analisado_em", "resumos_eixos",
+            "paginas_total", "paginas_precisam_ocr", "paginas_ocr_cortadas"]
 
 # Só 2026. A aba planos_2022 continua na planilha, mas saiu do fluxo.
 ANO = "2026"
@@ -632,7 +633,10 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
     linha_coe = dict(comum, versao=VERSAO_COERENCIA,
                      resumo=coe["resumo"],
                      pontes=coe.get("pontes_texto", ""),
-                     resumos_eixos=coe.get("resumos_eixos", ""))
+                     resumos_eixos=coe.get("resumos_eixos", ""),
+                     paginas_total=getattr(paginas, "paginas_total", 0),
+                     paginas_precisam_ocr=getattr(paginas, "paginas_precisam_ocr", 0),
+                     paginas_ocr_cortadas=getattr(paginas, "paginas_ocr_cortadas", 0))
     return linhas, linha_coe, ""
 
 
