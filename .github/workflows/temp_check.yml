@@ -11,9 +11,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install gspread google-auth
-      - run: python check_sheets.py
+      - run: pip install gspread google-auth google-api-python-client pymupdf pandas
+      - name: Escrever credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+      - run: python -m outros.retimbrar
         env:
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          PYTHONUNBUFFERED: "1"
           SPREADSHEET_ID_DEBATES: ${{ secrets.SPREADSHEET_ID_DEBATES }}
           SPREADSHEET_ID_INTERNO: ${{ secrets.SPREADSHEET_ID_INTERNO }}

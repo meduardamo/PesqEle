@@ -742,6 +742,11 @@ def criar_docx_timbrado(texto_md: str, titulo: str, subtitulo: str, template_pat
     m_sect = re.search(r"(<w:sectPr>.*?</w:sectPr>)", doc_xml_str)
     sect_xml = m_sect.group(1) if m_sect else ""
 
+    drawings_xml = ""
+    for p_match in re.finditer(r"<w:p\b.*?</w:p>", doc_xml_str):
+        if "<w:drawing>" in p_match.group(0):
+            drawings_xml += p_match.group(0)
+
     body_paragraphs = []
     # 1. Título
     body_paragraphs.append(f"""<w:p w:rsidR="00000000" w14:paraId="00000001">
@@ -861,6 +866,7 @@ def criar_docx_timbrado(texto_md: str, titulo: str, subtitulo: str, template_pat
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:wp="http://schemas.openxmlformats.org/wordprocessingDrawing" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
 <w:body>
 {''.join(body_paragraphs)}
+{drawings_xml}
 {sect_xml}
 </w:body>
 </w:document>"""
