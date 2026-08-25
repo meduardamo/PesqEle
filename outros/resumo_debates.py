@@ -866,9 +866,19 @@ def criar_docx_timbrado(texto_md: str, titulo: str, subtitulo: str, template_pat
     # Mover o footer image para word/footer1.xml
     if "word/footer1.xml" in file_dict and drawings_xml:
         footer_xml = file_dict["word/footer1.xml"].decode("utf-8")
+        import re
         # Troca rId7 (do document.xml) para rId1 (do footer1.xml)
         drawing_footer = drawings_xml.replace('r:embed="rId7"', 'r:embed="rId1"')
-        # Tira a parte de wp:anchor se houver conflitos com footer? Nao, mantem
+        
+        # O Google Docs NÃO suporta wp:anchor (imagens flutuantes fixas) no footer direito,
+        # então vamos converter o xml da imagem para wp:inline (imagem em linha)
+        drawing_footer = re.sub(r'<wp:anchor[^>]*>.*?<wp:extent', '<wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent', drawing_footer)
+        drawing_footer = drawing_footer.replace('</wp:anchor>', '</wp:inline>')
+        drawing_footer = re.sub(r'<wp:positionH.*?</wp:positionH>', '', drawing_footer)
+        drawing_footer = re.sub(r'<wp:positionV.*?</wp:positionV>', '', drawing_footer)
+        drawing_footer = re.sub(r'<wp:wrapNone/>', '', drawing_footer)
+        drawing_footer = re.sub(r'<wp:simplePos[^>]*/>', '', drawing_footer)
+
         if "</w:ftr>" in footer_xml:
             footer_xml = footer_xml.replace("</w:ftr>", drawing_footer + "</w:ftr>")
         file_dict["word/footer1.xml"] = footer_xml.encode("utf-8")
