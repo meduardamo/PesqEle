@@ -390,19 +390,28 @@ def _letra_coluna(indice: int) -> str:
 
 def ordenar_por_data(aba: gspread.Worksheet) -> None:
     """Reordena as linhas de dados pela 'Data de publicação', mais novo primeiro."""
-    valores = aba.get_all_values()
-    if len(valores) <= 2:
-        return
+    tentativas = 4
+    for tentativa in range(tentativas):
+        try:
+            valores = aba.get_all_values()
+            if len(valores) <= 2:
+                return
 
-    cabecalho, linhas = valores[0], valores[1:]
-    idx_data = cabecalho.index("Data de publicação")
+            cabecalho, linhas = valores[0], valores[1:]
+            idx_data = cabecalho.index("Data de publicação")
 
-    def chave(linha: list[str]) -> str:
-        return linha[idx_data] if idx_data < len(linha) else ""
+            def chave(linha: list[str]) -> str:
+                return linha[idx_data] if idx_data < len(linha) else ""
 
-    linhas_ordenadas = sorted(linhas, key=chave, reverse=True)
-    if linhas_ordenadas != linhas:
-        aba.update(range_name="A2", values=linhas_ordenadas, value_input_option="RAW")
+            linhas_ordenadas = sorted(linhas, key=chave, reverse=True)
+            if linhas_ordenadas != linhas:
+                aba.update(range_name="A2", values=linhas_ordenadas, value_input_option="RAW")
+            return
+        except gspread.exceptions.APIError as e:
+            if tentativa < tentativas - 1:
+                time.sleep(2 ** tentativa)
+            else:
+                raise e
 
 
 def salvar_no_sheets(url: str, item: dict, eh_video: bool, resultado: str) -> None:
