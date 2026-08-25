@@ -32,7 +32,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-por
 
-      - run: pip install google-genai PyMuPDF pillow pytesseract
+      # pandas entra porque analise_planos importa no topo, mesmo sem usar aqui.
+      - run: pip install google-genai PyMuPDF pillow pytesseract pandas
 
       - name: Aferir
         env:
