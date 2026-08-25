@@ -34,6 +34,7 @@ concurrency:
 jobs:
   analisar:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     # Em paralelo (THREADS_ANALISE), os 543 posts de um dia cheio levam algo
     # perto de 30 min. O teto largo cobre um acumulo de dias pendentes.
     timeout-minutes: 200
@@ -77,4 +78,7 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SHEET_ID_INSTAGRAM }}
           SPREADSHEET_ID_PERFIS: ${{ secrets.SHEET_ID_INSTAGRAM_PERFIS }}
           RESOLUCAO_MIDIA_BAIXA: ${{ inputs.resolucao_baixa }}
-        run: python outros/instagram.py --analise ${{ inputs.limite }}
+        run: |
+          ARGS=()
+          [ -n "$LIMITE" ] && ARGS+=(--analise "$LIMITE") || ARGS+=(--analise)
+          python outros/instagram.py "${ARGS[@]}"

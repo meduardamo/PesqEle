@@ -41,8 +41,11 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - name: Coletar
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          SO_UF: ${{ inputs.so_uf }}
         run: |
           ARGS=()
-          [ "${{ github.event.inputs.dry_run }}" = "true" ] && ARGS+=(--dry-run)
-          [ -n "${{ github.event.inputs.so_uf }}" ] && ARGS+=(--so-uf "${{ github.event.inputs.so_uf }}")
+          [ "$DRY_RUN" = "true" ] && ARGS+=(--dry-run)
+          [ -n "$SO_UF" ] && ARGS+=(--so-uf "$SO_UF")
           python -u -m outros.polling_automatizado "${ARGS[@]}"

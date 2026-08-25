@@ -27,6 +27,10 @@ on:
         required: false
         default: false
 
+concurrency:
+  group: planos-governo
+  cancel-in-progress: false
+
 jobs:
   medir:
     runs-on: ubuntu-latest
@@ -46,7 +50,9 @@ jobs:
       - run: pip install gspread google-auth google-genai PyMuPDF pillow pytesseract pandas
 
       - name: Escrever credentials.json
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+        run: printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
 
       - name: Medir
         env:

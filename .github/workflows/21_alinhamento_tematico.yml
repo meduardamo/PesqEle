@@ -47,12 +47,10 @@ jobs:
       - name: Classificar
         env:
           SPREADSHEET_ID: ${{ secrets.SHEET_ID_INSTAGRAM }}
+          CANDIDATO: ${{ inputs.candidato }}
+          FORCAR: ${{ inputs.forcar }}
         run: |
           ARGS=()
-          if [ -n "${{ inputs.candidato }}" ]; then
-            ARGS+=(--candidato "${{ inputs.candidato }}")
-          fi
-          if [ "${{ inputs.forcar }}" = "true" ]; then
-            ARGS+=(--forcar)
-          fi
+          [ -n "$CANDIDATO" ] && ARGS+=(--candidato "$CANDIDATO")
+          [ "$FORCAR" = "true" ] && ARGS+=(--forcar)
           python outros/alinhamento-tematico/classificar.py "${ARGS[@]}"

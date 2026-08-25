@@ -20,6 +20,7 @@ concurrency:
 jobs:
   coletar:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +31,9 @@ jobs:
       - run: pip install gspread requests pandas curl_cffi
 
       - name: Escrever credentials.json
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+        run: printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
 
       - run: python -m outros.tse_candidaturas
         env:

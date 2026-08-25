@@ -61,7 +61,9 @@ jobs:
       - run: pip install gspread google-auth google-genai PyMuPDF pillow pytesseract pandas
 
       - name: Escrever credentials.json
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+        run: printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
 
       - name: Auditar
         env:

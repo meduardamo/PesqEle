@@ -130,7 +130,9 @@ jobs:
       - run: pip install google-genai yt-dlp gspread google-auth google-api-python-client pymupdf pandas
 
       - name: Escrever credentials.json
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+        run: printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
 
       - name: Transcrever a fila
         env:
