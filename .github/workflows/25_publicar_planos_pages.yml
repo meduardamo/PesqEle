@@ -2,9 +2,11 @@ name: 25 - Publicar Planos no GitHub Pages
 
 on:
   schedule:
-    # Roda logo após o espelhamento (workflow 24 roda 04:40). 
-    # Colocando 05:40 para garantir que o espelho já terminou.
-    - cron: '40 5 * * *'
+    # Roda logo após a Análise (workflow 14 inicia às :35), garantindo que o site
+    # no GitHub Pages fique atualizado com os novos planos e resumos.
+    - cron: '50 8 * * *'   # 05:50 BRT
+    - cron: '50 14 * * *'  # 11:50 BRT
+    - cron: '50 20 * * *'  # 17:50 BRT
 
   repository_dispatch:
     types: [publicar-planos-pages]
