@@ -310,7 +310,10 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
     for tema in temas_ordenados:
         qtd = len(posts_por_tema[tema])
         plural_post = "posts" if qtd != 1 else "post"
-        pdf.cell(0, 6, _latin1(f"{tema} · {qtd} {plural_post}"), link=links[tema],
+        tema_exibido = tema
+        if len(tema_exibido) > 80:
+            tema_exibido = tema_exibido[:77].strip() + "..."
+        pdf.cell(0, 6, _latin1(f"{tema_exibido} · {qtd} {plural_post}"), link=links[tema],
                  new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
@@ -326,8 +329,13 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
             pdf.add_page()
             
         pdf.set_link(links[tema], y=pdf.get_y(), page=pdf.page_no())
-        pdf.start_section(f"{tema} ({len(posts_do_tema)} posts)")
-        pdf.cell(0, 7, _latin1(f"  {tema} · {len(posts_do_tema)} post(s)"), fill=True,
+        
+        tema_exibido = tema
+        if len(tema_exibido) > 80:
+            tema_exibido = tema_exibido[:77].strip() + "..."
+            
+        pdf.start_section(f"{tema_exibido} ({len(posts_do_tema)} posts)")
+        pdf.cell(0, 7, _latin1(f"  {tema_exibido} · {len(posts_do_tema)} post(s)"), fill=True,
                  new_x="LMARGIN", new_y="NEXT")
         pdf.ln(2)
 
