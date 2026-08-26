@@ -8,9 +8,7 @@ on:
         default: "5"
         required: false
   schedule:
-    # Roda às 03:30 BRT (06:30 UTC) para que o banco seja atualizado ANTES
-    # do workflow 02_alerta_pesquisas (que dispara os e-mails às 04:17 BRT).
-    - cron: '30 6 * * *'
+    - cron: '7 10 * * *'
 
 jobs:
   run:
