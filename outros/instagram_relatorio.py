@@ -210,8 +210,8 @@ def montar_posts(salvos: list[dict], perfis: dict[str, dict]) -> list[dict]:
             "publicado": s.get("publicado", ""),
             "curtidas": _inteiro(s.get("curtidas")),
             "comentarios": _inteiro(s.get("comentarios")),
-            "resumo": _corte(s.get("resumo_conteudo") or s.get("resumo_legenda") or
-                             s.get("legenda") or ""),
+            "resumo": _corte((s.get("legenda") or s.get("resumo_conteudo") or
+                              s.get("resumo_legenda") or "").replace("**", "")),
             "temas": _corte(s.get("temas", ""), LIMITE_TEMAS_PALAVRAS),
             "link": s.get("link", ""),
         })
