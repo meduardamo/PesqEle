@@ -247,7 +247,7 @@ def _por_uf_candidato(posts: list[dict]) -> dict:
 # ─── PDF ──────────────────────────────────────────────────────────────────────
 
 def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
-    """Clipping do dia: uma seção por UF, um bloco por post."""
+    """Clipping do dia em PDF: agrupado por temas, e dentro de cada tema por UF."""
     from fpdf import FPDF
 
     pdf = FPDF(format="A4", unit="mm")
@@ -274,8 +274,6 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
               (_n(num["ufs"]), "UFs"), (_n(num["curtidas"]), "curtidas"),
               (_n(num["comentarios"]), "comentários")]
     passo = largura / len(caixas)
-    # Sobra dividida em duas, em vez de um recuo fixo no topo: com 3 fixos o
-    # número e o rótulo ficavam 2mm acima do centro da faixa.
     topo = y0 + (ALTURA_FAIXA - ALTURA_NUMERO - ALTURA_ROTULO) / 2
     for i, (valor, rotulo) in enumerate(caixas):
         pdf.set_xy(16 + i * passo, topo)
@@ -288,96 +286,97 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
         pdf.cell(passo, ALTURA_ROTULO, _latin1(rotulo.upper()), align="C")
     pdf.set_y(y0 + ALTURA_FAIXA + 4)
 
-    agrupado = _por_uf_candidato(posts)
-    # Estados em ordem alfabética e, depois deles, os blocos que não são UF
-    # (hoje só "Presidenciáveis"): a disputa nacional fecha o clipping, em vez
-    # de cair entre Pernambuco e Piauí.
-    ufs = sorted(agrupado, key=lambda g: (not eh_uf(g), g))
+    # Agrupa posts por tema principal
+    posts_por_tema = defaultdict(list)
+    for p in posts:
+        res_leg = p.get("resumo") or ""
+        tema = mapear_tema_principal(p.get("temas", ""), res_leg)
+        posts_por_tema[tema].append(p)
+
+    temas_ordenados = sorted(
+        posts_por_tema.keys(),
+        key=lambda t: (-len(posts_por_tema[t]), t)
+    )
 
     # ── Sumário ───────────────────────────────────────────────────────────────
-    # Uma grade de UFs clicáveis: com 12 páginas e 16 estados, achar o seu
-    # estado é a primeira coisa que se faz no arquivo. O destino de cada link só
-    # existe quando a seção é desenhada, então o link é criado agora e apontado
-    # depois (pdf.set_link).
-    links = {uf: pdf.add_link() for uf in ufs}
+    links = {tema: pdf.add_link() for tema in temas_ordenados}
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(*SUBTEXTO)
     pdf.cell(0, 5, _latin1("SUMÁRIO"), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(1)
-    por_linha = 6
-    larg_item = largura / por_linha
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(*MARINHO)
 
-    def _conta(g):
-        return sum(len(v) for v in agrupado[g].values())
-
-    siglas = [g for g in ufs if eh_uf(g)]
-    for i, uf in enumerate(siglas):
-        pdf.cell(larg_item, 6, _latin1(f"{uf} · {_conta(uf)}"), link=links[uf],
-                 new_x="RIGHT", new_y="TOP")
-        if (i + 1) % por_linha == 0:
-            pdf.ln(6)
-    if len(siglas) % por_linha:
-        pdf.ln(6)
-    # Nome de grupo não cabe numa célula de sigla: "Presidenciáveis · 12" passa
-    # da largura e escreve por cima do vizinho. Cada um fica na sua linha.
-    for g in [g for g in ufs if not eh_uf(g)]:
-        pdf.cell(0, 6, _latin1(f"{g} · {_conta(g)}"), link=links[g],
+    for tema in temas_ordenados:
+        qtd = len(posts_por_tema[tema])
+        plural_post = "posts" if qtd != 1 else "post"
+        pdf.cell(0, 6, _latin1(f"{tema} · {qtd} {plural_post}"), link=links[tema],
                  new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
-    for uf in ufs:
-        por_candidato = agrupado[uf]
-        total_uf = sum(len(v) for v in por_candidato.values())
+    # ── Seções por Tema ───────────────────────────────────────────────────────
+    for tema in temas_ordenados:
+        posts_do_tema = posts_por_tema[tema]
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(255, 255, 255)
         pdf.set_fill_color(*MARINHO)
-        # Antes da faixa: se ela cair no fim da página, a quebra automática joga
-        # o destino do link para a página seguinte e o sumário erra o alvo.
+        
+        # Garante que o cabeçalho do tema não quebre
         if pdf.get_y() > pdf.h - 40:
             pdf.add_page()
-        pdf.set_link(links[uf], y=pdf.get_y(), page=pdf.page_no())
-        # Também no painel de marcadores do leitor de PDF, que é como se navega
-        # um arquivo longo fora do sumário.
-        pdf.start_section(f"{uf} ({total_uf} posts)")
-        pdf.cell(0, 7, _latin1(f"  {uf} · {total_uf} post(s)"), fill=True,
+            
+        pdf.set_link(links[tema], y=pdf.get_y(), page=pdf.page_no())
+        pdf.start_section(f"{tema} ({len(posts_do_tema)} posts)")
+        pdf.cell(0, 7, _latin1(f"  {tema} · {len(posts_do_tema)} post(s)"), fill=True,
                  new_x="LMARGIN", new_y="NEXT")
         pdf.ln(2)
 
-        for candidato in sorted(por_candidato):
-            do_candidato = por_candidato[candidato]
-            meta = do_candidato[0]
-            etiqueta = candidato
-            if meta["partido"]:
-                etiqueta += f" ({meta['partido']}/{uf})"
-            # Cargo na mesma linha do nome, e nada quando a coluna está vazia:
-            # "Cargo não informado" embaixo de cada bloco só ocupava espaço.
-            if meta["cargo"] != SEM_CARGO:
-                etiqueta += f" · {meta['cargo']}"
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.set_text_color(*TINTA)
-            pdf.multi_cell(0, 5, _latin1(etiqueta), new_x="LMARGIN", new_y="NEXT")
+        # Agrupa os posts deste tema por UF
+        agrupado_uf = defaultdict(lambda: defaultdict(list))
+        for p in posts_do_tema:
+            agrupado_uf[p["uf"]][p["candidato"]].append(p)
+
+        for uf in sorted(agrupado_uf.keys()):
+            # Subcabeçalho da UF
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.set_text_color(*SUBTEXTO)
+            pdf.cell(0, 5, _latin1(f"UF: {uf}"), new_x="LMARGIN", new_y="NEXT")
             pdf.ln(1)
 
-            for p in do_candidato:
-                pdf.set_font("Helvetica", "B", 8)
-                pdf.set_text_color(*VINHO)
-                pdf.cell(0, 4.5, _latin1(
-                    f"{_data_curta(p['publicado'])} · {p['tipo']} · "
-                    f"{_n(p['curtidas'])} curtidas · {_n(p['comentarios'])} comentários"),
-                    new_x="LMARGIN", new_y="NEXT")
-                if p["resumo"]:
-                    pdf.set_font("Helvetica", "", 9)
-                    pdf.set_text_color(*TINTA)
-                    pdf.multi_cell(0, 4.4, _latin1(p["resumo"]),
-                                   new_x="LMARGIN", new_y="NEXT")
-                if p["link"]:
-                    pdf.set_font("Helvetica", "", 8)
-                    pdf.set_text_color(*MARINHO)
-                    pdf.cell(0, 4.5, _latin1(p["link"]), link=p["link"],
-                             new_x="LMARGIN", new_y="NEXT")
-                pdf.ln(2.5)
+            por_candidato = agrupado_uf[uf]
+            for candidato in sorted(por_candidato):
+                do_candidato = por_candidato[candidato]
+                meta = do_candidato[0]
+                etiqueta = candidato
+                if meta["partido"]:
+                    etiqueta += f" ({meta['partido']}/{uf})"
+                if meta["cargo"] != SEM_CARGO:
+                    etiqueta += f" · {meta['cargo']}"
+
+                pdf.set_font("Helvetica", "B", 9)
+                pdf.set_text_color(*TINTA)
+                pdf.multi_cell(0, 4.5, _latin1(etiqueta), new_x="LMARGIN", new_y="NEXT")
+                pdf.ln(1)
+
+                for p in do_candidato:
+                    pdf.set_font("Helvetica", "B", 8)
+                    pdf.set_text_color(*VINHO)
+                    pdf.cell(0, 4, _latin1(
+                        f"{_data_curta(p['publicado'])} · {p['tipo']} · "
+                        f"{_n(p['curtidas'])} curtidas · {_n(p['comentarios'])} comentários"),
+                        new_x="LMARGIN", new_y="NEXT")
+                    if p["resumo"]:
+                        pdf.set_font("Helvetica", "", 8.5)
+                        pdf.set_text_color(*TINTA)
+                        pdf.multi_cell(0, 4, _latin1(p["resumo"]),
+                                       new_x="LMARGIN", new_y="NEXT")
+                    if p["link"]:
+                        pdf.set_font("Helvetica", "", 7.5)
+                        pdf.set_text_color(*MARINHO)
+                        pdf.cell(0, 4, _latin1(p["link"]), link=p["link"],
+                                 new_x="LMARGIN", new_y="NEXT")
+                    pdf.ln(2)
+                pdf.ln(1)
             pdf.ln(1)
 
     return bytes(pdf.output())
