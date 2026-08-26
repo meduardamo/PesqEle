@@ -10,10 +10,12 @@ name: 24 - Espelhar Planos no Drive
 
 on:
   schedule:
-    # 04:40 BRT, uma hora e pouco antes do primeiro horário do workflow 14, para
-    # que a análise do dia já encontre o espelho atualizado. Minuto fora do :00
-    # pelo mesmo motivo dos outros: é quando o Actions mais enfileira.
-    - cron: '40 7 * * *'
+    # Roda sempre cerca de 40 minutos antes dos horários do workflow 14 (Análise),
+    # para que a análise já encontre o espelho atualizado no Drive, evitando o 403 do TSE.
+    # Minuto fora do :00 porque é quando o Actions mais enfileira.
+    - cron: '40 7 * * *'   # 04:40 BRT, atende a análise de 05:22
+    - cron: '40 13 * * *'  # 10:40 BRT, atende a análise de 11:22
+    - cron: '40 19 * * *'  # 16:40 BRT, atende a análise de 17:22
 
   repository_dispatch:
     types: [espelhar-planos]
