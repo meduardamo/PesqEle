@@ -385,32 +385,138 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
 
 # ─── E-mail ───────────────────────────────────────────────────────────────────
 
+def mapear_tema_principal(temas_str: str, legenda_str: str) -> str:
+    """Classifica um post em uma das grandes pautas temáticas a partir de suas tags."""
+    t = (temas_str or "").lower()
+    l = (legenda_str or "").lower()
+
+    if "pesquisa" in t or "pesquisa" in l:
+        return "Pesquisa Eleitoral"
+    if any(k in t for k in ("alian", "rompimento")):
+        return "Alianças e Apoios Políticos"
+    if "saúd" in t or "saúd" in l:
+        return "Saúde"
+    if any(k in t or k in l for k in ("seguran", "políc", "polic", "crim", "violên", "violen")):
+        return "Segurança Pública"
+    if any(k in t or k in l for k in ("educa", "escola", "creche", "profess", "alun", "ensino", "universi", "fundeb")):
+        return "Educação"
+    if any(k in t or k in l for k in ("infra", "obra", "saneamento", "estrada", "ponte", "asfalt", "habita", "moradia", "minha casa")):
+        return "Infraestrutura e Obras"
+    if any(k in t or k in l for k in ("econom", "emprego", "trabalh", "impost", "indústri", "industri", "comérci", "comerci", "salár", "salar", "6x1")):
+        return "Economia, Trabalho e Renda"
+    if any(k in t or k in l for k in ("campanha", "jingle", "elei", "conven", "comíci", "comici", "carreata", "passeata", "comício", "palanque", "propaganda")):
+        return "Atos de Campanha e Propaganda"
+
+    # Tenta usar o primeiro tema específico da lista se houver
+    temas_lista = [x.strip("*-• ") for x in temas_str.replace("\n", ",").split(",") if x.strip()]
+    if temas_lista:
+        return temas_lista[0].capitalize()
+    return "Outros Assuntos"
+
+
 def html_email(posts: list[dict], num: dict, dia: str, nome_pdf: str,
                planilha_url: str) -> str:
-    """Corpo do e-mail: o clipping em cima, os números embaixo.
+    """Corpo do e-mail: o clipping com posts agrupados por temas e UFs."""
+    # Agrupa posts por tema
+    posts_por_tema = defaultdict(list)
+    for p in posts:
+        res_leg = p.get("resumo") or ""
+        tema = mapear_tema_principal(p.get("temas", ""), res_leg)
+        posts_por_tema[tema].append(p)
 
-    Sem lista de post nenhum aqui de propósito: quem quer o post abre o PDF, e
-    e-mail com 80 blocos vira rolagem infinita no celular.
-    """
-    def _tabela(titulo, contagem, rotulo_col):
-        linhas = "".join(
-            f"<tr><td style='padding:5px 10px;border-top:1px solid #e5e7eb'>{chave}</td>"
-            f"<td style='padding:5px 10px;border-top:1px solid #e5e7eb;text-align:right'>"
-            f"{_n(valor)}</td></tr>"
-            for chave, valor in sorted(contagem.items(), key=lambda kv: (-kv[1], kv[0]))
+    # Ordena os temas pela quantidade de posts (descrescente), depois alfabeticamente
+    temas_ordenados = sorted(
+        posts_por_tema.keys(),
+        key=lambda t: (-len(posts_por_tema[t]), t)
+    )
+
+    # Helper para gerar âncora a partir do nome do tema
+    def _slug(tema: str) -> str:
+        s = tema.lower()
+        s = re.sub(r"[ãáâä]", "a", s)
+        s = re.sub(r"[ẽéêë]", "e", s)
+        s = re.sub(r"[ĩíîï]", "i", s)
+        s = re.sub(r"[õóôö]", "o", s)
+        s = re.sub(r"[ũúûü]", "u", s)
+        s = re.sub(r"[ç]", "c", s)
+        s = re.sub(r"[^a-z0-9]", "-", s)
+        return s.strip("-")
+
+    # Gera o sumário clicável
+    itens_sumario = []
+    for tema in temas_ordenados:
+        qtd = len(posts_por_tema[tema])
+        plural_post = "posts" if qtd != 1 else "post"
+        itens_sumario.append(
+            f"<li><a href='#{_slug(tema)}' style='color:#192D4E;text-decoration:none;font-weight:bold;'>"
+            f"{tema} ({qtd} {plural_post})</a></li>"
         )
-        return (f"<h3 style='margin:20px 0 6px 0;font-size:14px;color:#192D4E'>{titulo}</h3>"
-                "<table style='width:100%;border-collapse:collapse;font-size:14px'>"
-                "<tr style='text-align:left;background:#f3f4f6'>"
-                f"<th style='padding:5px 10px'>{rotulo_col}</th>"
-                "<th style='padding:5px 10px;text-align:right'>Posts</th></tr>"
-                f"{linhas}</table>")
+    sumario_html = (
+        "<div style='margin: 0 0 20px 0; background: #f6f7fa; border: 1px solid #da8093; padding: 12px; border-radius: 4px; border-color: #dadad4;'>"
+        "<h4 style='margin: 0 0 8px 0; color: #192D4E; font-size: 14px;'>Sumário</h4>"
+        "<ul style='margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.6;'>"
+        f"{''.join(itens_sumario)}"
+        "</ul>"
+        "</div>"
+    )
 
-    cargo = ("<p style='font-size:13px;color:#767672;margin:6px 0 0'>"
-             "O cargo sai do que estiver na coluna <b>Cargo</b> da aba de perfis. "
-             "As linhas sem cargo preenchido aparecem como "
-             f"\"{SEM_CARGO}\".</p>"
-             if SEM_CARGO in num["por_cargo"] else "")
+    # Helper para formatar cada post
+    def _bloco_post_html(p: dict) -> str:
+        ident = f"{p['candidato']}"
+        if p["partido"]:
+            ident += f" ({p['partido']}/{p['uf']})"
+        if p["cargo"] and p["cargo"] != SEM_CARGO:
+            ident += f" · {p['cargo']}"
+
+        tipo_str = "Vídeo" if p["tipo"] == "Vídeo" else "Foto"
+        likes_str = f"{_n(p['curtidas'])} curtidas"
+        comments_str = f"{_n(p['comentarios'])} comentários"
+        data_str = _data_curta(p["publicado"])
+        meta_info = f"{data_str} · {tipo_str} · {likes_str} · {comments_str}"
+        resumo = p["resumo"] or ""
+
+        link_html = ""
+        if p["link"] and p["link"].startswith("http"):
+            link_html = f'<a href="{p["link"]}" style="color:#192D4E;font-size:12px;font-weight:bold;text-decoration:none">abrir o post</a>'
+
+        return f"""
+        <div style="border-left:3px solid #192D4E;padding:8px 12px;margin:0 0 14px 0;background:#f6f7fa">
+            <strong style="color:#192D4E">{ident}</strong>
+            <div style="color:#6b7280;font-size:12px;margin:2px 0 6px 0">{meta_info}</div>
+            {f'<div style="font-size:13px;margin:0 0 6px 0">{resumo}</div>' if resumo else ''}
+            {link_html}
+        </div>"""
+
+    # Monta as seções por tema
+    secoes_temas = []
+    for tema in temas_ordenados:
+        qtd = len(posts_por_tema[tema])
+        plural_post = "posts" if qtd != 1 else "post"
+
+        # Agrupa os posts deste tema por UF
+        posts_por_uf = defaultdict(list)
+        for p in posts_por_tema[tema]:
+            posts_por_uf[p["uf"]].append(p)
+
+        # Gera os blocos do tema, separados por UF
+        blocos_uf = []
+        for uf in sorted(posts_por_uf.keys()):
+            blocos_uf.append(
+                f"<div style='margin: 12px 0 6px 0;'>"
+                f"<strong style='color:#767672; font-size:12px; text-transform:uppercase;'>{uf}</strong>"
+                f"</div>"
+            )
+            for p in posts_por_uf[uf]:
+                blocos_uf.append(_bloco_post_html(p))
+
+        secoes_temas.append(
+            f"<div style='margin-bottom: 24px;'>"
+            f"<a name='{_slug(tema)}'></a>"
+            f"<h3 style='margin:20px 0 8px 0; font-size:16px; color:#192D4E; border-bottom:1px solid #e5e7eb; padding-bottom:4px;'>"
+            f"{tema} ({qtd} {plural_post})</h3>"
+            f"{''.join(blocos_uf)}"
+            f"</div>"
+        )
 
     kpis = "".join(
         f"<td style='padding:0 14px 0 0'>"
@@ -422,23 +528,30 @@ def html_email(posts: list[dict], num: dict, dia: str, nome_pdf: str,
     )
 
     return f"""
-    <html><body style="font-family:Arial,sans-serif;color:#111">
+    <html><body style="font-family:Arial,sans-serif;color:#111;line-height:1.4;">
       <h2 style="margin:0 0 4px 0">Clipping do Instagram</h2>
       <div style="color:#374151;margin:0 0 14px 0">{dia}</div>
+
       <div style="background:#eef0f6;border-left:3px solid #192D4E;padding:12px;margin:0 0 18px 0">
         <strong style="color:#192D4E">Clipping do dia em anexo:</strong>
         <span style="font-family:monospace">{nome_pdf}</span>
         <div style="font-size:13px;color:#374151;margin-top:6px">
-          Uma seção por UF e, dentro dela, cada pré-candidato com os posts do
-          período: data, tipo, curtidas, comentários, resumo e link.
+          O clipping em PDF está anexado com a diagramação para impressão.
+          Os posts estão listados abaixo por tema e UF.
         </div>
       </div>
-      <table style="border-collapse:collapse;margin:0 0 4px 0"><tr>{kpis}</tr></table>
-      {_tabela("Posts por UF", num["por_uf"], "UF")}
-      {_tabela("Posts por cargo", num["por_cargo"], "Cargo")}
-      {cargo}
+
+      {sumario_html}
+
+      {"".join(secoes_temas)}
+
+      <hr style="border:0;border-top:1px solid #e5e7eb;margin:24px 0;" />
+
+      <h3 style="margin:0 0 12px 0;font-size:14px;color:#192D4E">Grandes Números da Rodada</h3>
+      <table style="border-collapse:collapse;margin:0 0 18px 0"><tr>{kpis}</tr></table>
+
       <p style="font-size:13px;color:#374151;margin:22px 0 0">
-        Os posts ficam na aba <b>Resultados</b> da
+        Os posts detalhados e o histórico ficam salvos na aba <b>Resultados</b> da
         <a href="{planilha_url}" style="color:#192D4E">planilha de mapeamento</a>.
       </p>
     </body></html>

@@ -814,13 +814,6 @@ def rodar_automacao_perfis(data_minima: str, limite_perfis: int | None = None, p
     if total_novos:
         ordenar_por_data(aba_resultados)
 
-    # Relatório da rodada: e-mail com os números por UF e por cargo e o clipping
-    # em PDF anexado. Vem antes do diagnóstico de falha de propósito: mesmo numa
-    # rodada que vai terminar em erro por perfil bloqueado, o que foi coletado
-    # já rende clipping, e é ele que substitui o envio manual no canal.
-    enviar_relatorio(salvos_na_rodada, gc, SPREADSHEET_ID_PERFIS, ABA_PERFIS,
-                     SPREADSHEET_ID)
-
     print(f"\nColeta concluída. {total_novos} post(s) novo(s) gravado(s), aguardando a fase 2 (--analise).")
     print(f"{len(perfis)} perfil(is) percorrido(s), {len(perfis_com_erro)} com falha na coleta, {perfis_com_post} com post no período.")
 
@@ -1038,6 +1031,19 @@ def rodar_analise_pendentes(limite: int | None = None) -> None:
     print(f"Tokens: {total_entrada:,} de entrada, {total_saida:,} de saída. "
           f"Custo estimado: US$ {custo:.2f}"
           f"{' (resolução baixa)' if RESOLUCAO_MIDIA_BAIXA else ''}.")
+
+    # Relatório pós-análise: e-mail com os posts do dia agrupados por temas e UFs.
+    try:
+        dia_hoje = datetime.now().strftime("%Y-%m-%d")
+        salvos = posts_gravados_no_dia(gc, SPREADSHEET_ID, ABA_RESULTADOS_PERFIS, dia_hoje)
+        if salvos:
+            print(f"\nGerando relatório pós-análise para {len(salvos)} post(s) gravado(s) hoje ({dia_hoje})...")
+            enviar_relatorio(salvos, gc, SPREADSHEET_ID_PERFIS, ABA_PERFIS, SPREADSHEET_ID)
+        else:
+            print("\nNenhum post gravado hoje; pulando envio de relatório.")
+    except Exception as e:
+        print(f"\nAviso: falha ao enviar o relatório do Instagram no final da análise: {e}")
+
 
 
 def baixar_midia(item: dict, pasta: str = "download"):

@@ -24,6 +24,11 @@ on:
         type: boolean
         required: false
         default: false
+      sem_email:
+        description: "Coleta e grava sem mandar o clipping por e-mail"
+        type: boolean
+        required: false
+        default: false
 
 # Duas execuções ao mesmo tempo pegariam a mesma lista de linhas pendentes e
 # analisariam (e pagariam) o mesmo post duas vezes.
@@ -78,6 +83,10 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SHEET_ID_INSTAGRAM }}
           SPREADSHEET_ID_PERFIS: ${{ secrets.SHEET_ID_INSTAGRAM_PERFIS }}
           RESOLUCAO_MIDIA_BAIXA: ${{ inputs.resolucao_baixa }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          EMAIL: ${{ secrets.EMAIL }}
+          DESTINATARIOS_INSTAGRAM: ${{ !( (github.event_name == 'workflow_dispatch' && inputs.sem_email) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.inputs.sem_email == 'true') ) && secrets.DESTINATARIOS_INSTAGRAM || '' }}
+          DESTINATARIOS: ${{ !( (github.event_name == 'workflow_dispatch' && inputs.sem_email) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.inputs.sem_email == 'true') ) && secrets.DESTINATARIOS || '' }}
         run: |
           ARGS=()
           [ -n "$LIMITE" ] && ARGS+=(--analise "$LIMITE") || ARGS+=(--analise)
