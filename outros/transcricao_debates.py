@@ -72,7 +72,7 @@ FONTE_ABA = os.getenv("ABA_FONTE_DEBATES", "Eventos")
 # Ordem das colunas da aba 'debates'. Mexeu na planilha, mexe aqui.
 COL = {
     "id": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
-    "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
+    "emissora": 6, "url_video": 7, "mediador": 8, "participantes": 9,
     "tipo": 10, "status": 11, "link_resumo": 12, "link_transcricao": 13, "link_csv": 14,
     "link_audio": 15, "processado_em": 16, "observacoes": 17, "id_fonte": 18,
 }
@@ -83,7 +83,7 @@ FAIXA_SAIDA = "M{i}:R{i}"
 
 # Campos que vêm da fonte, na ordem em que ficam na nossa planilha (B até K).
 DA_FONTE = ["data", "horario", "cargo", "uf", "turno", "emissora",
-            "url_youtube", "mediador", "participantes", "tipo"]
+            "url_video", "mediador", "participantes", "tipo"]
 FAIXA_FONTE = "B{i}:K{i}"
 
 BLOCO_SEG = 600          # 10 min de conteúdo por bloco
@@ -1214,7 +1214,7 @@ def gerar_id(linha_fonte, usados):
 # linha e refaz esse mapa a partir do que achar.
 COL_FONTE_PADRAO = {
     "id_debate": 0, "data": 1, "horario": 2, "cargo": 3, "uf": 4, "turno": 5,
-    "emissora": 6, "url_youtube": 7, "mediador": 8, "participantes": 9,
+    "emissora": 6, "url_video": 7, "mediador": 8, "participantes": 9,
     "tipo": 10, "observacoes": 11,
 }
 COL_FONTE = dict(COL_FONTE_PADRAO)
@@ -1230,7 +1230,7 @@ NOMES_FONTE = {
     "uf": ("uf", "estado"),
     "turno": ("turno",),
     "emissora": ("emissora", "emissoras", "veiculo"),
-    "url_youtube": ("url_youtube", "url", "link", "link_youtube", "youtube", "url_do_video"),
+    "url_video": ("url_video", "url_youtube", "url", "link", "link_youtube", "youtube", "url_do_video"),
     "mediador": ("mediador", "mediadores", "mediacao"),
     "participantes": ("participantes", "candidatos"),
     "tipo": ("tipo", "tipo_evento", "sabatina_ou_debate"),
@@ -1384,7 +1384,7 @@ def sincronizar(gc, ws):
         if not idf:
             continue
         campos = [(l[COL_FONTE[c]] if COL_FONTE[c] < len(l) else "").strip() for c in DA_FONTE]
-        tem_url = bool(campos[DA_FONTE.index("url_youtube")])
+        tem_url = bool(campos[DA_FONTE.index("url_video")])
 
         if idf not in por_fonte:
             ident = gerar_id(l, usados)
@@ -1659,7 +1659,7 @@ def rodar_fila(args):
 
     fila = []
     for i, linha in enumerate(todas[1:], start=2):
-        if not linha or not linha[COL["url_youtube"]].strip():
+        if not linha or not linha[COL["url_video"]].strip():
             continue
         status = (linha[COL["status"]] if COL["status"] < len(linha) else "").strip().lower()
         ident = linha[COL["id"]].strip()
@@ -1678,7 +1678,7 @@ def rodar_fila(args):
     falhas = []
     for i, linha in fila:
         ident = linha[COL["id"]].strip() or f"linha{i}"
-        url = linha[COL["url_youtube"]].strip()
+        url = linha[COL["url_video"]].strip()
         secao(f"DEBATE {ident}  (linha {i})")
 
         escrever_celula(ws, i, COL["status"] + 1, "processando")
