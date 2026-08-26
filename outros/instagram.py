@@ -397,15 +397,11 @@ def ordenar_por_data(aba: gspread.Worksheet) -> None:
             if len(valores) <= 2:
                 return
 
-            cabecalho, linhas = valores[0], valores[1:]
+            cabecalho = valores[0]
             idx_data = cabecalho.index("Data de publicação")
-
-            def chave(linha: list[str]) -> str:
-                return linha[idx_data] if idx_data < len(linha) else ""
-
-            linhas_ordenadas = sorted(linhas, key=chave, reverse=True)
-            if linhas_ordenadas != linhas:
-                aba.update(range_name="A2", values=linhas_ordenadas, value_input_option="RAW")
+            last_col = _letra_coluna(len(cabecalho) - 1)
+            rango = f"A2:{last_col}{len(valores)}"
+            aba.sort((idx_data + 1, 'des'), range=rango)
             return
         except gspread.exceptions.APIError as e:
             if tentativa < tentativas - 1:
