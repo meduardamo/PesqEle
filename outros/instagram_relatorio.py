@@ -392,32 +392,34 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
 
 # ─── E-mail ───────────────────────────────────────────────────────────────────
 
+TEMAS_MAPEAMENTO = [
+    ("Pesquisa Eleitoral", ["pesquisa"]),
+    ("Causa Animal", ["animal", "pet", "cachorro", "gato", "abrigo", "protetor", "zoonose"]),
+    ("Meio Ambiente", ["meio ambiente", "sustentab", "clima", "árvore", "el niño", "floresta", "rio", "água e terra", "licenciamento ambiental", "desastre"]),
+    ("Saúde", ["saúd", "hospital", "upa", "médic", "vacina", "ubs", "postinho"]),
+    ("Segurança Pública", ["seguran", "políc", "polic", "crim", "violên", "violen", "guarda municipal", "tráfico", "pm", "civil"]),
+    ("Educação", ["educa", "escola", "creche", "profess", "alun", "ensino", "universi", "fundeb", "estudante", "aula"]),
+    ("Habitação", ["habita", "moradia", "minha casa", "casa própria", "regularização fundiária", "título de posse"]),
+    ("Infraestrutura e Obras", ["infra", "obra", "estrada", "ponte", "asfalt", "calçamento", "mobilidade", "trânsito", "transporte", "duplicação", "paviment"]),
+    ("Assistência Social", ["social", "pobreza", "fome", "bolsa família", "doação", "solidariedade", "asilo", "vulnerab", "cesta básica", "comunidade"]),
+    ("Gestão e Transparência", ["gestão", "gestao", "transparên", "corrup", "desburocratiz", "governo digital", "digitaliz", "servidor público"]),
+    ("Cultura, Lazer e Esporte", ["cultura", "show", "evento", "esporte", "lazer", "turismo", "festa", "carnaval", "aniversário", "aniversario", "patrimônio", "museu", "parque"]),
+    ("Agricultura e Abastecimento", ["agri", "agro", "rural", "safra", "abastecimento", "feirante", "produtor"]),
+    ("Economia, Trabalho e Renda", ["econom", "emprego", "trabalh", "impost", "indústri", "industri", "comérci", "comerci", "salár", "salar", "6x1", "inflação", "tarifa"]),
+    ("Alianças e Apoios Políticos", ["alian", "rompimento", "apoio", "partido", "vice", "chapa", "coligação"]),
+    ("Atos de Campanha e Propaganda", ["campanha", "jingle", "elei", "conven", "comíci", "comici", "carreata", "passeata", "comício", "palanque", "propaganda", "voto", "agenda", "adesivaço", "santinho", "panflet"]),
+]
+
 def mapear_tema_principal(temas_str: str, legenda_str: str) -> str:
     """Classifica um post em uma das grandes pautas temáticas a partir de suas tags."""
     t = (temas_str or "").lower()
     l = (legenda_str or "").lower()
+    conteudo = f"{t} {l}"
 
-    if "pesquisa" in t or "pesquisa" in l:
-        return "Pesquisa Eleitoral"
-    if any(k in t for k in ("alian", "rompimento")):
-        return "Alianças e Apoios Políticos"
-    if "saúd" in t or "saúd" in l:
-        return "Saúde"
-    if any(k in t or k in l for k in ("seguran", "políc", "polic", "crim", "violên", "violen")):
-        return "Segurança Pública"
-    if any(k in t or k in l for k in ("educa", "escola", "creche", "profess", "alun", "ensino", "universi", "fundeb")):
-        return "Educação"
-    if any(k in t or k in l for k in ("infra", "obra", "saneamento", "estrada", "ponte", "asfalt", "habita", "moradia", "minha casa")):
-        return "Infraestrutura e Obras"
-    if any(k in t or k in l for k in ("econom", "emprego", "trabalh", "impost", "indústri", "industri", "comérci", "comerci", "salár", "salar", "6x1")):
-        return "Economia, Trabalho e Renda"
-    if any(k in t or k in l for k in ("campanha", "jingle", "elei", "conven", "comíci", "comici", "carreata", "passeata", "comício", "palanque", "propaganda")):
-        return "Atos de Campanha e Propaganda"
+    for tema, palavras in TEMAS_MAPEAMENTO:
+        if any(p in conteudo for p in palavras):
+            return tema
 
-    # Tenta usar o primeiro tema específico da lista se houver
-    temas_lista = [x.strip("*-• ") for x in temas_str.replace("\n", ",").split(",") if x.strip()]
-    if temas_lista:
-        return temas_lista[0].capitalize()
     return "Outros Assuntos"
 
 
