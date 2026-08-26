@@ -772,11 +772,27 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 _CLIENT = None
 
 
+
+_TOKENS = {"in": 0, "out": 0}
+
+def _gerar(model, contents, config=None):
+    from google.genai import types
+    global _TOKENS
+    client = _gemini_client()
+    try:
+        resp = client.models.generate_content(model=model, contents=contents, config=config)
+        if hasattr(resp, "usage_metadata") and resp.usage_metadata:
+            _TOKENS["in"] += getattr(resp.usage_metadata, "prompt_token_count", 0) or 0
+            _TOKENS["out"] += getattr(resp.usage_metadata, "candidates_token_count", 0) or 0
+        return resp
+    except Exception:
+        raise
+
 def _gemini_client():
     # mesma config do gerador de envios: chave por env ou secrets.
     # O cliente fica guardado num global de propósito: o `Client` do google-genai
     # fecha a conexão HTTP no __del__, então um cliente temporário em
-    # `_gemini_client().models.generate_content(...)` é coletado antes da chamada
+    # `_gerar(...)` é coletado antes da chamada
     # sair e o erro vira "Cannot send a request, as the client has been closed".
     global _CLIENT
     if _CLIENT is not None:
@@ -2135,7 +2151,7 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
         "(vazio se não houver)\n\n"
         f"PLANO DE GOVERNO:\n{texto}"
     )
-    resp = _gemini_client().models.generate_content(
+    resp = _gerar(
         model=GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json"),
@@ -2369,7 +2385,7 @@ def reanalisar_tema(contexto: str, tema: str, desc: str = "") -> dict:
         "'responsavel', 'prazo', 'publico_alvo' e 'programa_nome'.\n\n"
         f"TRECHOS DO PLANO:\n{contexto}"
     )
-    resp = _gemini_client().models.generate_content(
+    resp = _gerar(
         model=GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json"),
@@ -2880,7 +2896,7 @@ def gerar_resumos_eixos(classif: dict, temas: dict = TEMAS, nome: str = "", gene
                       + ", ".join(evitar)
                       + ". Reescreva sem nenhuma dessas palavras, sem trocar por "
                       "sinônimo do mesmo tipo.")
-        resp = _gemini_client().models.generate_content(
+        resp = _gerar(
             model=GEMINI_MODEL,
             contents=texto,
             config=types.GenerateContentConfig(response_mime_type="application/json"),
@@ -3022,7 +3038,7 @@ def resumir_plano(classif: dict, temas: dict = TEMAS,
                       "sinônimo do mesmo tipo.")
         if recusa:
             texto += recusa
-        resp = _gemini_client().models.generate_content(
+        resp = _gerar(
             model=GEMINI_MODEL,
             contents=texto,
             config=types.GenerateContentConfig(response_mime_type="application/json"),
@@ -3098,7 +3114,7 @@ def sintetizar_comparacao(candidatos_info: list, tema: str) -> str:
         "Não se apresente nem mencione seu papel, vá direto ao conteúdo.\n\n"
         f"{RESTRICOES_LINGUAGEM}"
     )
-    resp = _gemini_client().models.generate_content(
+    resp = _gerar(
         model=GEMINI_MODEL,
         contents=prompt,
     )

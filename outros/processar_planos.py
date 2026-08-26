@@ -1002,6 +1002,16 @@ def main() -> int:
             return 1
 
     print(f"\n{feitos} plano(s) processados em {time.time() - inicio:.0f}s.")
+    try:
+        from outros.analise_planos import _TOKENS
+        inp = _TOKENS["in"]
+        out = _TOKENS["out"]
+        if inp > 0 or out > 0:
+            custo = (inp / 1_000_000 * 0.075) + (out / 1_000_000 * 0.30)
+            print(f"[{inp:,} tokens in | {out:,} tokens out | custo estimado: US$ {custo:.3f}]")
+    except Exception:
+        pass
+
     if indisponiveis:
         print(f"{len(indisponiveis)} fora do ar (rode de novo mais tarde): "
               f"{', '.join(indisponiveis[:8])}")
