@@ -232,6 +232,10 @@ def dividir_resultado(resultado: str) -> dict:
     if not matches:
         secoes["resumo_conteudo"] = resultado.strip()
 
+    # Remove qualquer marcação de negrito (**) gerada pelo Gemini
+    for k in secoes:
+        secoes[k] = secoes[k].replace("**", "").strip()
+
     return secoes
 
 
