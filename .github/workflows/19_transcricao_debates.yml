@@ -6,15 +6,7 @@ name: 19 - Transcrição de Debates
 # Debates). O que roda no horário é só o sync do calendário, que não gasta API.
 on:
   schedule:
-    # GitHub Actions usa UTC; Brasil/Recife = UTC-3. Começo e fim do dia de
-    # trabalho, para pegar o que o monitoramento preencheu de manhã e de tarde.
-    # Rodada agendada só sincroniza (veja o --so-sync forçado lá embaixo);
-    # transcrição continua saindo no botão.
-    - cron: '17 10 * * *'   # 07:17 Brasil
-    - cron: '17 12 * * *'   # 09:17 Brasil
-    - cron: '17 15 * * *'   # 12:17 Brasil
-    - cron: '17 21 * * *'   # 18:17 Brasil
-    - cron: '17 1 * * *'    # 22:17 Brasil (do dia anterior/noite)
+    - cron: '17 * * * *'   # Roda de hora em hora (no minuto 17)
 
   workflow_dispatch:
     inputs:
@@ -187,12 +179,10 @@ jobs:
             python -m outros.transcricao_debates --url "$URL" --nome teste $RECORTE \
               ${{ inputs.sabatina == true && '--sabatina' || '' }}
           else
-            # A rodada agendada é sempre só sync: 'schedule' não manda input
-            # nenhum, e sem isto ela cairia na fila normal e transcreveria
-            # tudo que estivesse 'pendente', sem ninguém pedir nem conferir.
+            # A rodada agendada agora transcreve automaticamente
             python -m outros.transcricao_debates --fila $RECORTE \
               ${{ inputs.sabatina == true && '--sabatina' || '' }} \
-              ${{ (inputs.so_sync == true || github.event_name == 'schedule') && '--so-sync' || '' }} \
+              ${{ inputs.so_sync == true && '--so-sync' || '' }} \
               ${{ inputs.id && format('--id {0}', inputs.id) || '' }}
           fi
 

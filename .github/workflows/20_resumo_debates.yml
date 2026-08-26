@@ -5,6 +5,8 @@ name: 20 - Resumo de Debates
 # custa dinheiro por rodada. Sem agendamento de propósito, pelo mesmo motivo
 # que a transcrição não tem.
 on:
+  schedule:
+    - cron: '47 * * * *'   # Roda de hora em hora (no minuto 47)
   workflow_dispatch:
     inputs:
       id:
@@ -116,7 +118,7 @@ jobs:
             --eixos ${{ inputs.eixos || '6' }} \
             ${{ inputs.refazer == true && '--refazer' || '' }} \
             ${{ inputs.sem_modelo == true && '--sem-modelo' || '' }} \
-            ${{ (inputs.drive == true || github.event_name == 'repository_dispatch') && '--drive' || '' }}
+            ${{ (inputs.drive == true || github.event_name == 'repository_dispatch' || github.event_name == 'schedule') && '--drive' || '' }}
 
       - name: Resumo na página do run
         if: always()
