@@ -968,8 +968,6 @@ def rodar_analise_pendentes(limite: int | None = None) -> None:
     pendentes = [p for p in pendentes if p not in velhas]
     if limite:
         pendentes = pendentes[:limite]
-    if not pendentes and not velhas:
-        return
 
     prontos: list[tuple[dict, dict]] = []
     total_entrada = total_saida = 0
