@@ -1719,6 +1719,7 @@ def rodar_fila(args):
             # O mp3 sobe antes de transcrever, e não depois: se a transcrição
             # falhar, o áudio já está guardado e a segunda tentativa não
             # precisa baixar de novo do YouTube, que é a parte que trava.
+            link_audio = link_audio_existente
             if not link_audio_existente:
                 secao("ÁUDIO NO DRIVE")
                 link_audio = enviar_ou_substituir(
@@ -1775,11 +1776,23 @@ def rodar_fila(args):
                 links[p.suffix] = enviar_ou_substituir(drive, p, p.name, destino, destino_drive)
                 log(f"{p.name} -> {links[p.suffix]}")
 
+            obs_anterior = linha[COL["observacoes"]].strip() if COL.get("observacoes", 999) < len(linha) else ""
+            partes_obs = [p.strip() for p in obs_anterior.split(";")]
+            prefixos_sistema = [
+                "gasto:",
+                "blocos sem fala:",
+                "ritmo de fala baixo:",
+                "descarte alto:",
+                "resumo automático falhou:"
+            ]
+            obs_limpa = "; ".join(p for p in partes_obs if p and not any(p.lower().startswith(pref) for pref in prefixos_sistema))
+            nota_final = "; ".join(x for x in (obs_limpa, avisos) if x)
+
             com_retentativa(
                 f"escrita da saída na linha {i}",
                 lambda: ws.update(
                     values=[[link_resumo, links.get(".txt", ""), links.get(".csv", ""),
-                             link_audio, agora_brt(), avisos]],
+                             link_audio, agora_brt(), nota_final]],
                     range_name=FAIXA_SAIDA.format(i=i),
                 ),
             )
