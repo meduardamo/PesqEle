@@ -14,9 +14,10 @@ on:
     # porque cron agendado é fila de baixa prioridade: no workflow 06, medido em
     # 12 dias, o atraso foi de 25 min no melhor caso, 89 na mediana e 250 no
     # pior. Neste aqui, em 09/08, ficou entre 18 e 34 min.
-    - cron: '22 8 * * *'   # 05:22 BRT, alvo 07:00
-    - cron: '22 14 * * *'  # 11:22 BRT, alvo 13:00
-    - cron: '22 20 * * *'  # 17:22 BRT, alvo 19:00
+    # Roda sempre às :35, para dar tempo do workflow 24 (Espelho) finalizar (inicia às :20).
+    - cron: '35 8 * * *'   # 05:35 BRT
+    - cron: '35 14 * * *'  # 11:35 BRT
+    - cron: '35 20 * * *'  # 17:35 BRT
 
   # Disparo externo, em horário exato, pelo mesmo agendador que já chama os
   # workflows 06, 08 e 15: POST /repos/meduardamo/eixo-eleicoes/dispatches com
