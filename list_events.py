@@ -1,4 +1,4 @@
-from outros.transcricao_debates import clientes_google, PLANILHA, com_retentativa
+from outros.transcricao_debates import clientes_google, PLANILHA, com_retentativa, COL
 
 def main():
     gc, _ = clientes_google()
@@ -6,17 +6,18 @@ def main():
     todas = com_retentativa("leitura da planilha", ws.get_all_values)
     cabecalho = list(todas[0])
     
-    # We want to print columns like id, data, link_transcricao, link_resumo
-    cols = ["id", "data", "link_transcricao", "link_resumo"]
-    indices = [cabecalho.index(c) for c in cols if c in cabecalho]
-    print("Cabeçalho reduzido:", [cabecalho[i] for i in indices])
-    
+    print("Mapeamento das colunas:")
+    for k, v in COL.items():
+        print(f"  {k}: index {v}")
+        
     for i, linha in enumerate(todas[1:], start=2):
         if not linha: continue
-        row_id = linha[cabecalho.index("id")] if "id" in cabecalho else ""
+        row_id = linha[0] if len(linha) > 0 else ""
         if "ac-gov" in row_id or "mailza" in str(linha).lower():
-            row_data = [linha[idx] if idx < len(linha) else "" for idx in indices]
-            print(f"Linha {i}: {row_data}")
+            print(f"\nLinha {i}:")
+            for k, idx in COL.items():
+                val = linha[idx] if idx < len(linha) else "(fora do range)"
+                print(f"  {k}: {val}")
 
 if __name__ == "__main__":
     main()
