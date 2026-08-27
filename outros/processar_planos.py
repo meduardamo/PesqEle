@@ -146,13 +146,21 @@ COLS_COE = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link"
 # Só 2026. A aba planos_2022 continua na planilha, mas saiu do fluxo.
 ANO = "2026"
 ABA_BASE = "base_dadosabertos"
+
+# Abas que os painéis leem desta planilha. Publicadas em Parquet no Drive pelo
+# _publicar_cache_parquet; `planos_arquivos` é escrita pelo workflow 24, que
+# roda 15 min antes deste, então o que sai aqui já é a versão do dia.
+ABAS_CACHE = (ANALISE_ABA, COERENCIA_ABA, "planos_arquivos", ABA_BASE)
 LOTE = 5           # candidatos entre uma gravação e outra
 # Segundos entre um candidato e outro. Até 02/08/2026 a fila tinha 1 candidato por
 # rodada e a pausa não fazia falta. Quando a versão subiu para 2 e os 16 entraram
 # de uma vez, o DivulgaCand recusou tudo. Pedir 16 PDFs em sequência é um padrão
 # de acesso diferente do que vinha sendo feito.
 PAUSA_ENTRE_PLANOS = int(os.getenv("PAUSA_ENTRE_PLANOS", "5"))
-ESCOPOS = ["https://www.googleapis.com/auth/spreadsheets"]
+# O escopo do Drive entrou junto com o cache Parquet dos painéis: a análise só
+# precisa do Sheets, mas quem publica o cache escreve um arquivo numa pasta.
+ESCOPOS = ["https://www.googleapis.com/auth/spreadsheets",
+           "https://www.googleapis.com/auth/drive"]
 
 
 # ─── Planilha ────────────────────────────────────────────────────────────────
@@ -832,6 +840,20 @@ def preencher_paginas(sh, uf: str = "", limite: int = 0) -> int:
     return 0
 
 
+def _publicar_cache_parquet(gc, planilha_id: str) -> None:
+    """Republica o cache Parquet que os painéis leem.
+
+    Falha aqui não pode mexer no código de saída da análise: sem o Parquet os
+    painéis voltam a ler direto do Sheets, que é o comportamento de antes.
+    """
+    try:
+        from compartilhado.cache_parquet import publicar_abas
+        publicar_abas(gc, planilha_id, ABAS_CACHE)
+    except Exception as erro:
+        print(f"  [cache] não publicado (painéis seguem no Sheets): {erro}",
+              flush=True)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -873,161 +895,168 @@ def main() -> int:
     gc = cliente(args.credenciais)
     sh = gc.open_by_key(args.planilha)
 
-    if args.so_paginas:
-        return preencher_paginas(sh, args.uf, args.limite)
-
-    if args.so_coerencia:
-        return refazer_coerencia(sh, args.uf, args.limite, args.sq)
-
-    base = ler_aba(sh, ABA_BASE)
-    if base.empty or "LINK_PLANO" not in base.columns:
-        raise SystemExit(f"A aba {ABA_BASE} está vazia ou sem LINK_PLANO.")
-    base = base[base["LINK_PLANO"].astype(str).str.startswith("http")]
-    if args.cargo.upper() != "TODOS":
-        base = base[base["DS_CARGO"].astype(str).str.strip().str.upper()
-                    == args.cargo.upper()]
-    if args.uf:
-        base = base[base["SG_UF"].astype(str).str.strip().str.upper() == args.uf.upper()]
-    if args.sq:
-        # Lista separada por vírgula, e não um SQ só. Antes a lista só valia com
-        # --so-coerencia, e no caminho completo a string inteira era comparada
-        # como se fosse um SQ: em 21/08/2026 uma rodada com 15 SQs devolveu
-        # "0 candidatos com plano · 0 a processar" e não reanalisou nada.
-        _alvos = {x.strip() for x in str(args.sq).split(",") if x.strip()}
-        base = base[base["SQ_CANDIDATO"].astype(str).str.strip().isin(_alvos)]
-
-    salvas = ler_aba(sh, ANALISE_ABA)
-    coes = ler_aba(sh, COERENCIA_ABA)
-    fila = pendentes(base, salvas, coes, args.forcar)
-    if args.limite:
-        fila = fila[:args.limite]
-
-    print(f"Base {ABA_BASE} ({ANO}) · cargo {args.cargo}"
-          + (f" · UF {args.uf.upper()}" if args.uf else ""))
-    print(f"{len(base)} candidatos com plano · {len(fila)} a processar")
-    if not fila:
-        print("Nada a fazer: tudo já analisado e na versão atual.")
-        return 0
-
-    # Cópia do PDF no Drive antes do TSE. Quando a versão da análise sobe, a fila
-    # é a base inteira, e 206 downloads seguidos do DivulgaCand é justamente o
-    # padrão que o WAF dele corta (19/08/2026, dia inteiro em 403). Sem espelho
-    # gravado, isto não faz nada e o download segue como antes.
-    if not args.sem_espelho:
-        try:
-            from outros.espelhar_planos import registrar_espelho
-            n_espelho = registrar_espelho(sh=sh, caminho_credenciais=args.credenciais)
-            if n_espelho:
-                print(f"espelho do Drive ativo para {n_espelho} planos")
-        except Exception as e:
-            print(f"espelho não pôde ser ligado ({str(e)[:120]}); seguindo no TSE")
-
-    buffer_a, buffer_c = [], []
-    indisponiveis, ilegiveis, erros = [], [], []
-    processados = set()          # (sq, nome) de quem a rodada analisou inteiro
-    feitos = 0
-    inicio = time.time()
-
-    def descarrega():
-        """Grava o que está no buffer, aba inteira, e esvazia o buffer.
-
-        Continua descarregando a cada LOTE e não só no fim: análise já paga não
-        pode depender de o job chegar vivo ao final.
-        """
-        nonlocal buffer_a, buffer_c
-        gravar(sh, ANALISE_ABA, COLS, ["sq_candidato", "tema"], buffer_a)
-        gravar(sh, COERENCIA_ABA, COLS_COE, ["sq_candidato"], buffer_c)
-        buffer_a, buffer_c = [], []
-
-    for n, r in enumerate(fila, 1):
-        nome = str(r["NM_URNA_CANDIDATO"])
-        sq = str(r["SQ_CANDIDATO"])
-        print(f"[{n}/{len(fila)}] {r['SG_UF']} · {nome}...", end=" ", flush=True)
-        try:
-            linhas, coe, pulo = processar(r, ANO)
-        except PlanoIndisponivel as e:
-            indisponiveis.append(nome)
-            print(f"plano fora do ar, tenta depois ({e})")
-            if len(indisponiveis) >= 8 and feitos == 0:
-                print("\nDivulgaCand/TSE está recusando requisições consecutivas (bloqueio/WAF). "
-                      "Interrompendo rodada para tentar no próximo horário.")
-                break
-            continue
-        except RespostaIlegivel as e:
-            ilegiveis.append(nome)
-            print(f"resposta ilegível ({e})")
-            continue
-        except Exception as e:                       # noqa: BLE001
-            erros.append(f"{nome}: {e}")
-            print(f"erro: {e}")
-            continue
-        if pulo:
-            ilegiveis.append(f"{nome} ({pulo})")
-            print(f"pulado: {pulo}")
-            continue
-
-        buffer_a.extend(linhas)
-        buffer_c.append(coe)
-        processados.add((sq, nome))
-        feitos += 1
-        niveis = sum(1 for l in linhas if l["nivel"] != "Não menciona")
-        # O que chega aqui é a linha já formatada para a planilha, onde 'pontes'
-        # é o texto do pontes_texto, junto por " | ", e não o dicionário. Contar
-        # com len() direto media caracteres: em 14/08/2026 o log deu "807
-        # programas" para um plano do DF, que eram 807 caracteres de texto.
-        pontes_txt = str(coe.get("pontes", "")).strip()
-        n_pontes = len([p for p in pontes_txt.split(" | ") if p]) if pontes_txt else 0
-        print(f"ok ({niveis}/{len(linhas)} temas com conteúdo, "
-              f"{n_pontes} programas atravessando temas)")
-
-        if feitos % LOTE == 0:
-            descarrega()
-            print(f"    ... {feitos} gravados ({time.time() - inicio:.0f}s)")
-        time.sleep(PAUSA_ENTRE_PLANOS)
-
-    descarrega()
-
-    # Confere o que ficou na planilha, e não o que o script acha que gravou. A
-    # rodada de 09/08/2026 terminou dizendo "7 plano(s) processados" com a aba
-    # intacta do dia anterior, e ninguém soube até alguém notar que o Lula tinha
-    # sumido do painel.
-    if processados:
-        conferidos = ler_aba(sh, ANALISE_ABA)
-        gravados = (set(conferidos["sq_candidato"].astype(str))
-                    if not conferidos.empty else set())
-        sumidos = [nome for sq_p, nome in processados if sq_p not in gravados]
-        if sumidos:
-            print(f"ATENÇÃO: {len(sumidos)} analisado(s) não estão na aba depois "
-                  f"da gravação: {', '.join(str(s) for s in sumidos[:8])}")
-            return 1
-
-    print(f"\n{feitos} plano(s) processados em {time.time() - inicio:.0f}s.")
+    # O cache dos painéis é reescrito em qualquer saída, inclusive na rodada
+    # que não analisa nada. O painel trata arquivo velho como quebrado, e o
+    # que envelhece é o arquivo, não o dado: sem republicar, um dia sem plano
+    # novo bastaria para os painéis voltarem a ler do Sheets.
     try:
-        from outros.analise_planos import _TOKENS
-        inp = _TOKENS["in"]
-        out = _TOKENS["out"]
-        if inp > 0 or out > 0:
-            custo = (inp / 1_000_000 * 0.075) + (out / 1_000_000 * 0.30)
-            print(f"[{inp:,} tokens in | {out:,} tokens out | custo estimado: US$ {custo:.3f}]")
-    except Exception:
-        pass
+        if args.so_paginas:
+            return preencher_paginas(sh, args.uf, args.limite)
 
-    if indisponiveis:
-        print(f"{len(indisponiveis)} fora do ar (rode de novo mais tarde): "
-              f"{', '.join(indisponiveis[:8])}")
-    if ilegiveis:
-        print(f"{len(ilegiveis)} não puderam ser lidos: {', '.join(ilegiveis[:8])}")
-    if erros:
-        print(f"{len(erros)} com erro: {'; '.join(erros[:5])}")
+        if args.so_coerencia:
+            return refazer_coerencia(sh, args.uf, args.limite, args.sq)
 
-    # Rodada que tinha fila e não gravou nada precisa sair vermelha. Antes ela
-    # terminava em 0 e o Actions marcava sucesso, do mesmo jeito que quando não
-    # havia nada a fazer. Foi assim que a recusa do DivulgaCand em 01/08/2026
-    # passou despercebida.
-    if feitos == 0 and fila:
-        print("Nenhum plano da fila foi processado. Saindo com erro.")
-        return 1
-    return 0
+        base = ler_aba(sh, ABA_BASE)
+        if base.empty or "LINK_PLANO" not in base.columns:
+            raise SystemExit(f"A aba {ABA_BASE} está vazia ou sem LINK_PLANO.")
+        base = base[base["LINK_PLANO"].astype(str).str.startswith("http")]
+        if args.cargo.upper() != "TODOS":
+            base = base[base["DS_CARGO"].astype(str).str.strip().str.upper()
+                        == args.cargo.upper()]
+        if args.uf:
+            base = base[base["SG_UF"].astype(str).str.strip().str.upper() == args.uf.upper()]
+        if args.sq:
+            # Lista separada por vírgula, e não um SQ só. Antes a lista só valia com
+            # --so-coerencia, e no caminho completo a string inteira era comparada
+            # como se fosse um SQ: em 21/08/2026 uma rodada com 15 SQs devolveu
+            # "0 candidatos com plano · 0 a processar" e não reanalisou nada.
+            _alvos = {x.strip() for x in str(args.sq).split(",") if x.strip()}
+            base = base[base["SQ_CANDIDATO"].astype(str).str.strip().isin(_alvos)]
+
+        salvas = ler_aba(sh, ANALISE_ABA)
+        coes = ler_aba(sh, COERENCIA_ABA)
+        fila = pendentes(base, salvas, coes, args.forcar)
+        if args.limite:
+            fila = fila[:args.limite]
+
+        print(f"Base {ABA_BASE} ({ANO}) · cargo {args.cargo}"
+              + (f" · UF {args.uf.upper()}" if args.uf else ""))
+        print(f"{len(base)} candidatos com plano · {len(fila)} a processar")
+        if not fila:
+            print("Nada a fazer: tudo já analisado e na versão atual.")
+            return 0
+
+        # Cópia do PDF no Drive antes do TSE. Quando a versão da análise sobe, a fila
+        # é a base inteira, e 206 downloads seguidos do DivulgaCand é justamente o
+        # padrão que o WAF dele corta (19/08/2026, dia inteiro em 403). Sem espelho
+        # gravado, isto não faz nada e o download segue como antes.
+        if not args.sem_espelho:
+            try:
+                from outros.espelhar_planos import registrar_espelho
+                n_espelho = registrar_espelho(sh=sh, caminho_credenciais=args.credenciais)
+                if n_espelho:
+                    print(f"espelho do Drive ativo para {n_espelho} planos")
+            except Exception as e:
+                print(f"espelho não pôde ser ligado ({str(e)[:120]}); seguindo no TSE")
+
+        buffer_a, buffer_c = [], []
+        indisponiveis, ilegiveis, erros = [], [], []
+        processados = set()          # (sq, nome) de quem a rodada analisou inteiro
+        feitos = 0
+        inicio = time.time()
+
+        def descarrega():
+            """Grava o que está no buffer, aba inteira, e esvazia o buffer.
+
+            Continua descarregando a cada LOTE e não só no fim: análise já paga não
+            pode depender de o job chegar vivo ao final.
+            """
+            nonlocal buffer_a, buffer_c
+            gravar(sh, ANALISE_ABA, COLS, ["sq_candidato", "tema"], buffer_a)
+            gravar(sh, COERENCIA_ABA, COLS_COE, ["sq_candidato"], buffer_c)
+            buffer_a, buffer_c = [], []
+
+        for n, r in enumerate(fila, 1):
+            nome = str(r["NM_URNA_CANDIDATO"])
+            sq = str(r["SQ_CANDIDATO"])
+            print(f"[{n}/{len(fila)}] {r['SG_UF']} · {nome}...", end=" ", flush=True)
+            try:
+                linhas, coe, pulo = processar(r, ANO)
+            except PlanoIndisponivel as e:
+                indisponiveis.append(nome)
+                print(f"plano fora do ar, tenta depois ({e})")
+                if len(indisponiveis) >= 8 and feitos == 0:
+                    print("\nDivulgaCand/TSE está recusando requisições consecutivas (bloqueio/WAF). "
+                          "Interrompendo rodada para tentar no próximo horário.")
+                    break
+                continue
+            except RespostaIlegivel as e:
+                ilegiveis.append(nome)
+                print(f"resposta ilegível ({e})")
+                continue
+            except Exception as e:                       # noqa: BLE001
+                erros.append(f"{nome}: {e}")
+                print(f"erro: {e}")
+                continue
+            if pulo:
+                ilegiveis.append(f"{nome} ({pulo})")
+                print(f"pulado: {pulo}")
+                continue
+
+            buffer_a.extend(linhas)
+            buffer_c.append(coe)
+            processados.add((sq, nome))
+            feitos += 1
+            niveis = sum(1 for l in linhas if l["nivel"] != "Não menciona")
+            # O que chega aqui é a linha já formatada para a planilha, onde 'pontes'
+            # é o texto do pontes_texto, junto por " | ", e não o dicionário. Contar
+            # com len() direto media caracteres: em 14/08/2026 o log deu "807
+            # programas" para um plano do DF, que eram 807 caracteres de texto.
+            pontes_txt = str(coe.get("pontes", "")).strip()
+            n_pontes = len([p for p in pontes_txt.split(" | ") if p]) if pontes_txt else 0
+            print(f"ok ({niveis}/{len(linhas)} temas com conteúdo, "
+                  f"{n_pontes} programas atravessando temas)")
+
+            if feitos % LOTE == 0:
+                descarrega()
+                print(f"    ... {feitos} gravados ({time.time() - inicio:.0f}s)")
+            time.sleep(PAUSA_ENTRE_PLANOS)
+
+        descarrega()
+
+        # Confere o que ficou na planilha, e não o que o script acha que gravou. A
+        # rodada de 09/08/2026 terminou dizendo "7 plano(s) processados" com a aba
+        # intacta do dia anterior, e ninguém soube até alguém notar que o Lula tinha
+        # sumido do painel.
+        if processados:
+            conferidos = ler_aba(sh, ANALISE_ABA)
+            gravados = (set(conferidos["sq_candidato"].astype(str))
+                        if not conferidos.empty else set())
+            sumidos = [nome for sq_p, nome in processados if sq_p not in gravados]
+            if sumidos:
+                print(f"ATENÇÃO: {len(sumidos)} analisado(s) não estão na aba depois "
+                      f"da gravação: {', '.join(str(s) for s in sumidos[:8])}")
+                return 1
+
+        print(f"\n{feitos} plano(s) processados em {time.time() - inicio:.0f}s.")
+        try:
+            from outros.analise_planos import _TOKENS
+            inp = _TOKENS["in"]
+            out = _TOKENS["out"]
+            if inp > 0 or out > 0:
+                custo = (inp / 1_000_000 * 0.075) + (out / 1_000_000 * 0.30)
+                print(f"[{inp:,} tokens in | {out:,} tokens out | custo estimado: US$ {custo:.3f}]")
+        except Exception:
+            pass
+
+        if indisponiveis:
+            print(f"{len(indisponiveis)} fora do ar (rode de novo mais tarde): "
+                  f"{', '.join(indisponiveis[:8])}")
+        if ilegiveis:
+            print(f"{len(ilegiveis)} não puderam ser lidos: {', '.join(ilegiveis[:8])}")
+        if erros:
+            print(f"{len(erros)} com erro: {'; '.join(erros[:5])}")
+
+        # Rodada que tinha fila e não gravou nada precisa sair vermelha. Antes ela
+        # terminava em 0 e o Actions marcava sucesso, do mesmo jeito que quando não
+        # havia nada a fazer. Foi assim que a recusa do DivulgaCand em 01/08/2026
+        # passou despercebida.
+        if feitos == 0 and fila:
+            print("Nenhum plano da fila foi processado. Saindo com erro.")
+            return 1
+        return 0
+    finally:
+        _publicar_cache_parquet(gc, args.planilha)
 
 
 if __name__ == "__main__":
