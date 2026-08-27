@@ -2701,6 +2701,20 @@ def normalizar_institutos_retroativo(aba_pesquisas, aba_resultados):
         print(f"[normalizacao] aba 'resultados': {n_r} linha(s) com instituto normalizado")
 
 
+def _publicar_cache_parquet(gc, sheet_id: str) -> None:
+    """Publica o cache Parquet das abas pesadas no Drive.
+
+    Roda depois das correções numéricas de propósito: o que vai para o Parquet
+    tem que ser o que a aba devolve depois de pronta. Falha aqui não derruba o
+    rebuild — sem o Parquet, os painéis voltam a ler direto do Sheets.
+    """
+    try:
+        from compartilhado.cache_parquet import publicar_abas
+        publicar_abas(gc, sheet_id)
+    except Exception as erro:
+        print(f"  [cache] não publicado (painéis seguem no Sheets): {erro}", flush=True)
+
+
 def reconstruir_resultados_bi(gc, sheet_id: str):
     """Reconstrói resultados_bi a partir do que já está salvo em `resultados`,
     sem raspar o site de novo. Usado por `relatorios_extracao_segmentos.py rebuild_bi` pra aplicar
@@ -2743,6 +2757,8 @@ def reconstruir_resultados_bi(gc, sheet_id: str):
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "media_movel_13d")
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_AMOSTRAL)
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_HIBRIDO)
+
+    _publicar_cache_parquet(gc, sheet_id)
 
 
 def salvar_tudo(gc, spreadsheet_id: str, df_p: pd.DataFrame, df_r: pd.DataFrame):
@@ -2831,6 +2847,8 @@ def salvar_tudo(gc, spreadsheet_id: str, df_p: pd.DataFrame, df_r: pd.DataFrame)
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, "media_movel_13d")
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_AMOSTRAL)
     corrigir_coluna_numerica_na_aba(aba_resultados_bi, COLUNA_MODELO_HIBRIDO)
+
+    _publicar_cache_parquet(gc, spreadsheet_id)
 
 
 def _buscar_urls_no_json(obj, urls: set, pattern: str):

@@ -6,6 +6,8 @@ selenium==4.22.0
 gspread==6.1.4
 google-auth==2.34.0
 pandas==2.2.2
+# to_parquet do cache que os painéis leem (compartilhado/cache_parquet.py)
+pyarrow>=15
 google-api-python-client
 google-auth
 google-auth-httplib2
