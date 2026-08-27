@@ -124,6 +124,9 @@ jobs:
           EMAIL: ${{ secrets.EMAIL }}
           DESTINATARIOS_DEBATES: ${{ secrets.DESTINATARIOS_DEBATES }}
           DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
+          # Só leitura: o exemplo do teste é o último evento que já tem resumo,
+          # para o email de teste sair com o link do Doc de verdade.
+          SPREADSHEET_ID_DEBATES: ${{ secrets.SPREADSHEET_ID_DEBATES }}
         run: python -m outros.resumo_debates --testar-email
 
       - name: Gerar os resumos

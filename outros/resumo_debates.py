@@ -1138,17 +1138,53 @@ def testar_email(_args):
 
     dests = destinatarios("DESTINATARIOS_DEBATES")
     log(f"destinatários: {', '.join(dests) or '(nenhum)'}")
-    exemplo = [{
-        "titulo": "TESTE de aviso, ignore. Resumo do 1º debate ao governo de "
-                  "São Paulo, Band, 09/08/2026",
+    base = exemplo_de_aviso()
+    exemplo = [dict(base, titulo="TESTE de aviso, ignore. " + base["titulo"])]
+    if not avisar_por_email(exemplo):
+        sys.exit("nenhum email saiu, veja o log acima")
+
+
+def exemplo_de_aviso():
+    """O último evento que já tem resumo, para o teste sair igual ao real.
+
+    Lê a planilha e não escreve nada. O link tem de ser o do Doc no Drive, o
+    mesmo que vai para link_resumo: é o documento timbrado que circula, e não a
+    página do painel. Sem planilha à mão, cai num exemplo fixo.
+    """
+    from outros.transcricao_debates import (COL, PLANILHA, clientes_google,
+                                            com_retentativa)
+    padrao = {
+        "titulo": "Resumo do 1º debate ao governo de São Paulo, Band, 09/08/2026",
         "quando": "domingo, 9 de agosto de 2026",
         "emissora": "Band",
         "participantes": ["Tarcísio de Freitas", "Fernando Haddad"],
         "link": PAINEL_DEBATES_URL,
         "atualizado": False,
-    }]
-    if not avisar_por_email(exemplo):
-        sys.exit("nenhum email saiu, veja o log acima")
+    }
+    if not PLANILHA:
+        return padrao
+    try:
+        gc, _ = clientes_google()
+        ws = com_retentativa("abertura da planilha de eventos",
+                             lambda: gc.open_by_key(PLANILHA).worksheet("eventos"))
+        todas = com_retentativa("leitura da planilha", ws.get_all_values)
+        col = indice_do_resumo(todas[0])
+        for linha in reversed(todas[1:]):
+            link = (linha[col - 1] if col and col - 1 < len(linha) else "").strip()
+            if not link:
+                continue
+            meta = meta_da_linha(linha, COL, todas)
+            return {
+                "titulo": titulo(meta, meta.get("tipo", "") == "Sabatina"),
+                "quando": por_extenso(meta["data"]) or meta["data"],
+                "emissora": meta.get("emissora", ""),
+                "participantes": meta.get("participantes", []),
+                "link": link,
+                "atualizado": False,
+            }
+    except Exception as e:
+        log(f"não consegui ler a planilha para o exemplo: {type(e).__name__}: {e}")
+    return padrao
 
 
 def rodar_fila(args):
