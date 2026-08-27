@@ -1,38 +1,25 @@
 name: 06 - Notícias eleições
 
 on:
-  schedule:
-    # GitHub Actions usa UTC; Brasil/Recife = UTC-3. Minuto fora do :00 porque
-    # o :00 é quando o GitHub Actions mais enfileira e atrasa a rodada agendada.
-    #
-    # Duas horas antes do horário-alvo, de propósito: cron agendado do Actions
-    # é fila de baixa prioridade e não começa na hora marcada. Medido em 12 dias
-    # deste workflow: atraso de 25 min no melhor caso, 89 na mediana, 250 no
-    # pior. O scraper leva ~10 min (era de 16 a 77, antes de coleta e
-    # classificação irem pra threads). A antecipação cobre o caso
-    # mediano; no dia de fila cheia continua atrasando, e a solução definitiva
-    # é disparar por repository_dispatch a partir de um agendador externo.
-    - cron: '15 7 * * *'   # 04:15 BRT, alvo 06:15
-    - cron: '15 12 * * *'  # 09:15 BRT, alvo 11:15
-    - cron: '15 16 * * *'  # 13:15 BRT, alvo 15:15
   # Disparo externo, em horario exato. O cron agendado do Actions entra numa
   # fila de baixa prioridade e atrasa de 25 a 250 min (medido em 12 dias), o que
   # nao serve pro time, que levanta noticia as 7h, 12h e 16h. Um agendador de
-  # fora chama POST /repos/meduardamo/eixo-eleicoes/dispatches com
-  # {"event_type": "raspar-noticias"} e o run comeca em segundos.
-  # Os crons acima ficam como rede de seguranca: o scraper deduplica por titulo
-  # contra a planilha, entao rodar duas vezes nao duplica noticia.
+  # fora (cron-job.org) chama POST /repos/meduardamo/eixo-eleicoes/dispatches
+  # com {"event_type": "raspar-noticias"} e o run comeca em segundos.
+  # Os crons de rede de seguranca sairam em 27/08/2026: rodavam junto com o
+  # disparo externo e mandavam um segundo email no mesmo intervalo de tempo.
+  # Se o agendador externo cair, devolver aqui: '15 7 * * *', '15 12 * * *' e
+  # '15 16 * * *' (UTC, duas horas antes do horario-alvo).
   repository_dispatch:
     types: [raspar-noticias]
 
   workflow_dispatch:        # permite rodar manualmente pelo GitHub
 
-# Uma rodada por vez. Sao 6 gatilhos por dia (3 crons de rede de seguranca +
-# 3 disparos externos) e o cron atrasa ate 250 min, entao duas rodadas podem se
-# sobrepor. Se isso acontecer as duas leem carregar_titulos_existentes() antes
-# de qualquer uma gravar, e as duas inserem as mesmas noticias: a deduplicacao
-# por titulo nao protege contra execucao simultanea. Com cancel-in-progress
-# false a segunda espera a primeira terminar e ai le a planilha ja atualizada.
+# Uma rodada por vez. Sao 3 disparos externos por dia, mais o manual. Se duas
+# rodadas se sobrepuserem, as duas leem carregar_titulos_existentes() antes de
+# qualquer uma gravar, e as duas inserem as mesmas noticias: a deduplicacao por
+# titulo nao protege contra execucao simultanea. Com cancel-in-progress false a
+# segunda espera a primeira terminar e ai le a planilha ja atualizada.
 concurrency:
   group: noticias-eleicoes
   cancel-in-progress: false
