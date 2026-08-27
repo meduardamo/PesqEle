@@ -38,6 +38,16 @@ on:
         type: boolean
         required: false
         default: false
+      sem_email:
+        description: 'Não avisa a lista por email que saiu resumo novo'
+        type: boolean
+        required: false
+        default: false
+      testar_email:
+        description: 'Só manda um aviso de teste para a lista e sai (não gera resumo nenhum)'
+        type: boolean
+        required: false
+        default: false
       modelo:
         description: 'Modelo Gemini'
         required: false
@@ -75,7 +85,7 @@ jobs:
 
       # pymupdf e pandas entram pelo mesmo motivo do workflow 19: o dicionário
       # de assuntos importa o analise_planos, que importa os dois no topo.
-      - run: pip install google-genai gspread google-auth google-api-python-client pymupdf pandas
+      - run: pip install google-genai gspread google-auth google-api-python-client pymupdf pandas "brevo-python==1.1.2"
 
       - name: Escrever credentials.json
         run: printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
@@ -103,14 +113,34 @@ jobs:
           PASTA_DRIVE_DEBATES: ${{ secrets.PASTA_DRIVE_DEBATES }}
         run: python -m outros.resumo_debates --preencher-meta
 
+      # Confere a configuração do email (chave da Brevo, remetente, lista) sem
+      # gerar resumo nenhum: o caminho do aviso só roda quando sai resumo novo,
+      # e aí já é tarde para descobrir que a chave venceu.
+      - name: Testar o aviso por email
+        if: inputs.testar_email == true
+        env:
+          PYTHONUNBUFFERED: "1"
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          EMAIL: ${{ secrets.EMAIL }}
+          DESTINATARIOS_DEBATES: ${{ secrets.DESTINATARIOS_DEBATES }}
+          DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
+        run: python -m outros.resumo_debates --testar-email
+
       - name: Gerar os resumos
-        if: inputs.preencher_texto != true && inputs.preencher_meta != true
+        if: inputs.preencher_texto != true && inputs.preencher_meta != true && inputs.testar_email != true
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ inputs.modelo || 'gemini-3.6-flash' }}
           SPREADSHEET_ID_DEBATES: ${{ secrets.SPREADSHEET_ID_DEBATES }}
           PASTA_DRIVE_DEBATES: ${{ secrets.PASTA_DRIVE_DEBATES }}
+          # Aviso de rodada para a lista. Sem BREVO_API_KEY/EMAIL a rodada
+          # segue igual, só não manda nada. DESTINATARIOS_DEBATES é a lista
+          # desta rotina; sem ela cai na geral (DESTINATARIOS).
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          EMAIL: ${{ secrets.EMAIL }}
+          DESTINATARIOS_DEBATES: ${{ secrets.DESTINATARIOS_DEBATES }}
+          DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
         run: |
           python -m outros.resumo_debates --fila \
             ${{ inputs.sabatina == true && '--sabatina' || '' }} \
@@ -118,6 +148,7 @@ jobs:
             --eixos ${{ inputs.eixos || '6' }} \
             ${{ inputs.refazer == true && '--refazer' || '' }} \
             ${{ inputs.sem_modelo == true && '--sem-modelo' || '' }} \
+            ${{ inputs.sem_email == true && '--sem-email' || '' }} \
             ${{ (inputs.drive == true || github.event_name == 'repository_dispatch' || github.event_name == 'schedule') && '--drive' || '' }}
 
       - name: Resumo na página do run

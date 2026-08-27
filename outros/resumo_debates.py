@@ -664,6 +664,12 @@ COLUNA_TEXTO = "resumo_md"
 # vira número aqui.
 COLUNA_META = "resumo_meta"
 
+# Página do painel interno onde o resumo aparece para quem não quer abrir o
+# Doc. O nome vem do arquivo pages/4_Debates_e_Sabatinas.py.
+PAINEL_DEBATES_URL = os.getenv(
+    "PAINEL_DEBATES_URL",
+    "https://painel-eleitoral-interno.streamlit.app/Debates_e_Sabatinas")
+
 # Limite de uma célula do Sheets é 50 mil caracteres. O resumo mais longo até
 # agora tem cerca de 9 mil, mas a célula que estoura derruba a escrita da linha
 # inteira, então o texto grande fica só no Drive e o painel avisa.
@@ -1042,6 +1048,109 @@ def preencher_meta(_args):
     log(f"{feitos} evento(s) medido(s).")
 
 
+def _esc(v):
+    return (str(v or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;"))
+
+
+def email_da_rodada(feitos, agora):
+    """Assunto e corpo do aviso de que saiu resumo novo.
+
+    Um email por rodada, e não por evento: numa leva como a das seis sabatinas
+    da Globo seriam seis emails seguidos para a mesma lista. O corpo é aviso,
+    não o resumo: quem lê abre o Doc timbrado, que é o que circula fora daqui.
+
+    Função pura, para o texto poder ser conferido em teste sem mandar email.
+    """
+    from compartilhado.email_utils import EIXO_MARINHO
+
+    # O titulo() já vem como 'Resumo do 1º debate ao governo de São Paulo,
+    # Band, 09/08/2026', então não precisa de prefixo na linha de assunto.
+    assunto = (feitos[0]["titulo"] if len(feitos) == 1
+               else f"{len(feitos)} resumos de debates prontos")
+
+    blocos = []
+    for f in feitos:
+        linhas = [f"{f['quando']} · {f['emissora']}" if f["emissora"] else f["quando"]]
+        if f["participantes"]:
+            linhas.append("Participantes: " + ", ".join(f["participantes"]))
+        detalhes = "".join(
+            f'<div style="color:#374151;font-size:13px;margin:2px 0">{_esc(l)}</div>'
+            for l in linhas if l.strip())
+        selo = ('<span style="font-size:12px;color:#6b7280"> (atualizado)</span>'
+                if f["atualizado"] else "")
+        blocos.append(f"""
+      <div style="border-left:3px solid {EIXO_MARINHO};padding:8px 12px;margin:0 0 14px 0;background:#f6f7fa">
+        <div style="font-weight:bold;color:{EIXO_MARINHO}">{_esc(f['titulo'])}{selo}</div>
+        {detalhes}
+        <a href="{_esc(f['link'])}" style="color:{EIXO_MARINHO};font-size:12px">abrir o resumo</a>
+      </div>""")
+
+    html = f"""
+    <html><body style="font-family:Arial,sans-serif;color:#111">
+      <h2 style="margin:0 0 6px 0">Resumo de debates</h2>
+      <div style="color:#374151;margin:0 0 14px 0">
+        {_esc(agora)} · {len(feitos)} resumo(s) novo(s)
+      </div>
+      <div style="background:#eef0f6;border-left:3px solid {EIXO_MARINHO};padding:10px 12px;margin:0 0 16px 0;font-size:13px">
+        Resumo gerado a partir da transcrição do evento. Os números saem da
+        medição das falas; o texto também está na página
+        <a href="{PAINEL_DEBATES_URL}" style="color:{EIXO_MARINHO}">Debates e Sabatinas</a>
+        do painel interno.
+      </div>
+      {"".join(blocos)}
+    </body></html>
+    """
+    return assunto, html
+
+
+def avisar_por_email(feitos):
+    """Manda o aviso da rodada. Sem destinatário ou sem chave, só registra.
+
+    O envio não derruba a rodada: o resumo já está no Drive e na planilha
+    quando isto roda, e email que falhou se reenvia com --refazer.
+    """
+    if not feitos:
+        return False
+    from compartilhado.email_utils import destinatarios, enviar_email
+    from outros.transcricao_debates import agora_brt
+
+    dests = destinatarios("DESTINATARIOS_DEBATES")
+    if not dests:
+        log("sem DESTINATARIOS_DEBATES nem DESTINATARIOS, aviso por email pulado")
+        return False
+    assunto, html = email_da_rodada(feitos, agora_brt())
+    try:
+        return enviar_email(assunto, html, dests)
+    except Exception as e:
+        log(f"aviso por email falhou: {type(e).__name__}: {e}")
+        return False
+
+
+def testar_email(_args):
+    """Manda um aviso de mentira para a lista, sem tocar em planilha nem Drive.
+
+    Existe porque o caminho do email só é exercitado quando sai resumo novo, e
+    aí já é tarde para descobrir que a chave da Brevo venceu ou que o secret
+    da lista está vazio.
+    """
+    from compartilhado.email_utils import destinatarios
+
+    dests = destinatarios("DESTINATARIOS_DEBATES")
+    log(f"destinatários: {', '.join(dests) or '(nenhum)'}")
+    exemplo = [{
+        "titulo": "TESTE de aviso, ignore. Resumo do 1º debate ao governo de "
+                  "São Paulo, Band, 09/08/2026",
+        "quando": "domingo, 9 de agosto de 2026",
+        "emissora": "Band",
+        "participantes": ["Tarcísio de Freitas", "Fernando Haddad"],
+        "link": PAINEL_DEBATES_URL,
+        "atualizado": False,
+    }]
+    if not avisar_por_email(exemplo):
+        sys.exit("nenhum email saiu, veja o log acima")
+
+
 def rodar_fila(args):
     import outros.transcricao_debates as td
     from outros.transcricao_debates import (COL, PLANILHA, clientes_google,
@@ -1093,6 +1202,7 @@ def rodar_fila(args):
     col_meta = coluna_por_nome(ws, cabecalho, COLUNA_META) if args.drive else None
     template_docx = Path(__file__).parent / "templates" / "timbrado_eleicoes.docx"
 
+    feitos = []
     for i, meta in fila:
         secao(f"RESUMO {meta['id']}  (linha {i})")
         try:
@@ -1126,6 +1236,16 @@ def rodar_fila(args):
                                        pasta, meta.get("link_resumo", ""))
             escrever_celula(ws, i, col_resumo, link)
             log(f"resumo no Drive: {link}")
+            feitos.append({
+                "titulo": titulo(meta, sabatina_flag),
+                "quando": por_extenso(meta["data"]) or meta["data"],
+                "emissora": meta.get("emissora", ""),
+                "participantes": meta.get("participantes", []),
+                "link": link,
+                # Resumo que já tinha link é refeito por cima do mesmo Doc, e
+                # quem recebe precisa saber que não é evento novo.
+                "atualizado": bool(meta.get("link_resumo")),
+            })
             # O texto vai para a planilha porque é de lá que o painel lê. O
             # Drive continua guardando o documento timbrado, que é o que se
             # manda para fora.
@@ -1137,6 +1257,11 @@ def rodar_fila(args):
                 log(f"texto do resumo gravado na coluna '{COLUNA_TEXTO}'")
             escrever_celula(ws, i, col_meta,
                             json.dumps(meta_medida(falas), ensure_ascii=False))
+
+    if args.sem_email:
+        log(f"--sem-email: {len(feitos)} resumo(s) sem aviso")
+    else:
+        avisar_por_email(feitos)
 
 
 def main():
@@ -1150,6 +1275,10 @@ def main():
                     help="gera de novo mesmo para quem já tem link_resumo")
     ap.add_argument("--sem-modelo", action="store_true",
                     help="só a parte medida, sem chamar a API nem gastar")
+    ap.add_argument("--sem-email", action="store_true",
+                    help="não avisa a lista de que saiu resumo novo")
+    ap.add_argument("--testar-email", action="store_true",
+                    help="manda um aviso de teste para a lista e sai")
     ap.add_argument("--eixos", type=int, default=EIXOS_NO_TEXTO,
                     help=f"quantos temas ganham parágrafo (padrão {EIXOS_NO_TEXTO})")
     ap.add_argument("--min-falas", type=int, default=MIN_FALAS)
@@ -1175,7 +1304,9 @@ def main():
     secao("CONFIGURAÇÃO")
     log(f"modelo : {GEMINI_MODEL if not args.sem_modelo else 'nenhum (--sem-modelo)'}")
 
-    if args.preencher_texto:
+    if args.testar_email:
+        testar_email(args)
+    elif args.preencher_texto:
         preencher_texto(args)
     elif args.preencher_meta:
         preencher_meta(args)

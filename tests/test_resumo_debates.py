@@ -13,8 +13,8 @@ Uso:
 """
 
 from outros.resumo_debates import (abertura, conferir_paragrafo, duracoes,
-                                   elenco, fechamento, medir, meta_da_linha,
-                                   num, para_conferir)
+                                   elenco, email_da_rodada, fechamento, medir,
+                                   meta_da_linha, num, para_conferir)
 
 FALAS = [
     {"segundos": "0", "tempo": "00:00:00", "falante": "RODOLFO SCHNEIDER",
@@ -232,3 +232,47 @@ def test_meta_sem_link_de_resumo_vem_vazio():
     linha[COL["id"]] = "2026-band-mg-gov-t1"
     meta = meta_da_linha(linha, COL, [[], linha])
     assert meta["link_resumo"] == ""
+
+
+FEITO = {
+    "titulo": "Resumo do 1º debate ao governo de São Paulo, Band, 09/08/2026",
+    "quando": "domingo, 9 de agosto de 2026",
+    "emissora": "Band",
+    "participantes": ["Tarcísio de Freitas", "Fernando Haddad"],
+    "link": "https://docs.google.com/document/d/abc",
+    "atualizado": False,
+}
+
+
+def test_aviso_de_um_resumo_leva_o_titulo_no_assunto():
+    """O titulo() já diz cargo, emissora e data, então o assunto é ele mesmo:
+    prefixar com 'Resumo pronto:' deixaria 'Resumo pronto: Resumo do...'."""
+    assunto, html = email_da_rodada([FEITO], "2026-08-27 17:40")
+    assert assunto == FEITO["titulo"]
+    assert FEITO["link"] in html
+    assert "Tarcísio de Freitas, Fernando Haddad" in html
+    assert "(atualizado)" not in html
+
+
+def test_rodada_com_varios_resumos_manda_um_email_so():
+    """A leva de sabatinas da Globo é um evento por noite, e o aviso por evento
+    encheria a caixa da lista com seis emails seguidos."""
+    assunto, html = email_da_rodada([FEITO, dict(FEITO, titulo="Resumo da sabatina")],
+                                    "2026-08-27 17:40")
+    assert assunto == "2 resumos de debates prontos"
+    assert html.count("abrir o resumo") == 2
+
+
+def test_resumo_refeito_sai_marcado_como_atualizado():
+    """Refazer grava por cima do mesmo Doc e o link não muda; sem o selo, quem
+    recebe lê como evento novo."""
+    _, html = email_da_rodada([dict(FEITO, atualizado=True)], "2026-08-27 17:40")
+    assert "(atualizado)" in html
+
+
+def test_html_do_aviso_escapa_o_que_veio_da_planilha():
+    """Nome de participante e título saem de célula digitada por gente."""
+    _, html = email_da_rodada(
+        [dict(FEITO, participantes=["Fulano & <b>Cia</b>"])], "2026-08-27 17:40")
+    assert "<b>Cia</b>" not in html
+    assert "&amp;" in html
