@@ -7,8 +7,10 @@ Uso:
     pytest tests/test_transcricao_debates.py
 """
 
-from outros.transcricao_debates import (COL, aviso_actions, em_segundos,
-                                        parsear, reparos_de_integridade,
+from outros.transcricao_debates import (COL, aviso_actions,
+                                        caminho_do_debate, data_iso,
+                                        data_serial, em_segundos, parsear,
+                                        reparos_de_integridade,
                                         unificar_falantes)
 
 
@@ -226,3 +228,31 @@ def test_sem_reparo_nenhuma_linha_e_apagada():
     restauracoes, duplicadas = reparos_de_integridade(nossas, {})
     assert restauracoes == []
     assert duplicadas == []
+
+
+def test_data_da_fonte_em_qualquer_formato_vira_iso():
+    """A aba do monitoramento virou data de verdade e o Sheets devolve
+    '2026/08/09'. Antes disso vinha ISO em texto, e quem digita na mão escreve
+    dd/mm/aaaa. As três formas são a mesma data."""
+    assert data_iso("2026/08/09") == "2026-08-09"
+    assert data_iso("2026-08-09") == "2026-08-09"
+    assert data_iso("09/08/2026") == "2026-08-09"
+    assert data_iso(46243) == "2026-08-09"
+    assert data_iso("") == ""
+    assert data_iso("a confirmar") == "a confirmar"
+
+
+def test_data_iso_vira_numero_de_dias_do_sheets():
+    """Gravar o número é o que faz a célula ser data: com o texto '2026-08-09'
+    o filtro da planilha ordena alfabeticamente e o painel não lê a data."""
+    assert data_serial("2026-08-09") == 46243
+    assert data_serial("2026-10-18") == 46313
+    assert data_serial("") == ""
+    assert data_serial("a confirmar") == "a confirmar"
+
+
+def test_data_com_barra_nao_manda_o_debate_para_sem_data():
+    """O run de 27/08 criou 'BR / sem-data' porque a data tinha chegado como
+    '2026/08/23' e o caminho só conhecia ISO e dd/mm/aaaa."""
+    assert caminho_do_debate("BR", "2026/08/23") == ["BR", "2026-08", "23"]
+    assert caminho_do_debate("SP", "2026-08-09") == ["SP", "2026-08", "09"]

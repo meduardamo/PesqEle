@@ -44,7 +44,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from google import genai
@@ -85,6 +85,7 @@ FAIXA_SAIDA = "M{i}:R{i}"
 DA_FONTE = ["data", "horario", "cargo", "uf", "turno", "emissora",
             "url_video", "mediador", "participantes", "tipo"]
 FAIXA_FONTE = "B{i}:K{i}"
+IDX_DATA = DA_FONTE.index("data")
 
 BLOCO_SEG = 600          # 10 min de conteúdo por bloco
 SOBREPOSICAO_SEG = 20    # o bloco vai 20s além, para não cortar frase na borda
@@ -706,7 +707,7 @@ def caminho_do_debate(uf, data, ident=None):
     estado = (uf or "").strip().upper() or "BR"
     texto = (data or "").strip()
 
-    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", texto)
+    m = re.match(r"(\d{4})[-/](\d{2})[-/](\d{2})", texto)
     if m:
         ano, mes, dia = m.groups()
     else:
@@ -1244,6 +1245,91 @@ def normalizar_titulo(texto):
     return re.sub(r"[^a-z0-9]+", "_", t.lower()).strip("_")
 
 
+# O Sheets conta data em dias desde 30/12/1899. Célula de data é esse número
+# com um formato em cima; célula de texto que parece data é só texto, e é aí
+# que o filtro ordena '2026/09/14' antes de '2026/10/18'.
+EPOCA_SHEETS = date(1899, 12, 30)
+FORMATO_DATA = {"numberFormat": {"type": "DATE", "pattern": "yyyy-mm-dd"}}
+
+
+def data_iso(valor):
+    """Data da planilha em ISO, venha ela como vier.
+
+    A aba do monitoramento passou a guardar data de verdade, e o Sheets a
+    devolve formatada como '2026/08/09'. O sync copiava essa string para cá e
+    o caminho_do_debate, que só conhecia ISO e dd/mm/aaaa, mandava o debate
+    para a pasta 'sem-data' do Drive. Texto que não é data volta como veio.
+    """
+    t = str(valor or "").strip()
+    if re.fullmatch(r"\d+(?:[.,]\d+)?", t):
+        return (EPOCA_SHEETS + timedelta(days=int(float(t.replace(",", "."))))).isoformat()
+    m = re.match(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", t)
+    if m:
+        ano, mes, dia = m.groups()
+    else:
+        m = re.match(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", t)
+        if not m:
+            return t
+        dia, mes, ano = m.groups()
+    return f"{ano}-{int(mes):02d}-{int(dia):02d}"
+
+
+def data_serial(iso):
+    """ISO para o número de dias do Sheets, que é o que faz a célula ser data.
+
+    O gspread grava com value_input_option RAW, e RAW com '2026-08-09' deixa
+    texto na célula. Mandar o número não depende do locale da planilha, ao
+    contrário de trocar tudo para USER_ENTERED, que ainda transformaria em
+    fórmula qualquer campo começando com '='.
+    """
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", str(iso or "").strip())
+    if not m:
+        return iso
+    try:
+        return (date(*(int(x) for x in m.groups())) - EPOCA_SHEETS).days
+    except ValueError:
+        return iso
+
+
+def normalizar_coluna_data(ws, nossas):
+    """Deixa a coluna 'data' como data de verdade, e devolve as linhas em ISO.
+
+    Roda a cada sync porque conserta o que já está gravado como texto: linha
+    antiga, linha que alguém digitou na mão e linha que a reordenação de
+    colunas acabou de reescrever. O formato vai na coluna inteira ('B2:B'),
+    então linha nova nasce formatada sem precisar de outra chamada.
+    """
+    if len(nossas) < 2:
+        return nossas
+
+    col = chr(ord("A") + COL["data"])
+    com_retentativa("formato de data da coluna",
+                    lambda: ws.format(f"{col}2:{col}", FORMATO_DATA))
+    faixa = f"{col}2:{col}{len(nossas)}"
+    brutos = com_retentativa(
+        "leitura da coluna data",
+        lambda: ws.get(faixa, value_render_option="UNFORMATTED_VALUE"))
+
+    correcoes = []
+    for pos, linha in enumerate(nossas[1:]):
+        celula = brutos[pos][0] if pos < len(brutos) and brutos[pos] else ""
+        if isinstance(celula, (int, float)):
+            continue
+        iso = data_iso(celula)
+        serial = data_serial(iso)
+        if not isinstance(serial, int):
+            continue
+        correcoes.append({"range": f"{col}{pos + 2}", "values": [[serial]]})
+        if COL["data"] < len(linha):
+            linha[COL["data"]] = iso
+
+    if correcoes:
+        com_retentativa("conversão da coluna data",
+                        lambda: ws.batch_update(correcoes))
+        log(f"coluna data: {len(correcoes)} célula(s) viraram data de verdade")
+    return nossas
+
+
 def mapear_fonte(cabecalho):
     """Em que coluna da planilha do monitoramento está cada campo.
 
@@ -1354,7 +1440,10 @@ def sincronizar(gc, ws):
     nossas = com_retentativa("leitura da nossa planilha", ws.get_all_values)
     cab_atual = [c.strip().lower() for c in (nossas[0] if nossas else [])]
 
-    if cab_atual and cab_atual != ORDEM_COLUNAS_LOGICA:
+    # Só o começo da planilha é comparado: o resumo_debates cria 'resumo_md' e
+    # 'resumo_meta' no fim, e comparar a lista inteira dava reordenação em toda
+    # rodada, reescrevendo 34 linhas por hora e devolvendo a data para texto.
+    if cab_atual and cab_atual[:len(ORDEM_COLUNAS_LOGICA)] != ORDEM_COLUNAS_LOGICA:
         log("reordenando colunas da planilha para a ordem lógica padrão...")
         pos_antiga = {col: idx for idx, col in enumerate(cab_atual)}
         novas_linhas = [ORDEM_COLUNAS_LOGICA]
@@ -1364,14 +1453,23 @@ def sincronizar(gc, ws):
                 idx = pos_antiga.get(c)
                 val = (linha[idx] if idx is not None and idx < len(linha) else "").strip()
                 nova_linha.append(val)
+            nova_linha[COL["data"]] = data_iso(nova_linha[COL["data"]])
             novas_linhas.append(nova_linha)
 
         if len(ORDEM_COLUNAS_LOGICA) > ws.col_count:
             ws.add_cols(len(ORDEM_COLUNAS_LOGICA) - ws.col_count)
 
-        com_retentativa("reordenação das colunas", lambda: ws.update(values=novas_linhas, range_name="A1"))
+        # A data vai como número para a célula continuar sendo data depois da
+        # reescrita; em memória ela segue em ISO, que é o que o merge compara.
+        corpo = [novas_linhas[0]] + [
+            [data_serial(v) if k == COL["data"] else v for k, v in enumerate(l)]
+            for l in novas_linhas[1:]
+        ]
+        com_retentativa("reordenação das colunas", lambda: ws.update(values=corpo, range_name="A1"))
         log(f"planilha reordenada com sucesso ({len(ORDEM_COLUNAS_LOGICA)} colunas)!")
         nossas = novas_linhas
+
+    nossas = normalizar_coluna_data(ws, nossas)
 
     log(f"fonte '{FONTE_ABA}': {len(de_la)} linha(s) | nossa: {len(nossas) - 1} linha(s)")
 
@@ -1425,6 +1523,7 @@ def sincronizar(gc, ws):
         if not idf:
             continue
         campos = [(l[COL_FONTE[c]] if COL_FONTE[c] < len(l) else "").strip() for c in DA_FONTE]
+        campos[IDX_DATA] = data_iso(campos[IDX_DATA])
         tem_url = bool(campos[DA_FONTE.index("url_video")])
 
         if idf not in por_fonte:
@@ -1437,6 +1536,7 @@ def sincronizar(gc, ws):
             linha[COL["observacoes"]] = (l[COL_FONTE["observacoes"]]
                                          if COL_FONTE["observacoes"] < len(l) else "")
             linha[COL["id_fonte"]] = idf
+            linha[COL["data"]] = data_serial(linha[COL["data"]])
             novas.append(linha)
             log(f"  novo   {idf} -> {ident} ({linha[COL['status']]})")
             continue
@@ -1448,7 +1548,9 @@ def sincronizar(gc, ws):
             for nome, novo in zip(DA_FONTE, campos)
         ]
         if merge != [(atual[COL[n]] if COL[n] < len(atual) else "") for n in DA_FONTE]:
-            edicoes.append({"range": FAIXA_FONTE.format(i=i), "values": [merge]})
+            gravar = list(merge)
+            gravar[IDX_DATA] = data_serial(gravar[IDX_DATA])
+            edicoes.append({"range": FAIXA_FONTE.format(i=i), "values": [gravar]})
             log(f"  atualiza {idf} (linha {i})")
         if tem_url and status == "agendado":
             promovidas.append({"range": f"L{i}", "values": [["pendente"]]})
