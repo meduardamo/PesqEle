@@ -7,7 +7,8 @@ Uso:
     pytest tests/test_transcricao_debates.py
 """
 
-from outros.transcricao_debates import (aviso_actions, em_segundos, parsear,
+from outros.transcricao_debates import (COL, aviso_actions, em_segundos,
+                                        parsear, reparos_de_integridade,
                                         unificar_falantes)
 
 
@@ -164,3 +165,64 @@ def test_aviso_actions_nao_quebra_a_anotacao_em_varias_linhas():
     anotacao = [l for l in buf.getvalue().splitlines() if l.startswith("::warning::")]
     assert len(anotacao) == 1
     assert "linha 3" in anotacao[0]
+
+
+def _linha(ident, status, id_fonte):
+    """Linha da nossa planilha com só o que o reparo de integridade lê."""
+    l = [""] * len(COL)
+    l[COL["id"]], l[COL["status"]], l[COL["id_fonte"]] = ident, status, id_fonte
+    return l
+
+
+def test_serie_de_sabatinas_nao_vira_duplicata_da_primeira():
+    """As seis sabatinas da Globo, uma por noite, com id_fonte cada.
+
+    Enquanto o corte era o id, o `-3` era lido como reprocessamento do
+    `2026-tvglobo-br-pres-t1` que já estava 'pronto'. A linha era apagada e
+    recriada em cada sync, e ia junto a link_audio que o Globoplay obriga a
+    preencher na mão: a transcrição de 26/08 caiu duas vezes por isso.
+    """
+    nossas = [
+        list(COL),
+        _linha("2026-tvglobo-br-pres-t1", "pronto", "D028"),
+        _linha("2026-tvglobo-br-pres-t1-2", "pronto", "D029"),
+        _linha("2026-tvglobo-br-pres-t1-3", "pendente", "D030"),
+        _linha("2026-tvglobo-br-pres-t1-4", "agendado", "D031"),
+    ]
+    restauracoes, duplicadas = reparos_de_integridade(nossas, {})
+    assert duplicadas == []
+    assert restauracoes == []
+
+
+def test_linha_pronta_sem_id_fonte_recupera_o_seu_e_a_copia_cai():
+    """O caso que o reparo existe para resolver.
+
+    A linha 'pronto' perdeu o id_fonte, o sync não a reconheceu e criou outra
+    com o mesmo rótulo e sufixo. Restaurar D028 na primeira e apagar a segunda
+    são o mesmo reparo, e é o id_fonte restaurado que identifica qual apagar.
+    """
+    nossas = [
+        list(COL),
+        _linha("2026-band-sp-gov-t1", "pronto", ""),
+        _linha("2026-band-sp-gov-t1-2", "pendente", "D028"),
+    ]
+    restauracoes, duplicadas = reparos_de_integridade(
+        nossas, {"2026-band-sp-gov-t1": "D028"})
+    assert restauracoes == [(2, "D028")]
+    assert duplicadas == [3]
+
+
+def test_sem_reparo_nenhuma_linha_e_apagada():
+    """Sem id_fonte para restaurar, o sync não apaga nada.
+
+    Deixar uma duplicata na planilha custa uma linha; apagar a linha errada
+    custa os links que já estavam nela.
+    """
+    nossas = [
+        list(COL),
+        _linha("2026-band-sp-gov-t1", "pronto", "D028"),
+        _linha("2026-band-sp-gov-t1-2", "pendente", "D028"),
+    ]
+    restauracoes, duplicadas = reparos_de_integridade(nossas, {})
+    assert restauracoes == []
+    assert duplicadas == []

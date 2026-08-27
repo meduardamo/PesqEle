@@ -1272,6 +1272,52 @@ def mapear_fonte(cabecalho):
     return achados
 
 
+def reparos_de_integridade(nossas, mapa_fonte_esperado):
+    """Decide o que restaurar e o que apagar na nossa planilha, sem tocar nela.
+
+    O reparo é um par: linha 'pronto' que perdeu o id_fonte recebe o dela de
+    volta, e a linha que o sync criou no lugar dela é apagada. Uma coisa não
+    acontece sem a outra, e por isso a duplicata é achada pelo id_fonte que
+    acabou de ser restaurado, não pelo id.
+
+    Comparar por id não serve: o `-2`, `-3` do id é sufixo de rótulo do
+    gerar_id, que também separa eventos distintos de uma mesma série. As seis
+    sabatinas da Globo (um candidato por noite, um id_fonte cada) caíam nisso:
+    assim que a primeira ficava 'pronto', todas as outras viravam duplicata
+    dela e eram apagadas e recriadas em cada sync, levando junto link_audio,
+    link_csv e o resto do que já estava preenchido na linha.
+
+    Devolve (restauracoes, duplicadas): lista de (linha, id_fonte) e lista de
+    números de linha, ambos em coordenada de planilha (a primeira linha de
+    dados é a 2).
+    """
+    def campo(l, nome):
+        i = COL[nome]
+        return (l[i] if i < len(l) else "").strip()
+
+    restauracoes, reparadas = [], {}
+    for idx, l in enumerate(nossas[1:], start=2):
+        if campo(l, "status").lower() != "pronto":
+            continue
+        if campo(l, "id_fonte").startswith("D"):
+            continue
+        idf = mapa_fonte_esperado.get(re.sub(r"-\d+$", "", campo(l, "id")))
+        if not idf:
+            continue
+        restauracoes.append((idx, idf))
+        reparadas[idf] = idx
+
+    duplicadas = []
+    for idx, l in enumerate(nossas[1:], start=2):
+        idf = campo(l, "id_fonte")
+        if campo(l, "status").lower() == "pronto" or not idf:
+            continue
+        if reparadas.get(idf, idx) != idx:
+            duplicadas.append(idx)
+
+    return restauracoes, duplicadas
+
+
 def sincronizar(gc, ws):
     """Traz o calendário da aba do monitoramento para a nossa planilha.
 
@@ -1329,35 +1375,30 @@ def sincronizar(gc, ws):
 
     log(f"fonte '{FONTE_ABA}': {len(de_la)} linha(s) | nossa: {len(nossas) - 1} linha(s)")
 
-    # Mapear debates na fonte por ident_esperado -> idf
+    # Mapear debates na fonte por ident_esperado -> idf. Rótulo que mais de uma
+    # linha da fonte gera não aponta para ninguém: numa série todas geram o
+    # mesmo rótulo base, e o sufixo que as separa só entra no desempate.
     mapa_fonte_esperado = {}
+    ambiguos = set()
     for l in de_la:
         idf = (l[COL_FONTE["id_debate"]] if l else "").strip()
-        if idf:
-            ident_esp = gerar_id(l, set())
-            mapa_fonte_esperado[ident_esp] = idf
+        if not idf:
+            continue
+        ident_esp = gerar_id(l, set())
+        if ident_esp in mapa_fonte_esperado:
+            ambiguos.add(ident_esp)
+        mapa_fonte_esperado[ident_esp] = idf
+    for ident_esp in ambiguos:
+        del mapa_fonte_esperado[ident_esp]
 
-    # Identificar linhas prontas e linhas duplicadas indevidas
-    linhas_prontas = {}
-    duplicadas_para_apagar = []
+    restauracoes, duplicadas_para_apagar = reparos_de_integridade(
+        nossas, mapa_fonte_esperado)
     restauracoes_id_fonte = []
-
-    for idx, l in enumerate(nossas[1:], start=2):
-        ident = (l[COL["id"]] if COL["id"] < len(l) else "").strip()
-        ident_base = re.sub(r"-\d+$", "", ident)
-        status = (l[COL["status"]] if COL["status"] < len(l) else "").strip().lower()
-        idf_atual = (l[COL["id_fonte"]] if COL["id_fonte"] < len(l) else "").strip()
-
-        if status == "pronto":
-            linhas_prontas[ident_base] = idx
-            if ident_base in mapa_fonte_esperado and not idf_atual.startswith("D"):
-                idf_correto = mapa_fonte_esperado[ident_base]
-                restauracoes_id_fonte.append({"range": f"R{idx}", "values": [[idf_correto]]})
-                log(f"restaurando id_fonte {idf_correto} na linha {idx} ({ident_base})")
-        else:
-            if ident_base in linhas_prontas:
-                duplicadas_para_apagar.append(idx)
-                log(f"identificada duplicata para apagar: linha {idx} ({ident})")
+    for idx, idf_correto in restauracoes:
+        restauracoes_id_fonte.append({"range": f"R{idx}", "values": [[idf_correto]]})
+        log(f"restaurando id_fonte {idf_correto} na linha {idx}")
+    for idx in duplicadas_para_apagar:
+        log(f"identificada duplicata para apagar: linha {idx}")
 
     if restauracoes_id_fonte:
         com_retentativa("restauração de id_fonte", lambda: ws.batch_update(restauracoes_id_fonte))
