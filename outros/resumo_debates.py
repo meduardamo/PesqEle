@@ -530,6 +530,7 @@ def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_T
         limpar_classificacao_procedimental,
         calcular_metricas_debate,
         formatar_prompt,
+        sem_travessao,
     )
 
     falas_limpas = limpar_classificacao_procedimental(falas)
@@ -584,7 +585,7 @@ def gerar(falas, meta, sem_modelo=False, min_falas=MIN_FALAS, quantos=EIXOS_NO_T
                     max_output_tokens=8192,
                 ),
             )
-            texto = (resp.text or "").strip()
+            texto = sem_travessao((resp.text or "").strip())
             if texto and len(texto.split()) >= 250:
                 log(f"Resumo executivo gerado com sucesso ({len(texto.split())} palavras)")
                 return texto

@@ -223,12 +223,43 @@ def calcular_metricas_debate(linhas: List[Dict[str, Any]]) -> Dict[str, Any]:
 # 3. PROMPT E GERAÇÃO DO RESUMO EXECUTIVO (GEMINI)
 # ==============================================================================
 
+_TRAVESSAO_FIM = re.compile(r"[ \t]*[—–][ \t]*$", re.M)
+_TRAVESSAO_INICIO = re.compile(r"^[ \t]*[—–][ \t]*", re.M)
+_TRAVESSAO = re.compile(r"[ \t]*[—–][ \t]*")
+_VIRGULA_DOBRADA = re.compile(r",[ \t]*([,;:.!?)\]])")
+_VIRGULA_APOS_ABRE = re.compile(r"([(\[])[ \t]*,[ \t]*")
+
+
+def sem_travessao(texto: str) -> str:
+    """Troca travessão por vírgula no texto que veio do modelo.
+
+    A regra já está no prompt e o modelo desobedece: no resumo da sabatina do
+    Lula de 27/08/2026 saiu 'no estado da Bahia — que abriga cinco das dez
+    cidades mais violentas do país — o entrevistado defendeu'. Vírgula é a
+    troca certa porque o uso é sempre aposto ou inciso; travessão que abre ou
+    fecha linha vira nada, senão a linha começaria com vírgula.
+
+    Só travessão (—) e traço (–). Hífen fica: 'ex-governador', 'pré-candidato'
+    e '2026-08' têm de sobreviver, e o '---' que separa a lista de conferência
+    no fim do resumo também.
+    """
+    if not texto:
+        return texto
+    t = _TRAVESSAO_FIM.sub("", texto)
+    t = _TRAVESSAO_INICIO.sub("", t)
+    t = _TRAVESSAO.sub(", ", t)
+    t = _VIRGULA_DOBRADA.sub(r"\1", t)
+    t = _VIRGULA_APOS_ABRE.sub(r"\1", t)
+    return t
+
+
 PROMPT_RESUMO_EXECUTIVO = """Você é um analista político sênior responsável por redigir resumos executivos de eventos eleitorais para envio direto a clientes corporativos e institucionais.
 
 Use as informações consolidadas e a transcrição fornecida para redigir um RESUMO EXECUTIVO do evento.
 
 DIRETRIZES DE FORMATO E ESTILO:
 - Escreva em português, em texto corrido (NÃO utilize bullets, listas, travessões de tópicos ou marcadores).
+- NÃO use travessão (—) nem traço (–) como pontuação, em nenhuma hipótese. Onde você usaria travessão para abrir um aposto ou um inciso, use vírgula, parênteses ou ponto.
 - Tamanho aproximado: entre 500 e 700 palavras.
 - Tom analítico, factual, sóbrio, objetivo e equilibrado.
 - Siga ESTRITAMENTE a seguinte estrutura de 4 seções:
@@ -360,7 +391,7 @@ def gerar_resumo_debate(
             max_output_tokens=8192,
         ),
     )
-    return (resposta.text or "").strip()
+    return sem_travessao((resposta.text or "").strip())
 
 
 # ==============================================================================

@@ -15,6 +15,7 @@ Uso:
 from outros.resumo_debates import (abertura, conferir_paragrafo, duracoes,
                                    elenco, email_da_rodada, fechamento, medir,
                                    meta_da_linha, num, para_conferir)
+from outros.resumo_debate import sem_travessao
 
 FALAS = [
     {"segundos": "0", "tempo": "00:00:00", "falante": "RODOLFO SCHNEIDER",
@@ -276,3 +277,44 @@ def test_html_do_aviso_escapa_o_que_veio_da_planilha():
         [dict(FEITO, participantes=["Fulano & <b>Cia</b>"])], "2026-08-27 17:40")
     assert "<b>Cia</b>" not in html
     assert "&amp;" in html
+
+
+# A regra do travessão está no prompt desde sempre e o modelo desobedece: o
+# resumo da sabatina do Lula de 27/08/2026 saiu com inciso entre travessões.
+# Estes casos prendem a limpeza determinística que roda depois do modelo.
+
+def test_inciso_entre_travessoes_vira_virgula():
+    t = sem_travessao("no estado da Bahia — que abriga cinco das dez cidades "
+                      "mais violentas do país — o entrevistado defendeu a PEC.")
+    assert "—" not in t
+    assert t == ("no estado da Bahia, que abriga cinco das dez cidades "
+                 "mais violentas do país, o entrevistado defendeu a PEC.")
+
+
+def test_travessao_colado_na_virgula_nao_dobra_a_pontuacao():
+    assert sem_travessao("duas décadas de governos do PT —, o entrevistado") == \
+        "duas décadas de governos do PT, o entrevistado"
+
+
+def test_travessao_antes_do_ponto_final_nao_deixa_virgula_solta():
+    assert sem_travessao("respostas defensivas —.") == "respostas defensivas."
+
+
+def test_travessao_que_abre_ou_fecha_linha_some():
+    assert sem_travessao("— o candidato citou o PIB") == "o candidato citou o PIB"
+    assert sem_travessao("o candidato citou o PIB —") == "o candidato citou o PIB"
+
+
+def test_hifen_e_separador_de_markdown_ficam_como_estao():
+    original = "o ex-governador citou a meta 2026-2030.\n\n---\n\n1. 82% do PIB [12:34]"
+    assert sem_travessao(original) == original
+
+
+def test_traco_curto_tambem_sai():
+    assert sem_travessao("a dívida – 82% do PIB – preocupa") == \
+        "a dívida, 82% do PIB, preocupa"
+
+
+def test_texto_sem_travessao_passa_intacto():
+    original = "O candidato afirmou que a alfabetização está em 61%."
+    assert sem_travessao(original) == original
