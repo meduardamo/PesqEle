@@ -223,6 +223,10 @@ def calcular_metricas_debate(linhas: List[Dict[str, Any]]) -> Dict[str, Any]:
 # 3. PROMPT E GERAÇÃO DO RESUMO EXECUTIVO (GEMINI)
 # ==============================================================================
 
+# '**Segurança pública —**' é rótulo de tema, não inciso: ali o travessão faz o
+# papel de dois pontos, que é como o prompt manda escrever hoje. Vírgula
+# deixaria '**Segurança pública, **'.
+_TRAVESSAO_ROTULO = re.compile(r"[ \t]*[—–][ \t]*(?=\*\*)")
 _TRAVESSAO_FIM = re.compile(r"[ \t]*[—–][ \t]*$", re.M)
 _TRAVESSAO_INICIO = re.compile(r"^[ \t]*[—–][ \t]*", re.M)
 _TRAVESSAO = re.compile(r"[ \t]*[—–][ \t]*")
@@ -239,13 +243,17 @@ def sem_travessao(texto: str) -> str:
     troca certa porque o uso é sempre aposto ou inciso; travessão que abre ou
     fecha linha vira nada, senão a linha começaria com vírgula.
 
+    Travessão fechando rótulo em negrito vira dois pontos, e não vírgula: os
+    resumos de agosto de 2026 escreviam '**Segurança pública —** texto'.
+
     Só travessão (—) e traço (–). Hífen fica: 'ex-governador', 'pré-candidato'
     e '2026-08' têm de sobreviver, e o '---' que separa a lista de conferência
     no fim do resumo também.
     """
     if not texto:
         return texto
-    t = _TRAVESSAO_FIM.sub("", texto)
+    t = _TRAVESSAO_ROTULO.sub(":", texto)
+    t = _TRAVESSAO_FIM.sub("", t)
     t = _TRAVESSAO_INICIO.sub("", t)
     t = _TRAVESSAO.sub(", ", t)
     t = _VIRGULA_DOBRADA.sub(r"\1", t)

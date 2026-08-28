@@ -318,3 +318,13 @@ def test_traco_curto_tambem_sai():
 def test_texto_sem_travessao_passa_intacto():
     original = "O candidato afirmou que a alfabetização está em 61%."
     assert sem_travessao(original) == original
+
+
+def test_travessao_de_rotulo_em_negrito_vira_dois_pontos():
+    assert sem_travessao("**Segurança pública —** Haddad afirmou que caiu.") == \
+        "**Segurança pública:** Haddad afirmou que caiu."
+
+
+def test_rotulo_que_ja_usa_dois_pontos_nao_muda():
+    original = "**Educação:** o candidato citou o Propag."
+    assert sem_travessao(original) == original
