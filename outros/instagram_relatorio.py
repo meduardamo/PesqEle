@@ -390,38 +390,386 @@ def gerar_pdf(posts: list[dict], num: dict, dia: str) -> bytes:
     return bytes(pdf.output())
 
 
-# ─── E-mail ───────────────────────────────────────────────────────────────────
+# ─── Classificação temática ───────────────────────────────────────────────────
+#
+# Até 28/08/2026 a classificação era `if palavra in texto`, substring pura, com
+# o primeiro tema da lista que casasse levando o post. Duas falhas somadas:
+#
+#   1. Substring sem fronteira de palavra. "rio", de Meio Ambiente, casava
+#      dentro de comentáRIOs, pRIOridade, inteRIOr, aniversáRIO, secretáRIO,
+#      ministéRIO. No clipping de 28/08 isso pôs 155 dos 571 posts em Meio
+#      Ambiente, 89 deles só por essa substring, e sobrou 1 post ambiental
+#      de verdade em cada 20. Mesma armadilha em "saúd" dentro de saudade,
+#      "escol" dentro de escolha, "social" dentro de redes sociais,
+#      "solidariedade" dentro do nome do partido Solidariedade.
+#   2. Primeiro match vence. Meio Ambiente vinha antes de Saúde e Segurança,
+#      então post sobre concurso da PM ou sobre hospital era publicado como
+#      ambiental sem nunca chegar a ser testado nos temas certos.
+#
+# O que existe agora:
+#   - texto normalizado (minúscula, sem acento) e hashtag em CamelCase quebrada
+#     em palavras, para "#PreservacaoAmbiental" continuar valendo;
+#   - casamento por fronteira de palavra, com RADICAIS (casa do começo da
+#     palavra em diante: "seguranc" pega segurança e seguranças) e EXATOS
+#     (só a palavra inteira: "rio", "pm", "sus");
+#   - pontuação em vez de primeiro match: o tema com mais termos distintos
+#     vence, e empate cai na ordem da lista, do mais específico ao mais geral;
+#   - dois andares. Em ano eleitoral quase todo post fala de campanha, então
+#     "Atos de Campanha e Propaganda" e "Alianças e Apoios Políticos" são
+#     RESIDUAIS: só levam o post quando nenhum tema de pauta chegou a LIMIAR.
+#     Sem isso a lixeira só muda de nome (no teste de 28/08, campanha ficou com
+#     253 dos 336 posts);
+#   - as tags do Gemini (coluna Temas) valem PESO_TAG contra PESO_LEGENDA da
+#     legenda, porque a tag é rótulo do assunto e a legenda é texto solto;
+#   - termos FRACOS ("trabalho", "apoio", "agenda") valem uma fração, então
+#     levam o post só quando nada mais casou;
+#   - ANTIPALAVRAS derrubam o casamento de um termo que virou homônimo, e
+#     ANTIFRASES somem do texto antes do casamento (topônimo com "rio").
 
+PESO_TAG = 3.0
+PESO_LEGENDA = 1.0
+PESO_FORTE = 1.0
+PESO_FRACO = 0.35
+
+# Tiradas do texto antes de classificar: nome de lugar com 2+ palavras que bate
+# no vocabulário abaixo. São 160, gerados dos 5.570 municípios e das 27 UFs do
+# IBGE (localidades/municipios?view=nivelado) cruzados com os termos daqui.
+# Sem isso "Nísia Floresta/RN", "Mãe do Rio/PA" e "Rio Branco/AC" viram post de
+# meio ambiente. Nome de município de uma palavra só (Floresta/PE) fica de
+# fora de propósito: derrubaria a palavra comum junto.
+ANTIFRASES = (
+    "alianca do tocantins", "alta floresta", "alta floresta d'oeste",
+    "alto rio doce", "alto rio novo", "aparecida do rio doce",
+    "aparecida do rio negro", "arroio do meio", "barra do rio azul",
+    "caicara do rio do vento", "campo do meio", "carmo do rio claro",
+    "carmo do rio verde", "chapada da natividade", "chapada de areia",
+    "chapada do norte", "chapada dos guimaraes", "chapada gaucha",
+    "chapadao do ceu", "chapadao do lageado", "chapadao do sul",
+    "conceicao do rio verde", "dario meira", "desterro de entre rios",
+    "dores do rio preto", "duas estradas", "entre rios",
+    "entre rios de minas", "entre rios do oeste", "entre rios do sul",
+    "fazenda rio grande", "flora rica", "floresta azul",
+    "floresta do araguaia", "floresta do piaui", "formosa do rio preto",
+    "grandes rios", "igarape do meio", "lagoa dos gatos", "lagoa seca",
+    "lucas do rio verde", "mae do rio", "nisia floresta",
+    "nossa senhora dos remedios", "nova alianca", "nova alianca do ivai",
+    "nova floresta", "nova petropolis", "nova ponte", "petrolina de goias",
+    "piedade de ponte nova", "piedade do rio grande", "pires do rio",
+    "ponte alta", "ponte alta do bom jesus", "ponte alta do norte",
+    "ponte alta do tocantins", "ponte branca", "ponte nova", "ponte preta",
+    "ponte serrada", "pontes e lacerda", "pontes gestal", "presidente medici",
+    "professor jamil", "quatro pontes", "queimada nova", "restinga seca",
+    "ribas do rio pardo", "rio acima", "rio azul", "rio bananal", "rio bom",
+    "rio bonito", "rio bonito do iguacu", "rio branco", "rio branco do ivai",
+    "rio branco do sul", "rio brilhante", "rio casca", "rio claro",
+    "rio crespo", "rio da conceicao", "rio das antas", "rio das flores",
+    "rio das ostras", "rio das pedras", "rio de contas", "rio de janeiro",
+    "rio do antonio", "rio do campo", "rio do fogo", "rio do oeste",
+    "rio do pires", "rio do prado", "rio do sul", "rio doce", "rio dos bois",
+    "rio dos cedros", "rio dos indios", "rio espera", "rio formoso",
+    "rio fortuna", "rio grande", "rio grande da serra", "rio grande do norte",
+    "rio grande do piaui", "rio grande do sul", "rio largo", "rio manso",
+    "rio maria", "rio negrinho", "rio negro", "rio novo", "rio novo do sul",
+    "rio paranaiba", "rio pardo", "rio pardo de minas", "rio piracicaba",
+    "rio pomba", "rio preto", "rio preto da eva", "rio quente", "rio real",
+    "rio rufino", "rio sono", "rio tinto", "rio verde",
+    "rio verde de mato grosso", "rio vermelho", "santa cruz do rio pardo",
+    "santa isabel do rio negro", "santana da ponte pensa",
+    "santo antonio do rio abaixo", "sao benedito do rio preto",
+    "sao goncalo do rio abaixo", "sao goncalo do rio preto",
+    "sao joao d'alianca", "sao joao da ponte", "sao joao das duas pontes",
+    "sao joao do rio do peixe", "sao jose do rio claro",
+    "sao jose do rio pardo", "sao jose do rio preto",
+    "sao jose do vale do rio preto", "sao sebastiao do rio preto",
+    "sao sebastiao do rio verde", "sao vicente", "sao vicente de minas",
+    "sao vicente do serido", "sao vicente do sul", "sao vicente ferrer",
+    "saudade do iguacu", "senhora dos remedios", "serra da saudade",
+    "tres rios", "vargem grande do rio pardo", "vicente dutra",
+    "visconde do rio branco", "vitor meireles",
+)
+
+
+# Pontuação mínima para um tema de pauta ganhar do residual. 1.0 é um termo
+# forte na legenda, ou qualquer termo na tag do Gemini; termo fraco solto na
+# legenda (0,35) não basta.
+LIMIAR_PAUTA = 1.0
+
+# Tema estreito: quando o vocabulário dele aparece, é ele a notícia, mesmo que
+# um tema largo cite mais termos. Sem isso, post de delegacia de proteção
+# animal ia para Segurança Pública porque "segurança" e "delegacia" somam mais
+# que "animal" e "maus-tratos".
+PESO_TEMA = {
+    "Causa Animal": 1.6,
+    "Habitação": 1.3,
+    "Pesquisa Eleitoral": 1.3,
+}
+
+# (tema, radicais, exatos, fracos, antipalavras). A ordem é o critério de
+# desempate: do assunto mais específico para o mais genérico. TEMAS_RESIDUAIS
+# vem depois, e só entra se nenhum tema de pauta bater LIMIAR_PAUTA.
 TEMAS_MAPEAMENTO = [
-    ("Pesquisa Eleitoral", ["pesquisa"]),
-    ("Causa Animal", ["animal", "pet", "cachorro", "gato", "abrigo", "protetor", "zoonose"]),
-    ("Meio Ambiente", ["meio ambiente", "sustentab", "clima", "árvore", "el niño", "floresta", "rio", "água e terra", "licenciamento ambiental", "desastre"]),
-    ("Saúde", ["saúd", "hospital", "upa", "médic", "vacina", "ubs", "postinho"]),
-    ("Segurança Pública", ["seguran", "políc", "polic", "crim", "violên", "violen", "guarda municipal", "tráfico", "pm", "civil"]),
-    ("Educação", ["educa", "escola", "creche", "profess", "alun", "ensino", "universi", "fundeb", "estudante", "aula"]),
-    ("Habitação", ["habita", "moradia", "minha casa", "casa própria", "regularização fundiária", "título de posse"]),
-    ("Infraestrutura e Obras", ["infra", "obra", "estrada", "ponte", "asfalt", "calçamento", "mobilidade", "trânsito", "transporte", "duplicação", "paviment"]),
-    ("Assistência Social", ["social", "pobreza", "fome", "bolsa família", "doação", "solidariedade", "asilo", "vulnerab", "cesta básica", "comunidade"]),
-    ("Gestão e Transparência", ["gestão", "gestao", "transparên", "corrup", "desburocratiz", "governo digital", "digitaliz", "servidor público"]),
-    ("Cultura, Lazer e Esporte", ["cultura", "show", "evento", "esporte", "lazer", "turismo", "festa", "carnaval", "aniversário", "aniversario", "patrimônio", "museu", "parque"]),
-    ("Agricultura e Abastecimento", ["agri", "agro", "rural", "safra", "abastecimento", "feirante", "produtor"]),
-    ("Economia, Trabalho e Renda", ["econom", "emprego", "trabalh", "impost", "indústri", "industri", "comérci", "comerci", "salár", "salar", "6x1", "inflação", "tarifa"]),
-    ("Alianças e Apoios Políticos", ["alian", "rompimento", "apoio", "partido", "vice", "chapa", "coligação"]),
-    ("Atos de Campanha e Propaganda", ["campanha", "jingle", "elei", "conven", "comíci", "comici", "carreata", "passeata", "comício", "palanque", "propaganda", "voto", "agenda", "adesivaço", "santinho", "panflet"]),
+    ("Causa Animal",
+     ["veterinar", "castrac"],
+     ["animal", "animais", "pet", "pets", "cachorro", "cachorros", "gato",
+      "gatos", "zoonose", "zoonoses", "maus-tratos", "adocao de animais",
+      "protetor de animais", "protetores de animais", "canil", "abrigo animal"],
+     [],
+     []),
+
+    ("Pesquisa Eleitoral",
+     ["pesquisa"],
+     ["datafolha", "quaest", "ipec", "atlasintel", "ipsos", "real time big data",
+      "intencao de voto", "intencoes de voto", "levantamento", "sondagem",
+      "amostra", "margem de erro", "primeiro turno", "segundo turno"],
+     [],
+     ["pesquisador", "pesquisadora", "pesquisadores", "pesquisando"]),
+
+    ("Saúde",
+     ["saud", "medic", "hospital", "vacin", "enferm", "ambulator", "cirurg"],
+     ["upa", "ubs", "sus", "samu", "postinho", "posto de saude", "remedio",
+      "remedios", "dengue", "leito", "leitos", "consulta", "consultas",
+      "atendimento medico", "saude mental", "farmacia"],
+     [],
+     # "saudade" e "saudação" não são saúde; "medida" e "medieval" não são médico.
+     ["saudade", "saudades", "saudacao", "saudacoes", "saudar", "saudou",
+      "saudamos", "saudoso", "saudosa", "hospitalidade", "hospitaleiro",
+      "hospitaleira"]),
+
+    ("Educação",
+     ["educac", "profess", "alun", "ensin", "universi", "estudant", "matricul",
+      "creche", "analfabet"],
+     ["escola", "escolas", "escolar", "escolares", "fundeb", "enem", "aula",
+      "aulas", "merenda", "merenda escolar", "tempo integral", "educacao",
+      "faculdade", "bolsa de estudo", "bolsas de estudo", "vestibular",
+      "alfabetizacao"],
+     [],
+     []),
+
+    ("Segurança Pública",
+     ["seguranc", "polic", "violen", "crimin", "delegac", "penitenciar",
+      "presidi", "homicid"],
+     ["crime", "crimes", "pm", "policia civil", "policia militar",
+      "guarda municipal", "trafico", "faccao", "faccoes", "bandido",
+      "bandidos", "assalto", "assaltos", "roubo", "roubos", "bombeiros",
+      "camera corporal", "cameras corporais", "porte de arma"],
+     [],
+     ["seguranca alimentar", "seguranca juridica"]),
+
+    ("Habitação",
+     ["habitac", "moradi"],
+     ["minha casa minha vida", "casa propria", "regularizacao fundiaria",
+      "titulo de posse", "aluguel", "deficit habitacional",
+      "conjunto habitacional", "sem-teto"],
+     [],
+     []),
+
+    ("Meio Ambiente",
+     ["ambient", "sustentab", "sustentav", "climat", "desmat", "poluic",
+      "recicl", "reflorest", "preservac", "ecolog"],
+     ["meio ambiente", "arvore", "arvores", "floresta", "florestas",
+      "nascente", "nascentes", "bioma", "biodiversidade",
+      "incendio florestal", "licenciamento ambiental", "recursos hidricos",
+      "crise hidrica", "energia solar", "energia eolica", "energia limpa",
+      "energia renovavel", "credito de carbono", "cop30", "cop 30",
+      "residuos", "lixao", "desastre ambiental", "desastre natural",
+      "el nino", "estiagem"],
+     # Peso fraco: sozinhos não seguram o post. "Rio", "Queimadas" e "Floresta"
+     # também são nome de município de uma palavra, que a lista de ANTIFRASES
+     # não pega; bioma é lugar tanto quanto assunto ("cultura ribeirinha da
+     # Amazônia"); e "clima" costuma ser clima de campanha.
+     ["rio", "rios", "clima", "seca", "queimada", "queimadas", "amazonia",
+      "cerrado", "pantanal", "caatinga", "fauna", "flora"],
+     ["ambiente de trabalho", "ambiente familiar", "climatizacao",
+      "climatizado", "climatizados"]),
+
+    ("Agricultura e Abastecimento",
+     ["agricultur", "agroneg", "agropecu", "pecuar", "irrigac"],
+     ["agro", "rural", "rurais", "safra", "abastecimento", "feirante",
+      "feirantes", "produtor rural", "produtores rurais",
+      "agricultura familiar", "plantio", "colheita", "trator", "tratores",
+      "assentamento", "cooperativa", "cooperativas"],
+     [],
+     []),
+
+    ("Infraestrutura e Obras",
+     ["infraestrutur", "paviment", "asfalt", "saneament", "duplicac"],
+     ["obra", "obras", "estrada", "estradas", "rodovia", "rodovias", "ponte",
+      "pontes", "calcamento", "mobilidade urbana", "transporte",
+      "transporte publico", "transito", "viaduto", "metro", "aeroporto",
+      "esgoto", "iluminacao publica", "energia eletrica", "internet",
+      "banda larga"],
+     [],
+     ["obrigado", "obrigada"]),
+
+    ("Assistência Social",
+     ["vulnerab", "assistencia social"],
+     ["pobreza", "fome", "bolsa familia", "cras", "creas", "cesta basica",
+      "cestas basicas", "doacao", "doacoes", "asilo", "auxilio",
+      "inclusao social", "programa social", "programas sociais",
+      "politica social", "politicas sociais", "seguranca alimentar",
+      "pessoa com deficiencia", "acolhimento", "miseria", "extrema pobreza"],
+     ["comunidade", "comunidades", "idosos"],
+     []),
+
+    ("Gestão e Transparência",
+     ["transparenc", "corrup", "desburocratiz", "digitaliz", "licitac"],
+     ["governo digital", "servidor publico", "servidores publicos",
+      "concurso publico", "prestacao de contas", "tribunal de contas",
+      "auditoria", "nepotismo", "folha de pagamento", "reforma administrativa"],
+     # O Gemini marca "Gestão pública" em quase todo post de quem governa:
+     # peso fraco, para não roubar o post que tem assunto de verdade.
+     ["gestao", "gestao publica", "eficiencia"],
+     []),
+
+    ("Cultura, Lazer e Esporte",
+     ["cultur", "esport", "turism", "music", "artist"],
+     ["show", "shows", "lazer", "festa", "festas", "festival", "carnaval",
+      "museu", "teatro", "cinema", "patrimonio", "praca", "futebol", "atleta",
+      "atletas", "biblioteca", "ginasio", "quadra", "quadras"],
+     ["parque", "parques"],
+     []),
+
+    ("Economia, Trabalho e Renda",
+     ["econom", "desemprego", "industri", "comerci", "salari", "empreendedor"],
+     ["emprego", "empregos", "imposto", "impostos", "icms", "renda", "6x1",
+      "escala 6x1", "inflacao", "tarifa", "tarifas", "mei", "juros", "pib",
+      "credito", "geracao de emprego", "geracao de empregos", "carteira assinada",
+      "custo de vida", "investimento", "investimentos"],
+     ["trabalho", "trabalhador", "trabalhadores", "trabalhar"],
+     ["comercial", "comerciais"]),
+
+    ("Alianças e Apoios Políticos",
+     ["alianc", "coliga", "federac"],
+     ["rompimento", "vice-governador", "chapa majoritaria", "apoio politico",
+      "apoios politicos", "dobradinha", "filiacao", "palanque",
+      "dividir palanque", "puxador de voto"],
+     # Fora de propósito: "apoio" solto (em campanha todo post fala do apoio da
+     # rua) e "partido"/"vice"/"chapa" (citar sigla não é notícia de aliança).
+     [],
+     []),
+
 ]
 
-def mapear_tema_principal(temas_str: str, legenda_str: str) -> str:
-    """Classifica um post em uma das grandes pautas temáticas a partir de suas tags."""
-    t = (temas_str or "").lower()
-    l = (legenda_str or "").lower()
-    conteudo = f"{t} {l}"
+TEMAS_RESIDUAIS = [
+    ("Atos de Campanha e Propaganda",
+     ["campanha", "comici", "carreata", "panflet", "propaganda", "adesivac",
+      "eleic", "eleitor", "eleit", "militan"],
+     ["jingle", "convencao", "passeata", "santinho", "horario eleitoral",
+      "programa eleitoral", "urna", "urnas", "voto", "votos", "votar",
+      "caminhada", "bandeiraco", "debate", "sabatina", "guia eleitoral",
+      "numero na urna"],
+     ["agenda", "evento", "eventos", "aniversario", "visita", "reuniao"],
+     []),
+]
 
-    for tema, palavras in TEMAS_MAPEAMENTO:
-        if any(p in conteudo for p in palavras):
-            return tema
 
-    return "Outros Assuntos"
+FALLBACK_TEMA = "Outros Assuntos"
 
+
+def _normalizar(texto: str) -> str:
+    """Minúscula, sem acento, com hashtag em CamelCase quebrada em palavras.
+
+    "#PreservacaoAmbiental" vira "preservacao ambiental": sem isso a fronteira
+    de palavra perderia o assunto que só aparece na hashtag, que em legenda de
+    Instagram é metade do conteúdo.
+    """
+    t = str(texto or "")
+    t = re.sub(r"#(\w+)", lambda m: " " + re.sub(r"(?<=[a-zà-ÿ0-9])(?=[A-ZÀ-Þ])", " ", m.group(1)) + " ", t)
+    t = unicodedata.normalize("NFD", t.lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return re.sub(r"\s+", " ", t)
+
+
+def _padrao(termo: str, radical: bool) -> re.Pattern:
+    corpo = re.escape(termo).replace(r"\ ", r"[\s\-]+")
+    sufixo = r"[a-z0-9]*" if radical else ""
+    return re.compile(rf"(?<![a-z0-9]){corpo}{sufixo}(?![a-z0-9])")
+
+
+# (tema, [(padrão, termo, peso)], antipalavras) já compilado no import.
+def _compilar(tabela: list[tuple]) -> list[tuple]:
+    compilado = []
+    for tema, radicais, exatos, fracos, antipalavras in tabela:
+        termos = ([(_padrao(t, True), t, PESO_FORTE) for t in radicais]
+                  + [(_padrao(t, False), t, PESO_FORTE) for t in exatos]
+                  + [(_padrao(t, False), t, PESO_FRACO) for t in fracos])
+        compilado.append((tema, termos, tuple(_normalizar(a) for a in antipalavras)))
+    return compilado
+
+
+PAUTAS_COMPILADAS = _compilar(TEMAS_MAPEAMENTO)
+RESIDUAIS_COMPILADOS = _compilar(TEMAS_RESIDUAIS)
+
+
+def _pontuar(texto: str, termos: list, antipalavras: tuple) -> tuple[float, list[str]]:
+    """Soma o peso dos termos distintos que casam, ignorando os homônimos."""
+    if not texto:
+        return 0.0, []
+    total = 0.0
+    achados = []
+    for padrao, termo, peso in termos:
+        casou = False
+        for m in padrao.finditer(texto):
+            trecho = m.group(0)
+            janela = texto[max(0, m.start() - 24):m.end() + 24]
+            if trecho in antipalavras or any(a in janela for a in antipalavras if " " in a):
+                continue
+            casou = True
+            break
+        if casou:
+            total += peso
+            achados.append(termo)
+    return total, achados
+
+
+def _melhor_tema(tabela: list[tuple], tags: str, legenda: str) -> tuple:
+    """(pontos, tema, termos) do tema mais pontuado da tabela."""
+    melhor = (0.0, None, [])
+    for tema, termos, antipalavras in tabela:
+        p_tag, t_tag = _pontuar(tags, termos, antipalavras)
+        _, t_leg = _pontuar(legenda, termos, antipalavras)
+        # Termo que aparece nos dois campos conta uma vez, pelo peso da tag.
+        pontos = p_tag * PESO_TAG + PESO_LEGENDA * sum(
+            peso for _, termo, peso in termos
+            if termo in t_leg and termo not in t_tag)
+        pontos *= PESO_TEMA.get(tema, 1.0)
+        if pontos > melhor[0]:
+            melhor = (pontos, tema, sorted(set(t_tag + t_leg)))
+    return melhor
+
+
+def mapear_tema_principal(temas_str: str, legenda_str: str,
+                          detalhar: bool = False):
+    """Classifica o post em uma das grandes pautas.
+
+    Primeiro os temas de pauta: vence o de maior pontuação, e empate cai na
+    ordem de TEMAS_MAPEAMENTO. Só se nenhum deles chegar a LIMIAR_PAUTA o post
+    desce para os residuais (campanha, alianças). Sem nenhum termo em lugar
+    nenhum ele vai para "Outros Assuntos", que é o lugar honesto de quem não
+    casou, e não um tema qualquer que casou por acidente.
+
+    Com `detalhar=True` devolve (tema, pontos, termos que casaram), que é como
+    se audita uma classificação estranha sem reler o clipping inteiro.
+    """
+    tags = _normalizar(temas_str)
+    legenda = _normalizar(legenda_str)
+    for frase in ANTIFRASES:
+        tags = tags.replace(frase, " ")
+        legenda = legenda.replace(frase, " ")
+
+    melhor = _melhor_tema(PAUTAS_COMPILADAS, tags, legenda)
+    if melhor[0] < LIMIAR_PAUTA:
+        residual = _melhor_tema(RESIDUAIS_COMPILADOS, tags, legenda)
+        if residual[0] > 0:
+            melhor = residual
+
+    tema = melhor[1] or FALLBACK_TEMA
+    if detalhar:
+        return tema, round(melhor[0], 2), melhor[2]
+    return tema
+
+
+# ─── E-mail ───────────────────────────────────────────────────────────────────
 
 def html_email(posts: list[dict], num: dict, dia: str, nome_pdf: str,
                planilha_url: str) -> str:
