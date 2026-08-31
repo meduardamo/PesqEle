@@ -80,7 +80,16 @@ COR_NIVEL = {
 # virou "Tempo Integral" em 04/08/2026: dos 13 trechos que o tema tinha capturado,
 # 11 falavam de tempo integral sem dizer a etapa, e o nome prometia um recorte que a
 # análise não fazia.
-TEMAS_LEGADO = {"Ensino Médio Integral": "Tempo Integral"}
+# "Primeira Infância" entrou aqui em 31/08/2026, quando o tema saiu de Educação
+# e virou eixo a pedido da Fundação Maria Cecilia Souto Vidigal. O nome antigo
+# era guarda-chuva (as âncoras dele incluíam puericultura, visita domiciliar e
+# desenvolvimento infantil) e dentro do eixo novo ele disputaria citação com os
+# quatro temas que passaram a cobrir esse conteúdo. Este mapa traduz na leitura,
+# não reclassifica: linha antiga que fala de visita domiciliar aparece como
+# "Educação Infantil" até o plano ser reprocessado. Por isso o rename entrou
+# junto da VERSAO_ANALISE 17, que refaz os planos.
+TEMAS_LEGADO = {"Ensino Médio Integral": "Tempo Integral",
+                "Primeira Infância": "Educação Infantil"}
 
 # Nomes antigos da escala, usados em análises salvas antes da renomeação.
 # Traduzido na leitura para que dados ainda não reprocessados continuem funcionando.
@@ -102,15 +111,13 @@ NIVEIS_LEGADO = {
 # temas juntos, então 22 temas custam praticamente o mesmo que 6.
 EIXOS = {
     "Educação": {
-        "Alfabetização": "alfabetização de crianças na idade certa (PNAIC, PNA, Compromisso Nacional Criança Alfabetizada ou equivalente)",
-        "Primeira Infância": "creches, pré-escola, educação infantil, primeira infância (0–5 anos)",
+        "Alfabetização": "alfabetização de crianças na idade certa (PNAIC, PNA, Compromisso Nacional Criança Alfabetizada ou equivalente) — creche e pré-escola são o tema Educação Infantil, no eixo de Primeira Infância",
         "Fundamental": "ensino fundamental anos iniciais (2º ao 5º ano) e anos finais (6º ao 9º ano) — exclui alfabetização do 1º ano, que é tema próprio",
         "Ensino Médio": "ensino médio regular da rede estadual: matrícula, evasão, novo ensino médio, currículo e resultado de aprendizagem — o tempo integral é tema próprio",
         "Tempo Integral": "educação em tempo integral e jornada escolar ampliada, em qualquer etapa da educação básica: desenho da jornada, vagas, escolas de tempo integral — o conteúdo que ocupa a jornada ampliada, quando é arte ou cultura, é o tema Educação, Arte e Cultura",
         "Educação Profissional": "educação profissional e técnica (EPT, SENAI, SENAC, institutos federais, cursos técnicos)",
         "Valorização Docente": "carreira, salário, piso, concurso, formação continuada e condições de trabalho de professores e demais profissionais da educação",
         "Educação Inclusiva e EJA": "educação especial e inclusiva, estudante com deficiência, educação de jovens e adultos, educação no campo, indígena e quilombola",
-        "Tecnologia na Educação": "tecnologia, conectividade, inclusão digital e uso de IA nas escolas",
         # Entraram em 19/08/2026 a pedido do Itaú:
         "Educação, Arte e Cultura": "integração de arte, cultura e linguagens artísticas no currículo escolar e na educação integral: arte na escola, oficinas e projetos culturais com estudantes — a política cultural fora da escola (fomento, editais, patrimônio, equipamentos) é o tema Cultura, no eixo de Cultura, esporte e turismo",
         "Recomposição das Aprendizagens": "recomposição, recuperação e aceleração de aprendizagens, reforço escolar, correção de fluxo, defasagem idade-série e superação de lacunas pedagógicas, inclusive as herdadas da pandemia — alfabetizar na idade certa é o tema Alfabetização, e a etapa em si é Fundamental ou Ensino Médio",
@@ -126,8 +133,35 @@ EIXOS = {
         # descrição de CT&I, senão os dois disputam a mesma citação.
         "Ensino Superior": "ensino superior e universidades: acesso e vagas, vestibular e ENEM, gratuidade, expansão de campus, assistência estudantil e permanência",
     },
+    # Entrou em 31/08/2026 a pedido da Fundação Maria Cecilia Souto Vidigal. O
+    # tema "Primeira Infância" morava em Educação e cobria de creche a
+    # puericultura; virou eixo com cinco temas e o nome antigo passou a se
+    # chamar "Educação Infantil" (ver TEMAS_LEGADO). As fronteiras estão
+    # escritas dos dois lados porque este eixo divide vocabulário com Atenção
+    # Primária (visita domiciliar, vacinação), com Transferência de Renda
+    # (Criança Feliz é SUAS) e com Direitos Reprodutivos (violência sexual).
+    "Primeira Infância": {
+        "Educação Infantil": "creche, pré-escola e educação infantil (0 a 5 anos): vagas e fila, expansão da rede, matrícula, qualidade e formação do educador infantil — alfabetizar na idade certa é o tema Alfabetização, no eixo de Educação, o apoio à família fora da escola é o tema Parentalidade e Apoio às Famílias, e o plano ou o comitê de primeira infância é o tema Governança da Primeira Infância",
+        "Saúde Materno-Infantil": "pré-natal, parto e nascimento, aleitamento, puericultura, vacinação infantil, mortalidade materna e infantil, desnutrição e primeiros mil dias — a rede de atenção básica em si (UBS, saúde da família, agente comunitário) é o tema Atenção Primária, no eixo de Saúde",
+        "Parentalidade e Apoio às Famílias": "visita domiciliar e apoio a famílias com crianças pequenas (Criança Feliz e equivalentes no SUAS), parentalidade, licença parental e divisão do cuidado — a visita da equipe de saúde é o tema Atenção Primária e o benefício em dinheiro é o tema Transferência de Renda",
+        "Proteção da Criança": "proteção da criança contra violência, negligência, abuso e trabalho infantil, conselho tutelar, acolhimento e convivência familiar — a gravidez de meninas e a violência sexual são o tema Gravidez Infantil e Violência Sexual, no eixo de Direitos Reprodutivos, e a medida socioeducativa de adolescente é o tema Sistema Prisional e Socioeducativo",
+        "Governança da Primeira Infância": "Marco Legal da Primeira Infância, plano estadual ou municipal pela primeira infância, comitê intersetorial, orçamento criança e articulação entre saúde, educação e assistência — a vaga em creche é o tema Educação Infantil",
+    },
+    # Entrou em 31/08/2026 a pedido da MegaEdu, que trata conectividade escolar
+    # como infraestrutura da aprendizagem. "Tecnologia na Educação" veio de
+    # Educação com o MESMO nome, porque é ele que indexa a análise já salva, e
+    # ficou com o uso pedagógico: a rede, o acesso e o dispositivo passaram a
+    # ser Conectividade Escolar. Os dois dividem "conectividade" e "internet",
+    # então a separação está escrita nas duas descrições, como manda a regra que
+    # Ensino Superior e CT&I já tinham quebrado.
+    "Conectividade e Infraestrutura Digital": {
+        "Conectividade Escolar": "internet e rede nas escolas: universalização do acesso, velocidade e banda por aluno, wi-fi na sala de aula, dispositivos para estudantes, inclusão digital escolar e Estratégia Nacional de Escolas Conectadas — o que se faz pedagogicamente com essas ferramentas é o tema Tecnologia na Educação",
+        "Tecnologia na Educação": "uso pedagógico da tecnologia na escola: plataforma de ensino e aprendizagem, inteligência artificial em sala, ensino híbrido, letramento digital, formação do professor para tecnologia e regra de uso de celular — a rede, o acesso à internet e o dispositivo em si são o tema Conectividade Escolar",
+        "Financiamento e Governança da Conectividade": "financiamento e governança da conectividade escolar: FUST e seu Conselho Gestor, editais e seleções públicas operadas pelo BNDES, contratação de serviço de internet pelas redes de ensino e custeio do link — o uso pedagógico é o tema Tecnologia na Educação",
+        "Infraestrutura Pública Digital": "infraestrutura pública digital como bem público: identidade digital, pagamento instantâneo, cadastros e dados interoperáveis, redes e data centers públicos — a digitalização do atendimento ao cidadão é o tema Governo Digital e a regulação das plataformas privadas é o tema Regulação de Plataformas Digitais, os dois no eixo de Gestão pública e transparência",
+    },
     "Saúde": {
-        "Atenção Primária": "atenção primária, saúde da família, UBS, agentes comunitários de saúde",
+        "Atenção Primária": "atenção primária, saúde da família, UBS, agentes comunitários de saúde — pré-natal, aleitamento, puericultura e vacinação da criança pequena são o tema Saúde Materno-Infantil, no eixo de Primeira Infância",
         "Média e Alta Complexidade": "hospitais, leitos, UTI, cirurgias eletivas, filas e regulação de vagas",
         "Urgência e Emergência": "SAMU, UPA, pronto-socorro, pronto atendimento, regulação de urgência e transporte sanitário",
         # Bets e imposto seletivo entraram a pedido da Lívia (05/08/2026), como
@@ -147,8 +181,8 @@ EIXOS = {
     "Segurança pública": {
         "Policiamento e Efetivo": "efetivo policial, salário, equipamento, presença ostensiva, videomonitoramento",
         "Enfrentamento ao Crime Organizado": "facções, narcoterrorismo, tráfico, inteligência policial, fronteiras, lavagem de dinheiro e uso de plataformas de apostas/bets para crimes financeiros",
-        "Violência contra a Mulher": "violência doméstica, Lei Maria da Penha, delegacia da mulher, casa da mulher brasileira",
-        "Sistema Prisional e Socioeducativo": "presídios, vagas prisionais, ressocialização, egresso e sistema socioeducativo de adolescentes",
+        "Violência contra a Mulher": "violência doméstica, Lei Maria da Penha, delegacia da mulher, casa da mulher brasileira — a gravidez decorrente de estupro e a gravidez de meninas são o tema Gravidez Infantil e Violência Sexual, no eixo de Direitos Reprodutivos",
+        "Sistema Prisional e Socioeducativo": "presídios, vagas prisionais, ressocialização, egresso e sistema socioeducativo de adolescentes — a proteção da criança contra violência, negligência e trabalho infantil é o tema Proteção da Criança, no eixo de Primeira Infância",
     },
     "Economia e emprego": {
         "Geração de Emprego": "geração de emprego e renda, qualificação profissional para o trabalho, intermediação de mão de obra",
@@ -163,7 +197,7 @@ EIXOS = {
         "Defesa Civil e Desastres": "defesa civil, enchente, seca, deslizamento, prevenção e resposta a desastres, adaptação climática",
     },
     "Assistência social e pobreza": {
-        "Transferência de Renda": "programas de transferência de renda, complemento ao Bolsa Família, benefício estadual, proteção contra endividamento e restrição ao uso de benefícios em apostas/bets",
+        "Transferência de Renda": "programas de transferência de renda, complemento ao Bolsa Família, benefício estadual, proteção contra endividamento e restrição ao uso de benefícios em apostas/bets — o apoio não monetário a famílias com crianças pequenas (visita domiciliar, Criança Feliz) é o tema Parentalidade e Apoio às Famílias, no eixo de Primeira Infância",
         "Segurança Alimentar": "fome, insegurança alimentar, restaurante popular, banco de alimentos, cesta básica",
         "Habitação": "moradia, habitação popular, regularização fundiária, aluguel social",
     },
@@ -174,17 +208,31 @@ EIXOS = {
     "Gestão pública e transparência": {
         "Eficiência e Gasto Público": "reforma administrativa, corte de gasto, teto de despesa, equilíbrio fiscal, eficiência orçamentária e gestão de emendas parlamentares/impositivas",
         "Transparência e Combate à Corrupção": "transparência, controle interno, dados abertos, combate à corrupção, integridade pública, fiscalização de emendas parlamentares e orçamento secreto",
-        "Regulação de Plataformas Digitais": "regulação de plataformas digitais e redes sociais, moderação de conteúdo, combate à desinformação e fake news, soberania digital, proteção de dados e inteligência artificial",
-        "Governo Digital": "digitalização de serviços, atendimento ao cidadão, governo eletrônico",
+        "Regulação de Plataformas Digitais": "regulação de plataformas digitais e redes sociais, moderação de conteúdo, combate à desinformação e fake news, soberania digital, proteção de dados e inteligência artificial — a infraestrutura digital construída como bem público é o tema Infraestrutura Pública Digital, no eixo de Conectividade e Infraestrutura Digital",
+        "Governo Digital": "digitalização de serviços, atendimento ao cidadão, governo eletrônico — a infraestrutura digital de base (identidade digital, pagamento instantâneo, cadastros interoperáveis) é o tema Infraestrutura Pública Digital, no eixo de Conectividade e Infraestrutura Digital",
         "Servidores e Municípios": "servidor público estadual em geral, carreira e concurso, e a relação do estado com os municípios (consórcio, repasse, apoio técnico) — professor e demais profissionais da educação são o tema Valorização Docente, no eixo de Educação",
     },
     "Direitos humanos e igualdade": {
         "Igualdade Racial": "promoção da igualdade racial, população negra, racismo, cotas e ações afirmativas",
-        "Mulheres": "políticas para mulheres além do enfrentamento à violência, que é tema próprio: autonomia econômica, cuidado, saúde da mulher",
+        "Mulheres": "políticas para mulheres além do enfrentamento à violência, que é tema próprio: autonomia econômica, cuidado, saúde da mulher — contracepção, planejamento reprodutivo e aborto são temas do eixo de Direitos Reprodutivos",
         "Pessoa com Deficiência": "acessibilidade, direitos e serviços para pessoas com deficiência",
         "Juventude e Pessoa Idosa": "políticas para a juventude e para a pessoa idosa, primeiro emprego, centro de convivência, cuidado",
         "Povos Indígenas e Quilombolas": "povos indígenas, comunidades quilombolas, povos e comunidades tradicionais, território e políticas específicas",
         "População LGBTQIA+": "políticas para a população LGBTQIA+, enfrentamento à LGBTfobia, nome social, acolhimento e serviços específicos",
+    },
+    # Entrou em 31/08/2026 a pedido do Coletivo Feminista. A lista de termos que
+    # o cliente mandou traz os dois lados da disputa (aborto legal e vida desde
+    # a concepção), e eles não podem morar num tema só: o painel precisa
+    # distinguir quem defende o quê, então cada polo é um tema e cada descrição
+    # aponta para o outro. Termos amplos da lista do cliente ("criança",
+    # "gravidez", "gestação", "ventre", "direitos das mulheres") ficaram FORA de
+    # TERMOS_ANCORA de propósito: âncora comum dispara em todo plano e gasta
+    # chamada. Eles estão em TERMOS_AUSENCIA, que é generosa por desenho.
+    "Direitos Reprodutivos": {
+        "Aborto Legal e Interrupção da Gestação": "aborto e interrupção legal da gestação: hipóteses previstas em lei (estupro, risco à vida da gestante, anencefalia), serviço de referência e acesso, objeção ou escusa de consciência, Resolução 258 do Conanda, gestação acima de 22 semanas, assistolia fetal, misoprostol e mifepristona — a defesa da vida desde a concepção é o tema Proteção ao Nascituro",
+        "Proteção ao Nascituro": "proteção da vida desde a concepção: nascituro, criança por nascer, estatuto do nascituro, feticídio e infanticídio, natimorto, luto parental e síndrome pós-aborto — o acesso à interrupção legal da gestação é o tema Aborto Legal e Interrupção da Gestação",
+        "Planejamento Reprodutivo e Contracepção": "autonomia e planejamento reprodutivo, contracepção e métodos contraceptivos, laqueadura e vasectomia, planejamento familiar e educação sexual — a assistência à gestante e ao bebê é o tema Saúde Materno-Infantil, no eixo de Primeira Infância, e a autonomia econômica e o cuidado são o tema Mulheres, no eixo de Direitos humanos e igualdade",
+        "Gravidez Infantil e Violência Sexual": "gravidez na infância e na adolescência, menina mãe, gravidez decorrente de estupro, maternidade forçada e atendimento à vítima de violência sexual no que toca à autonomia reprodutiva — a política de segurança, a Lei Maria da Penha e a rede de proteção são o tema Violência contra a Mulher, no eixo de Segurança pública",
     },
     "Cultura, esporte e turismo": {
         "Cultura": "política cultural: patrimônio, economia criativa, fomento e editais, equipamentos e trabalhadores da cultura — arte e cultura dentro da escola é tema próprio, Educação, Arte e Cultura, no eixo de Educação",
@@ -217,7 +265,6 @@ EIXOS = {
 # em todo plano e gasta chamada sem achar nada.
 TERMOS_ANCORA = {
     "Alfabetização": ["alfabetiza*", "pnaic", "pna ", "crianca alfabetizada"],
-    "Primeira Infância": ["primeira infancia", "creche", "pre escola", "educacao infantil"],
     "Fundamental": ["ensino fundamental", "anos iniciais", "anos finais",
                     "educacao basica", "aprender a ler", "saibam ler",
                     "terceiro ano", "quinto ano", "nono ano", "aprendizagem"],
@@ -229,9 +276,6 @@ TERMOS_ANCORA = {
     "Valorização Docente": ["professor", "docente", "magisterio", "piso salarial"],
     "Educação Inclusiva e EJA": ["educacao especial", "educacao inclusiva", "jovens e adultos",
                                  "eja", "autis*", "estudante com deficiencia"],
-    "Tecnologia na Educação": ["conectividade*", "inclusao digital", "internet nas escolas",
-                               "tecnologia educacional", "internet", "laboratorio de informatica",
-                               "transformacao digital", "computador", "tablet"],
     "Educação, Arte e Cultura": ["arte e cultura", "cultura na escola", "cultura nas escolas",
                                  "arte na escola", "artes na escola", "linguagens artisticas",
                                  "educacao artistica", "ensino de arte"],
@@ -243,6 +287,52 @@ TERMOS_ANCORA = {
     "Financiamento da Educação": ["por cento do pib", "% do pib", "do pib para educacao",
                                   "fundeb", "custo aluno", "orcamento da educacao",
                                   "financiamento da educacao", "vinculacao de recursos"],
+    "Educação Infantil": ["educacao infantil", "creche", "pre escola", "bercario",
+                          "primeira infancia", "vaga em creche"],
+    "Saúde Materno-Infantil": ["pre natal", "mortalidade infantil", "mortalidade materna",
+                               "aleitamento", "puericultura", "primeiros mil dias",
+                               "maternidade segura"],
+    "Parentalidade e Apoio às Famílias": ["visita domiciliar", "crianca feliz", "parentalidade",
+                                          "licenca parental", "apoio as familias",
+                                          "vinculo familiar"],
+    "Proteção da Criança": ["conselho tutelar", "trabalho infantil", "violencia contra crianca",
+                            "violencia contra criancas", "acolhimento institucional",
+                            "convivencia familiar"],
+    "Governança da Primeira Infância": ["marco legal da primeira infancia", "primeira infancia",
+                                        "plano pela primeira infancia", "orcamento crianca",
+                                        "comite intersetorial"],
+    "Conectividade Escolar": ["conectividade*", "internet nas escolas", "escolas conectadas",
+                              "banda larga", "wi fi", "wifi", "inclusao digital",
+                              "computador", "tablet"],
+    "Tecnologia na Educação": ["tecnologia na educacao", "tecnologia educacional",
+                               "laboratorio de informatica", "plataforma de ensino",
+                               "ensino hibrido", "letramento digital", "transformacao digital"],
+    "Financiamento e Governança da Conectividade": ["fust", "conselho gestor do fust",
+                                                    "universalizacao dos servicos de telecomunicacoes",
+                                                    "contratacao de internet"],
+    # "interoperabilidade" e "data center" saíram daqui em 31/08/2026, medidos
+    # nos planos do Zema e do Kalil: casam 1 e 4 vezes no Zema, e nenhuma é
+    # infraestrutura pública digital (é governo digital e atração de data center
+    # como investimento). Continuam em TERMOS_AUSENCIA, que é generosa e não
+    # gasta chamada.
+    "Infraestrutura Pública Digital": ["infraestrutura publica digital", "identidade digital",
+                                       "bens publicos digitais", "pagamento instantaneo"],
+    "Aborto Legal e Interrupção da Gestação": ["aborto*", "interrupcao da gestacao",
+                                               "interrupcao legal", "misoprostol", "cytotec",
+                                               "citotec", "mifepristona", "assistolia fetal",
+                                               "objecao de consciencia", "escusa de consciencia",
+                                               "conanda"],
+    "Proteção ao Nascituro": ["nascituro", "por nascer", "desde a concepcao", "feticidio",
+                              "infanticidio", "natimorto", "luto parental",
+                              "sindrome pos aborto"],
+    "Planejamento Reprodutivo e Contracepção": ["planejamento reprodutivo", "planejamento familiar",
+                                                "contracep*", "laqueadura", "vasectomia",
+                                                "autonomia reprodutiva", "direitos reprodutivos",
+                                                "metodo contraceptivo"],
+    "Gravidez Infantil e Violência Sexual": ["gravidez infantil", "gravidez na infancia",
+                                             "menina mae", "gravidez decorrente de estupro",
+                                             "maternidade forcada", "violencia sexual",
+                                             "gravidez na adolescencia"],
     "Financiamento e Gestão do SUS": ["orcamento da saude", "financiamento da saude",
                                       "subfinanciamento", "gestao do sus", "plano de saude",
                                       "planos de saude", "saude suplementar",
@@ -372,12 +462,6 @@ TERMOS_AUSENCIA = {
         "leitura e escrita", "aprender a ler", "saibam ler",
         "ciclo de alfabetizacao", "avaliacao de fluencia",
     ],
-    "Primeira Infância": [
-        "primeira infancia", "creche*", "pre escola", "pre escolar",
-        "educacao infantil", "bercario", "primeiros anos de vida",
-        "desenvolvimento infantil", "crianca feliz", "vaga em creche",
-        "vagas em creche", "matricula na creche", "puericultura",
-    ],
     "Fundamental": [
         "ensino fundamental", "anos iniciais", "anos finais", "educacao basica",
         "aprendizagem", "recomposicao de aprendizagem", "defasagem",
@@ -417,13 +501,6 @@ TERMOS_AUSENCIA = {
         "educacao bilingue", "libras", "educacao do campo", "educacao no campo",
         "educacao escolar indigena", "educacao quilombola",
     ],
-    "Tecnologia na Educação": [
-        "conectividade*", "inclusao digital", "internet nas escolas", "internet",
-        "tecnologia educacional", "laboratorio de informatica", "computador*",
-        "tablet*", "chromebook", "plataforma de ensino", "ensino hibrido",
-        "letramento digital", "transformacao digital", "banda larga",
-        "celular na escola", "proibicao de celular",
-    ],
     "Educação, Arte e Cultura": [
         "arte e cultura", "cultura na escola", "cultura nas escolas",
         "educacao e cultura", "linguagens artisticas", "educacao artistica",
@@ -451,6 +528,72 @@ TERMOS_AUSENCIA = {
         "investimento em educacao", "investimento na educacao",
         "repasse para as escolas", "recursos para as escolas", "pdde",
         "minimo constitucional", "da receita para a educacao",
+    ],
+
+    # ---------------------------------------------------- Primeira Infância
+    "Educação Infantil": [
+        "primeira infancia", "creche*", "pre escola", "pre escolar",
+        "educacao infantil", "bercario", "vaga em creche", "vagas em creche",
+        "matricula na creche", "fila da creche", "educador infantil",
+        "professor de educacao infantil", "crianca de 0 a 5",
+        "criancas de 0 a 5", "cobertura de creche",
+    ],
+    "Saúde Materno-Infantil": [
+        "pre natal", "prenatal", "parto*", "nascimento", "aleitamento",
+        "amamentacao", "puericultura", "primeiros mil dias", "mil dias",
+        "mortalidade infantil", "mortalidade materna", "mortalidade neonatal",
+        "gestante*", "maternidade segura", "casa da gestante",
+        "desnutricao infantil", "vacinacao infantil", "caderneta da crianca",
+        "banco de leite", "recem nascido", "recem nascidos", "obstetric*",
+    ],
+    "Parentalidade e Apoio às Famílias": [
+        "visita domiciliar", "crianca feliz", "primeira infancia no suas",
+        "parentalidade", "apoio as familias", "apoio a familia",
+        "licenca parental", "licenca paternidade", "licenca maternidade",
+        "vinculo familiar", "cuidado compartilhado", "desenvolvimento infantil",
+        "primeiros anos de vida", "estimulacao precoce", "familia acolhedora",
+    ],
+    "Proteção da Criança": [
+        "conselho tutelar", "trabalho infantil", "violencia contra crianca",
+        "violencia contra criancas", "violencia infantil", "abuso infantil",
+        "negligencia", "maus tratos", "acolhimento institucional",
+        "convivencia familiar", "abrigo*", "estatuto da crianca",
+        "eca", "protecao integral", "crianca e adolescente",
+    ],
+    "Governança da Primeira Infância": [
+        "marco legal da primeira infancia", "plano pela primeira infancia",
+        "politica de primeira infancia", "comite intersetorial",
+        "comite da primeira infancia", "orcamento crianca",
+        "primeira infancia", "intersetorial*", "pacto pela primeira infancia",
+    ],
+
+    # ------------------------------ Conectividade e Infraestrutura Digital
+    "Conectividade Escolar": [
+        "conectividade*", "internet nas escolas", "escolas conectadas",
+        "internet", "banda larga", "wi fi", "wifi", "inclusao digital",
+        "acesso a internet", "computador*", "tablet*", "chromebook",
+        "dispositivo*", "fibra otica", "sinal de internet",
+        "universalizacao do acesso", "exclusao digital",
+    ],
+    "Tecnologia na Educação": [
+        "tecnologia na educacao", "tecnologia educacional",
+        "laboratorio de informatica", "plataforma de ensino", "ensino hibrido",
+        "letramento digital", "transformacao digital", "cultura digital",
+        "inteligencia artificial na educacao", "recursos educacionais digitais",
+        "celular na escola", "proibicao de celular", "ensino a distancia",
+        "educacao a distancia", "robotica", "pensamento computacional",
+    ],
+    "Financiamento e Governança da Conectividade": [
+        "fust", "conselho gestor do fust",
+        "universalizacao dos servicos de telecomunicacoes",
+        "contratacao de internet", "edital de conectividade", "bndes",
+        "telecomunicacoes", "operadora*", "anatel", "custeio da internet",
+    ],
+    "Infraestrutura Pública Digital": [
+        "infraestrutura publica digital", "identidade digital",
+        "bens publicos digitais", "interoperabilidade", "data center",
+        "nuvem publica", "pix", "pagamento instantaneo", "cadastro base",
+        "base de dados publica", "soberania digital", "software publico",
     ],
 
     # -------------------------------------------------------------- Saúde
@@ -720,6 +863,35 @@ TERMOS_AUSENCIA = {
         "diversidade sexual", "orientacao sexual", "identidade de genero",
         "transexual*", "travesti*", "populacao trans",
         "centro de cidadania lgbt",
+    ],
+
+    # ----------------------------------------------- Direitos Reprodutivos
+    "Aborto Legal e Interrupção da Gestação": [
+        "aborto*", "interrupcao da gestacao", "interrupcao legal",
+        "interrupcao da gravidez", "aborto legal", "misoprostol", "cytotec",
+        "citotec", "mifepristona", "medicamento abortivo", "assistolia fetal",
+        "objecao de consciencia", "escusa de consciencia", "conanda",
+        "resolucao 258", "gestacao acima de 22 semanas", "anencefalia",
+        "servico de referencia", "gravidez decorrente de estupro",
+    ],
+    "Proteção ao Nascituro": [
+        "nascituro", "por nascer", "desde a concepcao", "vida intrauterina",
+        "feticidio", "infanticidio", "natimorto", "luto parental",
+        "sindrome pos aborto", "estatuto do nascituro", "defesa da vida",
+        "vida desde a concepcao", "assassinato de bebes", "ventre",
+    ],
+    "Planejamento Reprodutivo e Contracepção": [
+        "planejamento reprodutivo", "planejamento familiar", "contracep*",
+        "anticoncep*", "laqueadura", "vasectomia", "autonomia reprodutiva",
+        "direitos reprodutivos", "saude reprodutiva", "metodo contraceptivo",
+        "metodos contraceptivos", "educacao sexual", "diu",
+    ],
+    "Gravidez Infantil e Violência Sexual": [
+        "gravidez infantil", "gravidez na infancia", "gravidez na adolescencia",
+        "menina mae", "meninas maes", "gravidez decorrente de estupro",
+        "gestacao decorrente de estupro", "maternidade forcada",
+        "violencia sexual", "violencia sexual contra meninas",
+        "estupro*", "estupro de vulneravel", "abuso sexual",
     ],
 
     # ------------------------------------------- Cultura, esporte e turismo

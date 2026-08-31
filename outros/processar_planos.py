@@ -104,7 +104,24 @@ LIMIAR_CHARS = 1500
 # Lula): sem separar, o pedido deles cairia no tema errado. "Valorização
 # Docente" e "Servidores e Municípios" dividiam carreira e concurso, e professor
 # é servidor estadual.
-VERSAO_ANALISE = "16"
+# Subiu para 17 em 31/08/2026, com a taxonomia de 60 temas em 13 eixos. Três
+# mudanças estruturais, todas pedidas por cliente:
+#   - "Primeira Infância" saiu de Educação e virou eixo com cinco temas
+#     (Fundação Maria Cecilia Souto Vidigal). O tema antigo virou "Educação
+#     Infantil" via TEMAS_LEGADO, que traduz na leitura mas NÃO reclassifica:
+#     linha antiga sobre visita domiciliar ou puericultura só cai no tema certo
+#     depois desta releitura. É a razão de a versão subir junto do rename.
+#   - "Tecnologia na Educação" saiu de Educação para o eixo novo Conectividade e
+#     Infraestrutura Digital (MegaEdu), com o MESMO nome, porque é ele que
+#     indexa a análise salva. Ficou com o uso pedagógico; rede, acesso e
+#     dispositivo passaram a ser "Conectividade Escolar", e a separação está
+#     escrita nas duas descrições.
+#   - Entrou o eixo Direitos Reprodutivos com quatro temas (Coletivo Feminista),
+#     com os dois polos da disputa em temas separados que apontam um para o
+#     outro.
+# Custo: releitura completa dos planos, porque pendentes() compara a versão por
+# candidato e não por tema.
+VERSAO_ANALISE = "17"
 # Subiu para 11 em 09/08/2026: a justificativa passou a receber nome de urna e
 # gênero do cadastro, então fala "a candidata" quando é mulher e alterna o
 # sujeito em vez de abrir toda frase com "o candidato". O painel já corrige isso
