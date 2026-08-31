@@ -47,9 +47,19 @@ on:
         type: boolean
         required: false
         default: false
+      paralelo:
+        description: 'Quantos planos analisar ao mesmo tempo'
+        required: false
+        default: '3'
 
 # Duas execuções gravando na mesma planilha se atrapalham. A fila garante uma de
 # cada vez, e a corrente não é cancelada para não jogar fora análise já paga.
+#
+# É também o motivo de o paralelismo ser DENTRO do job (--paralelo) e não uma
+# matrix por UF: `gravar` reescreve a aba inteira, e 27 jobs fazendo isso ao
+# mesmo tempo se apagam. Em série, 79 planos em 5h29 na releitura da versão 17,
+# com o job morrendo no teto de 5h30. Com três em paralelo, a leva de 207 cabe
+# numa execução.
 concurrency:
   group: planos-governo
   cancel-in-progress: false
@@ -90,6 +100,7 @@ jobs:
         run: |
           python -m outros.processar_planos \
             --cargo TODOS \
+            --paralelo ${{ inputs.paralelo || '3' }} \
             ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }} \
             ${{ inputs.sq && format('--sq {0}', inputs.sq) || '' }} \
             ${{ inputs.forcar == true && '--forcar' || '' }} \

@@ -27,6 +27,7 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -878,6 +879,21 @@ def main() -> int:
                    help="GOVERNADOR, PRESIDENTE ou TODOS")
     p.add_argument("--uf", default="", help="restringe a uma UF")
     p.add_argument("--limite", type=int, default=0, help="processa no máximo N candidatos")
+    # Quantos planos são analisados ao mesmo tempo. Vale a pena porque o custo
+    # de um plano é quase todo espera: download do TSE, OCR e as duas chamadas
+    # ao Gemini. Medido em 31/08/2026, na releitura da versão 17: 79 planos em
+    # 5h29 em série, 4,2 min cada, e o job do Actions morre no teto de 5h30 com
+    # 128 planos pela frente.
+    #
+    # A gravação NÃO entra no paralelo. `gravar` lê a aba inteira, tira as
+    # linhas dos candidatos da vez e reescreve tudo, então duas gravações
+    # simultâneas se apagam. É por isso que o caminho não foi quebrar o
+    # workflow em uma execução por UF: seriam 27 jobs reescrevendo a mesma aba,
+    # que é o incidente de 09/08/2026 de novo, agora por fora. Aqui as threads
+    # só fazem o trabalho puro de `processar`, e quem grava continua sendo a
+    # thread principal, uma vez a cada LOTE.
+    p.add_argument("--paralelo", type=int, default=int(os.getenv("PLANOS_PARALELO", "1")),
+                   help="quantos planos analisar ao mesmo tempo (padrão 1)")
     # Para reprocessar um candidato só, sem subir versão e sem arrastar a base
     # inteira junto. Serve quando um tema novo entra e o efeito precisa ser visto
     # em um plano antes de valer para todos.
@@ -983,28 +999,52 @@ def main() -> int:
             gravar(sh, COERENCIA_ABA, COLS_COE, ["sq_candidato"], buffer_c)
             buffer_a, buffer_c = [], []
 
-        for n, r in enumerate(fila, 1):
+        # O trabalho puro de um plano: baixar, extrair, classificar, conferir.
+        # Não toca na planilha, e é só por isso que pode rodar em thread.
+        def _analisar(item):
+            n, r = item
+            try:
+                return n, r, processar(r, ANO), None
+            except Exception as e:                       # noqa: BLE001
+                return n, r, None, e
+            finally:
+                # A pausa fica aqui, e não no laço de gravação: com N threads o
+                # que precisa ser espaçado é a saída de requisição, não a
+                # chegada de resultado.
+                time.sleep(PAUSA_ENTRE_PLANOS)
+
+        pool = ThreadPoolExecutor(max_workers=max(1, args.paralelo))
+        pendentes_fut = [pool.submit(_analisar, (n, r)) for n, r in enumerate(fila, 1)]
+        if args.paralelo > 1:
+            print(f"analisando {args.paralelo} planos ao mesmo tempo "
+                  f"(a gravação continua uma de cada vez)")
+
+        for fut in as_completed(pendentes_fut):
+            n, r, saida, exc = fut.result()
             nome = str(r["NM_URNA_CANDIDATO"])
             sq = str(r["SQ_CANDIDATO"])
+            # Com várias threads o resultado chega fora de ordem, então o
+            # rótulo traz o índice do plano e o quanto já fechou.
             print(f"[{n}/{len(fila)}] {r['SG_UF']} · {nome}...", end=" ", flush=True)
-            try:
-                linhas, coe, pulo = processar(r, ANO)
-            except PlanoIndisponivel as e:
-                indisponiveis.append(nome)
-                print(f"plano fora do ar, tenta depois ({e})")
-                if len(indisponiveis) >= 8 and feitos == 0:
-                    print("\nDivulgaCand/TSE está recusando requisições consecutivas (bloqueio/WAF). "
-                          "Interrompendo rodada para tentar no próximo horário.")
-                    break
+            if exc is not None:
+                if isinstance(exc, PlanoIndisponivel):
+                    indisponiveis.append(nome)
+                    print(f"plano fora do ar, tenta depois ({exc})")
+                    if len(indisponiveis) >= 8 and feitos == 0:
+                        print("\nDivulgaCand/TSE está recusando requisições consecutivas (bloqueio/WAF). "
+                              "Interrompendo rodada para tentar no próximo horário.")
+                        for _f in pendentes_fut:
+                            _f.cancel()
+                        break
+                    continue
+                if isinstance(exc, RespostaIlegivel):
+                    ilegiveis.append(nome)
+                    print(f"resposta ilegível ({exc})")
+                    continue
+                erros.append(f"{nome}: {exc}")
+                print(f"erro: {exc}")
                 continue
-            except RespostaIlegivel as e:
-                ilegiveis.append(nome)
-                print(f"resposta ilegível ({e})")
-                continue
-            except Exception as e:                       # noqa: BLE001
-                erros.append(f"{nome}: {e}")
-                print(f"erro: {e}")
-                continue
+            linhas, coe, pulo = saida
             if pulo:
                 ilegiveis.append(f"{nome} ({pulo})")
                 print(f"pulado: {pulo}")
@@ -1027,8 +1067,8 @@ def main() -> int:
             if feitos % LOTE == 0:
                 descarrega()
                 print(f"    ... {feitos} gravados ({time.time() - inicio:.0f}s)")
-            time.sleep(PAUSA_ENTRE_PLANOS)
 
+        pool.shutdown(wait=False, cancel_futures=True)
         descarrega()
 
         # Confere o que ficou na planilha, e não o que o script acha que gravou. A
