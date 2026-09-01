@@ -51,6 +51,14 @@ on:
         description: 'Quantos planos analisar ao mesmo tempo'
         required: false
         default: '3'
+      limpar:
+        description: 'Tirar das abas quem saiu do universo da análise'
+        type: choice
+        options:
+          - ''
+          - simular
+          - gravar
+        default: ''
 
 # Duas execuções gravando na mesma planilha se atrapalham. A fila garante uma de
 # cada vez, e a corrente não é cancelada para não jogar fora análise já paga.
@@ -104,4 +112,5 @@ jobs:
             ${{ inputs.uf && format('--uf {0}', inputs.uf) || '' }} \
             ${{ inputs.sq && format('--sq {0}', inputs.sq) || '' }} \
             ${{ inputs.forcar == true && '--forcar' || '' }} \
-            ${{ inputs.so_coerencia == true && '--so-coerencia' || '' }}
+            ${{ inputs.so_coerencia == true && '--so-coerencia' || '' }} \
+            ${{ inputs.limpar && format('--limpar-fora-da-base {0}', inputs.limpar) || '' }}
