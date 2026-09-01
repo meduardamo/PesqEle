@@ -58,7 +58,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-por
 
-      - run: pip install gspread google-auth google-genai PyMuPDF pillow pytesseract pandas
+      # google-api-python-client: sem ele registrar_espelho morre com
+      # "No module named 'googleapiclient'", a auditoria vai direto no TSE e
+      # leva 403 em todo plano. Foi o que aconteceu em 01/09/2026, duas vezes.
+      - run: pip install gspread google-auth google-genai PyMuPDF pillow pytesseract pandas google-api-python-client
 
       - name: Escrever credentials.json
         run: printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
