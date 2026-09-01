@@ -329,7 +329,7 @@ print(f"\naba '{ABA}' regravada com {len(linhas)} linhas.")
 
 # --- Atualização Parcial das Abas Radar (Senadores, Deputados Federais, Deputados Estaduais) ---
 # Adiciona ou atualiza as colunas de Competitividade sem destruir as outras colunas preexistentes
-def update_radar_tab(sh, aba_nome, df_comp):
+def update_radar_tab(sh, aba_nome, linhas_dict):
     try:
         ws = sh.worksheet(aba_nome)
     except Exception:
@@ -432,5 +432,5 @@ def update_radar_tab(sh, aba_nome, df_comp):
 
 if "--apply" in sys.argv:
     # Update das 3 abas
-    update_radar_tab(sh, "Competitividade Senado Atual", f)
+    update_radar_tab(sh, "Competitividade Senado Atual", { (norm(r[0]), str(r[2]).strip()): r for r in linhas })
 
