@@ -340,7 +340,7 @@ def update_radar_tab(sh, aba_nome, df_comp):
     if not todas_linhas: return
     headers = todas_linhas[0]
     
-    colunas_injetar = ["Índice de competitividade eleitoral", "Alta, média ou baixa", "Nota da régua", "Cenário eleitoral (banda)", "Última pesquisa", "Distância p/ o corte"]
+    colunas_injetar = ["Índice de competitividade eleitoral", "Alta, média ou baixa", "Nota da régua", "Cenário eleitoral (banda)", "Última pesquisa", "Recorte avaliado", "Tamanho do recorte", "Janela da média (dias)", "Apoio presidencial 1", "Apoio presidencial 2", "Distância p/ o 1º", "Distância p/ o 2º", "Distância p/ o corte", "Margem de erro", "Candidatos no recorte", "Votos p/ fechar recorte", "Faltam nas pesquisas", "Total"]
     
     # Garante que os headers existem
     headers_modificados = False
@@ -379,7 +379,19 @@ def update_radar_tab(sh, aba_nome, df_comp):
                     "Nota da régua": "—",
                     "Cenário eleitoral (banda)": "—",
                     "Última pesquisa": "—",
-                    "Distância p/ o corte": "—"
+                    "Recorte avaliado": "Sem pesquisa",
+                    "Tamanho do recorte": "—",
+                    "Janela da média (dias)": "—",
+                    "Apoio presidencial 1": l1,
+                    "Apoio presidencial 2": l2,
+                    "Distância p/ o 1º": "—",
+                    "Distância p/ o 2º": "—",
+                    "Distância p/ o corte": "—",
+                    "Margem de erro": "—",
+                    "Candidatos no recorte": "—",
+                    "Votos p/ fechar recorte": "—",
+                    "Faltam nas pesquisas": "—",
+                    "Total": "0"
                 }
             else:
                 valores = {
@@ -388,7 +400,19 @@ def update_radar_tab(sh, aba_nome, df_comp):
                     "Nota da régua": str(int(r["nota"])),
                     "Cenário eleitoral (banda)": BANDA[int(r["nota"])],
                     "Última pesquisa": f"{r['data_ult']:%d/%m/%Y}",
-                    "Distância p/ o corte": brs(r["dist"])
+                    "Recorte avaliado": texto,
+                    "Tamanho do recorte": str(r["n_pesq"]),
+                    "Janela da média (dias)": "90",
+                    "Apoio presidencial 1": l1,
+                    "Apoio presidencial 2": l2,
+                    "Distância p/ o 1º": brs(r["dist_p1"]),
+                    "Distância p/ o 2º": brs(r["dist_p2"]),
+                    "Distância p/ o corte": brs(r["dist"]),
+                    "Margem de erro": brs(r["me_uf"]),
+                    "Candidatos no recorte": str(r["n_uf"]),
+                    "Votos p/ fechar recorte": brs(faltam_votos),
+                    "Faltam nas pesquisas": brs(faltam_pesq),
+                    "Total": "1"
                 }
                 
             for col in colunas_injetar:
