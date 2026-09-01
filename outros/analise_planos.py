@@ -971,6 +971,10 @@ TERMOS_AUSENCIA = {
 }
 
 # Mapa plano tema -> eixo, para a página agrupar sem repetir a estrutura.
+
+# Reordena os eixos para o painel UI (relevancia + alfabetica)
+EIXOS = {k: EIXOS[k] for k in ["Educação", "Saúde", "Segurança pública", "Economia e emprego", "Assistência social e pobreza", "Conectividade e Infraestrutura Digital", "Cultura, esporte e turismo", "Direitos humanos e igualdade", "Direitos Reprodutivos", "Gestão pública e transparência", "Infraestrutura e mobilidade", "Meio ambiente e clima", "Primeira Infância"] if k in EIXOS}
+
 EIXO_DO_TEMA = {tema: eixo for eixo, temas in EIXOS.items() for tema in temas}
 
 # Achatado: é isso que vai no prompt e que indexa a análise salva.
