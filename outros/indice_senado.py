@@ -340,8 +340,7 @@ def update_radar_tab(sh, aba_nome, df_comp):
     if not todas_linhas: return
     headers = todas_linhas[0]
     
-    colunas_injetar = ["Índice de competitividade eleitoral", "Nota da régua", "Última pesquisa", 
-                       "Distância p/ o corte", "Cenário eleitoral (banda)"]
+    colunas_injetar = ["Índice de competitividade eleitoral", "Chance de eleição (histórico)", "Cenário eleitoral (banda)", "Nota da régua", "Última pesquisa", "Distância p/ o corte"]
     
     # Garante que os headers existem
     headers_modificados = False
@@ -376,18 +375,20 @@ def update_radar_tab(sh, aba_nome, df_comp):
             if pd.isna(r["mm"]):
                 valores = {
                     "Índice de competitividade eleitoral": "Sem pesquisa recente",
+                    "Chance de eleição (histórico)": "—",
+                    "Cenário eleitoral (banda)": "—",
                     "Nota da régua": "—",
                     "Última pesquisa": "—",
-                    "Distância p/ o corte": "—",
-                    "Cenário eleitoral (banda)": "—"
+                    "Distância p/ o corte": "—"
                 }
             else:
                 valores = {
-                    "Índice de competitividade eleitoral": BANDA[int(r["nota"])],
+                    "Índice de competitividade eleitoral": "Alta" if r["nota"] >= 6 else "Média" if r["nota"] >= 4 else "Baixa",
+                    "Chance de eleição (histórico)": {7: "100%", 6: "72%", 5: "53%", 4: "44%", 3: "14%", 2: "10%", 1: "4%"}[int(r["nota"])],
+                    "Cenário eleitoral (banda)": BANDA[int(r["nota"])],
                     "Nota da régua": str(int(r["nota"])),
                     "Última pesquisa": f"{r['data_ult']:%d/%m/%Y}",
-                    "Distância p/ o corte": brs(r["dist"]),
-                    "Cenário eleitoral (banda)": "Sim" if r["nota"] >= 5 else "Não"
+                    "Distância p/ o corte": brs(r["dist"])
                 }
                 
             for col in colunas_injetar:
