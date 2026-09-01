@@ -14,11 +14,23 @@ import json
 import os
 import time
 import re
+import threading
 import unicodedata
 from pathlib import Path
 
 import fitz                      # PyMuPDF
 import pandas as pd
+
+# O MuPDF não é reentrante: duas threads dentro dele ao mesmo tempo corrompem a
+# heap do processo, não levantam exceção. Em 01/09/2026 o workflow 14 morreu três
+# vezes seguidas com `--paralelo 3` ("malloc(): unsorted double linked list
+# corrupted", exit 134, e um segfault 139), sempre depois de dezenas de planos
+# lidos, que é a cara de corrupção de memória e não de bug de dado.
+#
+# Toda chamada que entra no MuPDF passa por esta trava. Ela cobre só o trabalho
+# do fitz: o download, o tesseract e a chamada do modelo continuam em paralelo,
+# e é neles que está o tempo de uma rodada.
+_LOCK_MUPDF = threading.RLock()
 
 # Paleta Eixo
 COR = {
@@ -1079,9 +1091,12 @@ def _ocr_pagina(page, dpi: int = OCR_DPI, lang: str = "por") -> str:
 
     for tentativa_dpi in (dpi, OCR_DPI_FALLBACK):
         try:
-            pixmap = page.get_pixmap(dpi=tentativa_dpi, alpha=False)
             with tempfile.NamedTemporaryFile(suffix=".png") as f:
-                pixmap.save(f.name)
+                # Só o desenho da página entra na trava. O tesseract é
+                # subprocesso, leva a maior parte do tempo do OCR e roda fora.
+                with _LOCK_MUPDF:
+                    pixmap = page.get_pixmap(dpi=tentativa_dpi, alpha=False)
+                    pixmap.save(f.name)
                 # O comando tesseract precisa saber que a saída vai para o stdout
                 res = subprocess.run(
                     ["tesseract", f.name, "stdout", "-l", lang],
@@ -1134,7 +1149,8 @@ def _texto_da_pagina(page) -> str:
     Uma página quebrada não pode derrubar o documento inteiro."""
     for modo in ("text", "blocks"):
         try:
-            bruto = page.get_text(modo)
+            with _LOCK_MUPDF:
+                bruto = page.get_text(modo)
         except Exception:
             continue
         if modo == "blocks":
@@ -1162,14 +1178,18 @@ def _abrir_pdf(data: bytes):
         data = data[data.find(b"%PDF"):]
 
     try:
-        doc = fitz.open(stream=data, filetype="pdf")
+        with _LOCK_MUPDF:
+            doc = fitz.open(stream=data, filetype="pdf")
     except Exception as e:
         raise PlanoIlegivel(f"PDF corrompido: {e}") from e
 
     # Senha de DONO (restringe cópia/impressão) abre com senha vazia. Senha de
     # ABERTURA não abre, e aí não há o que fazer.
-    if doc.is_encrypted and not doc.authenticate(""):
-        doc.close()
+    with _LOCK_MUPDF:
+        protegido = doc.is_encrypted and not doc.authenticate("")
+        if protegido:
+            doc.close()
+    if protegido:
         raise PlanoIlegivel("PDF protegido por senha de abertura")
     return doc
 
@@ -1238,7 +1258,15 @@ def _extrair_paginas(doc, usar_ocr: bool, min_chars: int) -> list[str]:
     """
     partes, ocradas = [], 0
     precisam_ocr = 0
-    for page in doc:
+    # Por índice, e não `for page in doc`: iterar o documento também é MuPDF, e
+    # o objeto de página só pode ser tomado com a trava na mão. Depois de tomado
+    # ele é uma referência; quem entra no MuPDF de novo são os métodos, e cada um
+    # deles trava por conta.
+    with _LOCK_MUPDF:
+        total_paginas = len(doc)
+    for i in range(total_paginas):
+        with _LOCK_MUPDF:
+            page = doc.load_page(i)
         raw = _texto_da_pagina(page)
         # OCR quando a página está sem texto OU quando a camada de texto veio
         # embaralhada (codificação de fonte quebrada).
@@ -1265,8 +1293,13 @@ def _extrair_doc(doc, usar_ocr: bool, min_chars: int) -> str:
 def extrair_texto(pdf_path: str | Path, usar_ocr: bool = True,
                   min_chars: int = 200) -> str:
     """Texto de um PDF em disco. Faz OCR só nas páginas sem camada de texto."""
-    with fitz.open(pdf_path) as doc:
+    with _LOCK_MUPDF:
+        doc = fitz.open(pdf_path)
+    try:
         return _extrair_doc(doc, usar_ocr, min_chars)
+    finally:
+        with _LOCK_MUPDF:
+            doc.close()
 
 
 def extrair_texto_bytes(data: bytes, usar_ocr: bool = True,
@@ -1276,7 +1309,8 @@ def extrair_texto_bytes(data: bytes, usar_ocr: bool = True,
     try:
         return _extrair_doc(doc, usar_ocr, min_chars)
     finally:
-        doc.close()
+        with _LOCK_MUPDF:
+            doc.close()
 
 
 # Como o pedido sai para a rede.
@@ -1405,7 +1439,8 @@ def extrair_paginas_url(url: str, usar_ocr: bool = True) -> list[str]:
     try:
         return _extrair_paginas(doc, usar_ocr, 200)
     finally:
-        doc.close()
+        with _LOCK_MUPDF:
+            doc.close()
 
 
 # ─── Em que página está o trecho ──────────────────────────────────────────────
@@ -1984,9 +2019,10 @@ def extrair_plano_diagnostico(url: str, usar_ocr: bool = True) -> dict:
         return saida
 
     try:
-        saida["paginas"] = doc.page_count
+        with _LOCK_MUPDF:
+            saida["paginas"] = doc.page_count
         sem_ocr = _extrair_doc(doc, usar_ocr=False, min_chars=200)
-        por_pagina = len(sem_ocr.strip()) / max(1, doc.page_count)
+        por_pagina = len(sem_ocr.strip()) / max(1, saida["paginas"])
         if por_pagina >= 200:
             saida["texto"] = sem_ocr
         elif not usar_ocr:
@@ -2001,11 +2037,12 @@ def extrair_plano_diagnostico(url: str, usar_ocr: bool = True) -> dict:
         else:
             saida["texto"] = _extrair_doc(doc, usar_ocr=True, min_chars=200)
             saida["ocr_usado"] = True
-            if len(saida["texto"].strip()) / max(1, doc.page_count) < 50:
+            if len(saida["texto"].strip()) / max(1, saida["paginas"]) < 50:
                 saida["status"] = "vazio"
                 saida["detalhe"] = "nem a camada de texto nem o OCR devolveram conteúdo"
     finally:
-        doc.close()
+        with _LOCK_MUPDF:
+            doc.close()
 
     saida["chars"] = len(saida["texto"].strip())
     return saida
