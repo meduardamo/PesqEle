@@ -53,7 +53,9 @@ pe["dt"] = pd.to_datetime(pe.data_campo, errors="coerce")
 pe["me"] = pd.to_numeric(pe.margem_erro, errors="coerce")
 ps = pe[pe.cargo.astype(str).str.contains("senad", case=False, na=False)
         & (CORTE - pe.dt).dt.days.between(0, JANELA)]
-me_uf = ps.groupby("uf").me.median(); ME = float(ps.me.median())
+me_uf = ps.groupby("uf").me.median()
+# MAE histórico do Senado calibrado a partir de 2010 e 2018 (média dos 2 anos: ~5.3%)
+ME = 5.3
 
 # --- lado presidencial declarado ----------------------------------------------
 # Só o que a base de apoios registra como declaração. Oposição a um lado não é
@@ -162,11 +164,17 @@ d[["lado", "fonte_lado"]] = [apoio(r.uf, r.candidato, r.lado, r.fonte_lado) for 
 
 # --- mandato legislativo atual -------------------------------------------------
 radar = []
-for arq, rot in [("Radar_Senado_Atual.csv", "Senador"),
-                 ("Radar_Câmara_Atual.csv", "Deputado federal"),
-                 ("Radar_Assembleias_Atual.csv", "Deputado estadual/distrital")]:
-    x = pd.read_csv(arq); x["rot"] = rot; radar.append(x[["Parlamentar", "UF", "rot"]])
-radar = pd.concat(radar); radar["nb"] = radar.Parlamentar.map(norm)
+for arq, rot in [("Competitividade_Senado_Atual.csv", "Senador"),
+                 ("Competitividade_Câmara_Atual.csv", "Deputado federal"),
+                 ("Competitividade_Assembleias_Atual.csv", "Deputado estadual/distrital")]:
+    try:
+        x = pd.read_csv(arq); x["rot"] = rot; radar.append(x[["Parlamentar", "UF", "rot"]])
+    except Exception:
+        pass
+if radar:
+    radar = pd.concat(radar); radar["nb"] = radar.Parlamentar.map(norm)
+else:
+    radar = pd.DataFrame(columns=["Parlamentar", "UF", "rot", "nb"])
 
 def mandato(uf, nome):
     alvo = norm(nome)
@@ -183,7 +191,8 @@ BANDA = {7: "Lidera isoladamente", 6: "Entre os 2 primeiros", 5: "Empatado tecni
          2: "Entre 2 e 3 margens de erro atrás", 1: "Mais de 3 margens de erro atrás"}
 
 def aplicar(g):
-    me = float(me_uf.get(g.uf.iloc[0], ME)); me = me if np.isfinite(me) and me > 0 else ME
+    # Usa o erro histórico calibrado para 2 vagas (5.3%) em vez da margem declarada pelo instituto
+    me = ME
     E = me * math.sqrt(2)   # empate é a margem da diferença entre dois percentuais
     g = g.sort_values("mm", ascending=False, na_position="last").reset_index(drop=True)
     com = g.mm.dropna().tolist()
@@ -316,3 +325,89 @@ req.append({"repeatCell": {"range": {"sheetId": sid, "startRowIndex": 1,
     "fields": "userEnteredFormat"}})
 svc.spreadsheets().batchUpdate(spreadsheetId=ID, body={"requests": req}).execute()
 print(f"\naba '{ABA}' regravada com {len(linhas)} linhas.")
+
+
+# --- Atualização Parcial das Abas Radar (Senadores, Deputados Federais, Deputados Estaduais) ---
+# Adiciona ou atualiza as colunas de Competitividade sem destruir as outras colunas preexistentes
+def update_radar_tab(sh, aba_nome, df_comp):
+    try:
+        ws = sh.worksheet(aba_nome)
+    except Exception:
+        print(f"Aba {aba_nome} não encontrada para update parcial.")
+        return
+    
+    todas_linhas = ws.get_all_values()
+    if not todas_linhas: return
+    headers = todas_linhas[0]
+    
+    colunas_injetar = ["Índice de competitividade eleitoral", "Nota da régua", "Última pesquisa", 
+                       "Distância p/ o corte", "Cenário eleitoral (banda)"]
+    
+    # Garante que os headers existem
+    headers_modificados = False
+    for col in colunas_injetar:
+        if col not in headers:
+            headers.append(col)
+            headers_modificados = True
+    
+    if headers_modificados:
+        ws.update([headers], "A1", value_input_option="USER_ENTERED")
+        
+    try:
+        idx_parlamentar = headers.index("Parlamentar")
+        idx_uf = headers.index("UF")
+    except ValueError:
+        print(f"Colunas Parlamentar ou UF não encontradas em {aba_nome}.")
+        return
+
+    updates = []
+    # Usando o DataFrame 'f' (ou 'df_comp') que tem as colunas finais calculadas
+    for row_idx, row_data in enumerate(todas_linhas[1:], start=2):
+        row_data += [''] * (len(headers) - len(row_data)) # pad
+        
+        nome = norm(row_data[idx_parlamentar])
+        uf = str(row_data[idx_uf]).strip()
+        
+        match = df_comp[(df_comp["uf"] == uf) & (df_comp["candidato"].apply(norm) == nome)]
+        if not match.empty:
+            r = match.iloc[0]
+            
+            # Formatação
+            if pd.isna(r["mm"]):
+                valores = {
+                    "Índice de competitividade eleitoral": "Sem pesquisa recente",
+                    "Nota da régua": "—",
+                    "Última pesquisa": "—",
+                    "Distância p/ o corte": "—",
+                    "Cenário eleitoral (banda)": "—"
+                }
+            else:
+                valores = {
+                    "Índice de competitividade eleitoral": BANDA[int(r["nota"])],
+                    "Nota da régua": str(int(r["nota"])),
+                    "Última pesquisa": f"{r['data_ult']:%d/%m/%Y}",
+                    "Distância p/ o corte": brs(r["dist"]),
+                    "Cenário eleitoral (banda)": "Sim" if r["nota"] >= 5 else "Não"
+                }
+                
+            for col in colunas_injetar:
+                col_idx = headers.index(col)
+                val = valores[col]
+                if row_data[col_idx] != val: # só atualiza se mudou
+                    updates.append({
+                        "range": gspread.utils.rowcol_to_a1(row_idx, col_idx + 1),
+                        "values": [[val]]
+                    })
+
+    if updates:
+        ws.batch_update(updates, value_input_option="USER_ENTERED")
+        print(f"{aba_nome}: {len(updates)} células atualizadas.")
+    else:
+        print(f"{aba_nome}: nenhuma célula precisou ser atualizada.")
+
+if "--apply" in sys.argv:
+    # Update das 3 abas
+    update_radar_tab(sh, "Competitividade Senado Atual", f)
+    update_radar_tab(sh, "Competitividade Câmara Atual", f)
+    update_radar_tab(sh, "Competitividade Assembleias Atual", f)
+

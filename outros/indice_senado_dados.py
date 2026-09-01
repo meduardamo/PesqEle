@@ -45,9 +45,9 @@ ABAS = [
     (ID_POLLING, "pesquisas", "pesquisas.csv"),
     (ID_TSE, "chapas_divulgacand", "chapas.csv"),
     (ID_TSE, "apoio por candidatura", "apoios.csv"),
-    (ID_RADAR, "Radar Senado Atual", "Radar_Senado_Atual.csv"),
-    (ID_RADAR, "Radar Câmara Atual", "Radar_Câmara_Atual.csv"),
-    (ID_RADAR, "Radar Assembleias Atual", "Radar_Assembleias_Atual.csv"),
+    (ID_RADAR, "Competitividade Senado Atual", "Competitividade_Senado_Atual.csv"),
+    (ID_RADAR, "Competitividade Câmara Atual", "Competitividade_Câmara_Atual.csv"),
+    (ID_RADAR, "Competitividade Assembleias Atual", "Competitividade_Assembleias_Atual.csv"),
 ]
 
 
