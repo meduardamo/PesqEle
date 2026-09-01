@@ -66,7 +66,7 @@ CLASSIFICACAO_INSTITUTOS = {
     "GERP": "Ainda não foi avaliado",
     "MAS Opinião": "A",
     "Badra Comunicação": "A",
-    "Ibope": "A",
+    "Ipec": "A",
     "DMP": "A",
     "Paraná Pesquisas": "A",
     "Real Time Big Data": "A",
@@ -283,6 +283,14 @@ ALIASES_INSTITUTO = {
     "Genial/Quaest": "Quaest",
     "Quaest/Genial": "Quaest",
     "Genial Quaest": "Quaest",
+    # O Ibope virou Ipec em 2021. A matriz recebe "IPEC" da extração e a nota
+    # estava guardada em "Ibope", então as 9 pesquisas caíam em "Ainda não foi
+    # avaliado" com a nota existindo.
+    "IPEC": "Ipec",
+    "Ibope": "Ipec",
+    "IBOPE": "Ipec",
+    "Ipec (antigo Ibope)": "Ipec",
+    "Ipec/Globo": "Ipec",
     # GERP — METODOLOGIA_INSTITUTOS já usa caixa alta
     "Gerp": "GERP",
     "gerp": "GERP",
