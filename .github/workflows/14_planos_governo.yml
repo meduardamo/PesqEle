@@ -51,6 +51,10 @@ on:
         description: 'Quantos planos analisar ao mesmo tempo'
         required: false
         default: '3'
+      pausa:
+        description: 'Segundos entre um plano e outro (5 no TSE, 1 com espelho)'
+        required: false
+        default: '5'
       limpar:
         description: 'Tirar das abas quem saiu do universo da análise'
         type: choice
@@ -105,6 +109,10 @@ jobs:
           PYTHONUNBUFFERED: "1"     # sem isso o log só aparece no fim
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
+          # A pausa existe para espaçar requisição ao DivulgaCand, que corta
+          # sequência longa. Com o espelho do Drive cobrindo os 203 planos, o
+          # download não passa mais pelo TSE e os 5 segundos viram só espera.
+          PAUSA_ENTRE_PLANOS: ${{ inputs.pausa || '5' }}
         run: |
           python -m outros.processar_planos \
             --cargo TODOS \
