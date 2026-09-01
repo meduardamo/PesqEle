@@ -156,9 +156,20 @@ EIXOS = {
     # Ensino Superior e CT&I já tinham quebrado.
     "Conectividade e Infraestrutura Digital": {
         "Conectividade Escolar": "internet e rede nas escolas: universalização do acesso, velocidade e banda por aluno, wi-fi na sala de aula, dispositivos para estudantes, inclusão digital escolar e Estratégia Nacional de Escolas Conectadas — o que se faz pedagogicamente com essas ferramentas é o tema Tecnologia na Educação",
-        "Tecnologia na Educação": "uso pedagógico da tecnologia na escola: plataforma de ensino e aprendizagem, inteligência artificial em sala, ensino híbrido, letramento digital, formação do professor para tecnologia e regra de uso de celular — a rede, o acesso à internet e o dispositivo em si são o tema Conectividade Escolar",
+        "Tecnologia na Educação": "uso pedagógico da tecnologia na escola: plataforma de ensino e aprendizagem, inteligência artificial em sala, ensino híbrido, letramento digital, formação do professor para tecnologia e regra de uso de celular — a rede, o acesso à internet e o dispositivo em si são o tema Conectividade Escolar, e o sistema de gestão escolar e os dados da rede são o tema Dados e Sistemas Educacionais",
         "Financiamento e Governança da Conectividade": "financiamento e governança da conectividade escolar: FUST e seu Conselho Gestor, editais e seleções públicas operadas pelo BNDES, contratação de serviço de internet pelas redes de ensino e custeio do link — o uso pedagógico é o tema Tecnologia na Educação",
-        "Infraestrutura Pública Digital": "infraestrutura pública digital como bem público: identidade digital, pagamento instantâneo, cadastros e dados interoperáveis, redes e data centers públicos — a digitalização do atendimento ao cidadão é o tema Governo Digital e a regulação das plataformas privadas é o tema Regulação de Plataformas Digitais, os dois no eixo de Gestão pública e transparência",
+        # Entrou em 01/09/2026 a pedido da MegaEdu, a partir do guia de
+        # palavras-chave "IPD e Conectividade Educacional". Os três temas acima
+        # cobriam a rede (Conectividade Escolar), o uso pedagógico (Tecnologia
+        # na Educação) e o custeio (Financiamento e Governança), e a agenda de
+        # dados da educação não tinha onde cair: INDE, CMDEB, SIGED,
+        # identificador único do estudante e matrícula única não apareciam em
+        # nenhuma das 60 descrições nem em TERMOS_ANCORA. Uma frase sobre
+        # "sistema de gestão escolar integrado" ia para Tecnologia na Educação,
+        # que é uso com o estudante, ou para Governo Digital, que é atendimento
+        # ao cidadão.
+        "Dados e Sistemas Educacionais": "dados e sistemas da gestão educacional: sistema de gestão escolar ou educacional (SIGED, SGE), matrícula e diário de classe digitais, boletim e carteirinha estudantil digitais, identificador único do estudante e matrícula única entre redes, acompanhamento da trajetória do estudante, painel de indicadores da rede, busca ativa e alerta de evasão apoiados em dados, Censo Escolar e EducaCenso, INDE e EducaDados, Conjunto Mínimo de Dados da Educação Básica e interoperabilidade entre as bases da educação — o uso pedagógico da tecnologia com o estudante é o tema Tecnologia na Educação, a rede e o dispositivo em si são Conectividade Escolar, e a interoperabilidade fora da educação é Infraestrutura Pública Digital",
+        "Infraestrutura Pública Digital": "infraestrutura pública digital como bem público: identidade digital, pagamento instantâneo, cadastros e dados interoperáveis, interoperabilidade entre sistemas e bases públicas, padrões de troca de dados, redes e data centers públicos — a digitalização do atendimento ao cidadão é o tema Governo Digital, a proteção de dados e a LGPD são o tema Regulação de Plataformas Digitais, os dois no eixo de Gestão pública e transparência, e os sistemas e dados da educação são o tema Dados e Sistemas Educacionais",
     },
     "Saúde": {
         "Atenção Primária": "atenção primária, saúde da família, UBS, agentes comunitários de saúde — pré-natal, aleitamento, puericultura e vacinação da criança pequena são o tema Saúde Materno-Infantil, no eixo de Primeira Infância",
@@ -209,7 +220,7 @@ EIXOS = {
         "Eficiência e Gasto Público": "reforma administrativa, corte de gasto, teto de despesa, equilíbrio fiscal, eficiência orçamentária e gestão de emendas parlamentares/impositivas",
         "Transparência e Combate à Corrupção": "transparência, controle interno, dados abertos, combate à corrupção, integridade pública, fiscalização de emendas parlamentares e orçamento secreto",
         "Regulação de Plataformas Digitais": "regulação de plataformas digitais e redes sociais, moderação de conteúdo, combate à desinformação e fake news, soberania digital, proteção de dados e inteligência artificial — a infraestrutura digital construída como bem público é o tema Infraestrutura Pública Digital, no eixo de Conectividade e Infraestrutura Digital",
-        "Governo Digital": "digitalização de serviços, atendimento ao cidadão, governo eletrônico — a infraestrutura digital de base (identidade digital, pagamento instantâneo, cadastros interoperáveis) é o tema Infraestrutura Pública Digital, no eixo de Conectividade e Infraestrutura Digital",
+        "Governo Digital": "digitalização de serviços, atendimento ao cidadão, governo eletrônico — a infraestrutura digital de base (identidade digital, pagamento instantâneo, cadastros interoperáveis) é o tema Infraestrutura Pública Digital e os sistemas e dados da educação são o tema Dados e Sistemas Educacionais, os dois no eixo de Conectividade e Infraestrutura Digital",
         "Servidores e Municípios": "servidor público estadual em geral, carreira e concurso, e a relação do estado com os municípios (consórcio, repasse, apoio técnico) — professor e demais profissionais da educação são o tema Valorização Docente, no eixo de Educação",
     },
     "Direitos humanos e igualdade": {
@@ -315,6 +326,14 @@ TERMOS_ANCORA = {
     # infraestrutura pública digital (é governo digital e atração de data center
     # como investimento). Continuam em TERMOS_AUSENCIA, que é generosa e não
     # gasta chamada.
+    "Dados e Sistemas Educacionais": ["sistema de gestao escolar",
+                                     "sistema de gestao educacional",
+                                     "matricula digital", "matricula unica",
+                                     "diario de classe",
+                                     "identificador unico do estudante",
+                                     "censo escolar", "educacenso", "educadados",
+                                     "conjunto minimo de dados",
+                                     "dados educacionais", "alerta de evasao"],
     "Infraestrutura Pública Digital": ["infraestrutura publica digital", "identidade digital",
                                        "bens publicos digitais", "pagamento instantaneo"],
     "Aborto Legal e Interrupção da Gestação": ["aborto*", "interrupcao da gestacao",
@@ -588,6 +607,19 @@ TERMOS_AUSENCIA = {
         "universalizacao dos servicos de telecomunicacoes",
         "contratacao de internet", "edital de conectividade", "bndes",
         "telecomunicacoes", "operadora*", "anatel", "custeio da internet",
+    ],
+    "Dados e Sistemas Educacionais": [
+        "sistema de gestao escolar", "sistemas de gestao escolar",
+        "sistema de gestao educacional", "sistemas de gestao educacional",
+        "plataforma de gestao", "matricula digital", "matricula online",
+        "matricula unica", "diario de classe", "diario eletronico",
+        "boletim digital", "carteirinha estudantil",
+        "identificador unico do estudante", "cadastro unico do aluno",
+        "trajetoria escolar", "percurso do estudante", "censo escolar",
+        "educacenso", "educadados", "conjunto minimo de dados",
+        "dados educacionais", "dados da educacao", "alerta de evasao",
+        "monitoramento de evasao", "busca ativa escolar",
+        "painel de indicadores", "painel de gestao",
     ],
     "Infraestrutura Pública Digital": [
         "infraestrutura publica digital", "identidade digital",

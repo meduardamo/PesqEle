@@ -122,7 +122,7 @@ LIMIAR_CHARS = 1500
 #     outro.
 # Custo: releitura completa dos planos, porque pendentes() compara a versão por
 # candidato e não por tema.
-VERSAO_ANALISE = "17"
+VERSAO_ANALISE = "18"
 # Subiu para 11 em 09/08/2026: a justificativa passou a receber nome de urna e
 # gênero do cadastro, então fala "a candidata" quando é mulher e alterna o
 # sujeito em vez de abrir toda frase com "o candidato". O painel já corrige isso
