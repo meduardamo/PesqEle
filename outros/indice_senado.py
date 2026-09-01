@@ -27,6 +27,7 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 from outros import regua_senado as regua
+from outros import formato_recandidaturas as formato
 
 # O repositório é público: id de planilha vem de variável de ambiente.
 ID = os.getenv("SPREADSHEET_ID_RECANDIDATURAS", "").strip()
@@ -271,7 +272,7 @@ for _, r in f.iterrows():
         texto = ("Sem banda: nenhuma pesquisa dos últimos 90 dias na matriz mede este nome. "
                  "O registro existe no TSE, o número não.")
         linhas.append([r.candidato, r.partido, r.uf, "—", "Sem pesquisa recente", "—",
-                       "Sem pesquisa", "—", "—", "—",
+                       "—", "Sem pesquisa", "—", "—", "—",
                        texto, r.chapa, r.chapa_base, r.coligacao, ou_traco(r.cabeca),
                        r.lado, ou_traco(r.fonte_lado), r.mandato, r.situacao_registro, "0", "—"])
         continue
@@ -301,14 +302,14 @@ for _, r in f.iterrows():
              f"• {chance} é a taxa de eleição observada nesta banda em 2010 e 2018, não uma "
              f"previsão sobre a pessoa{extra}")
     linhas.append([r.candidato, r.partido, r.uf, chance, classif, str(int(r.nota)),
-                   "Sim" if r.nota >= 5 else "Não",
+                   BANDA[int(r.nota)], "Sim" if r.nota >= 5 else "Não",
                    f"{int(r.posicao)}º", br(r.mm) + "%", brs(r.dist), texto,
                    r.chapa, r.chapa_base, r.coligacao, ou_traco(r.cabeca),
                    r.lado, ou_traco(r.fonte_lado), r.mandato, r.situacao_registro, str(n),
                    f"{r.data_ult:%d/%m/%Y}"])
 
 H = ["Candidato", "Partido", "UF", "Índice de competitividade eleitoral", "Alta, média ou baixa", "Nota da régua",
-     "É competitivo?", "Posição na disputa", "Média das pesquisas",
+     "Cenário eleitoral (banda)", "É competitivo?", "Posição na disputa", "Média das pesquisas",
      "Distância para a linha de corte",
      "Como o índice foi calculado", "Chapa presidencial", "Base do vínculo de chapa",
      "Coligação no estado", "Cabeça de chapa no estado",
@@ -340,38 +341,11 @@ ws = sh.add_worksheet(title=ABA, rows=len(linhas) + 1, cols=len(H))
 # RAW e não USER_ENTERED: com USER_ENTERED o Sheets lê "16,6%" como número e
 # guarda 0,166, e a coluna, que é toda texto, passa a mostrar 0,166.
 ws.update([H] + linhas, "A1", value_input_option="RAW")
-sid = ws.id
-CINZA = {"red": .882, "green": .882, "blue": .882}
-MAR = {"red": .098, "green": .176, "blue": .306}
-VIN = {"red": .588, "green": .18, "blue": .302}
-tons = [CINZA, CINZA, CINZA, VIN, VIN, VIN, MAR, MAR, MAR, MAR,
-        VIN, MAR, MAR, MAR, VIN, MAR, MAR, MAR, MAR, MAR]
-larg = [195, 105, 45, 250, 95, 105, 110, 120, 150, 480,
-        150, 290, 330, 180, 165, 200, 200, 175, 110, 130]
-req = [{"updateSheetProperties": {"properties": {"sheetId": sid, "gridProperties":
-        {"frozenRowCount": 1, "frozenColumnCount": 1}},
-        "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"}}]
-for i, (t, w) in enumerate(zip(tons, larg)):
-    escuro = t is not CINZA
-    req.append({"repeatCell": {"range": {"sheetId": sid, "startRowIndex": 0, "endRowIndex": 1,
-        "startColumnIndex": i, "endColumnIndex": i + 1},
-        "cell": {"userEnteredFormat": {"backgroundColor": t, "horizontalAlignment": "LEFT",
-            "verticalAlignment": "MIDDLE", "wrapStrategy": "WRAP",
-            "textFormat": {"bold": True, "fontSize": 10, "fontFamily": "Montserrat",
-                "foregroundColor": {"red": 1, "green": 1, "blue": 1} if escuro
-                else {"red": .07, "green": .07, "blue": .07}}}}, "fields": "userEnteredFormat"}})
-    req.append({"updateDimensionProperties": {"range": {"sheetId": sid, "dimension": "COLUMNS",
-        "startIndex": i, "endIndex": i + 1}, "properties": {"pixelSize": w}, "fields": "pixelSize"}})
-B = {"style": "SOLID", "width": 1, "color": {"red": .855, "green": .855, "blue": .831}}
-req.append({"repeatCell": {"range": {"sheetId": sid, "startRowIndex": 1,
-    "endRowIndex": len(linhas) + 1, "startColumnIndex": 0, "endColumnIndex": len(H)},
-    "cell": {"userEnteredFormat": {"numberFormat": {"type": "TEXT", "pattern": "@"},
-        "backgroundColor": {"red": .9569, "green": .9529, "blue": .9373},
-        "borders": {"top": B, "bottom": B, "left": B, "right": B},
-        "horizontalAlignment": "LEFT", "verticalAlignment": "MIDDLE", "wrapStrategy": "WRAP",
-        "textFormat": {"bold": False, "fontSize": 9, "fontFamily": "Montserrat",
-            "foregroundColor": {"red": .0667, "green": .0667, "blue": .0667}}}},
-    "fields": "userEnteredFormat"}})
+# Cor, largura e altura saem do formato_recandidaturas, endereçadas por nome de
+# coluna. Lista posicional foi o que deixou as larguras e as cores uma casa
+# deslocadas quando entrou a coluna de porcentagem.
+req = formato.pedidos_da_aba(ws, H, len(linhas) + 1)
+req.append(formato.corpo(ws.id, 1, len(linhas) + 1, len(H)))
 svc.spreadsheets().batchUpdate(spreadsheetId=ID, body={"requests": req}).execute()
 print(f"\naba '{ABA}' regravada com {len(linhas)} linhas.")
 
@@ -389,17 +363,21 @@ def update_radar_tab(sh, aba_nome, linhas_dict, ausente="Não se aplica"):
     if not todas_linhas: return
     headers = todas_linhas[0]
     
-    colunas_injetar = ["Índice de competitividade eleitoral", "Alta, média ou baixa", "Nota da régua", "É competitivo?", "Posição na disputa", "Média das pesquisas", "Distância para a linha de corte", "Como o índice foi calculado", "Chapa presidencial", "Base do vínculo de chapa", "Coligação no estado", "Cabeça de chapa no estado", "Apoio presidencial declarado", "Fonte do apoio declarado", "Mandato legislativo atual", "Situação do registro no TSE", "Pesquisas na conta", "Última pesquisa do estado"]
-    
-    # Garante que os headers existem
-    headers_modificados = False
-    for col in colunas_injetar:
-        if col not in headers:
-            headers.append(col)
-            headers_modificados = True
-    
-    if headers_modificados:
-        ws.update([headers], "A1", value_input_option="USER_ENTERED")
+    # As mesmas colunas da aba do índice, da quarta em diante e na mesma ordem.
+    colunas_injetar = H[3:]
+
+    # Coluna que falta entra ao lado da anterior da lista, não no fim da aba, para
+    # o bloco do índice não ficar picado.
+    faltando = [c for c in colunas_injetar if c not in headers]
+    for col in faltando:
+        anterior = colunas_injetar[colunas_injetar.index(col) - 1]
+        pos = headers.index(anterior) + 2 if anterior in headers else len(headers) + 1
+        ws.insert_cols([[col]], col=pos)
+        headers.insert(pos - 1, col)
+    if faltando:
+        print(f"{aba_nome}: colunas criadas {faltando}")
+        todas_linhas = ws.get_all_values()
+        headers = todas_linhas[0]
         
     try:
         idx_parlamentar = headers.index("Parlamentar")

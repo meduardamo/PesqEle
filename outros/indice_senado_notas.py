@@ -53,97 +53,82 @@ def contexto(valores):
 
 
 def notas(c):
-    """Texto de cada coluna, pelo nome da coluna."""
-    taxas = ", ".join(f"banda {n} {regua.TAXA[n]}" for n in (7, 6, 5, 4))
+    """Texto de cada coluna, pelo nome da coluna. Uma ideia por nota, sem rodeio."""
+    taxas = ", ".join(f"{n} vale {regua.TAXA[n]}" for n in (7, 6, 5, 4))
     return {
         "Candidato":
-            "Universo: todo titular com registro de candidatura ao Senado no TSE "
-            f"(DivulgaCand), menos as renúncias. São {c['linhas']} nomes. Não é um recorte "
-            "de nomes competitivos: quem tem registro está aqui, com ou sem pesquisa.",
+            "Todo mundo que registrou candidatura ao Senado no TSE, menos quem renunciou. "
+            f"São {c['linhas']} nomes, com ou sem pesquisa. Não é lista de nomes "
+            "competitivos.",
         "Partido":
-            "Partido do registro no TSE. Quando a matriz de pesquisa traz outro partido, "
-            "vale o do registro.",
+            "Partido do registro no TSE. Se a matriz de pesquisa trouxer outro, vale o do "
+            "registro.",
         "Índice de competitividade eleitoral":
-            "Taxa de eleição observada na banda em que o candidato está hoje. Sai de 203 "
-            "rodadas de pesquisa de 2010 e 2018, as duas eleições anteriores com duas vagas "
-            "por estado: entre os candidatos que estavam nesta mesma banda, essa foi a "
-            f"proporção que terminou entre os 2 mais votados. {taxas}; bandas 3, 2 e 1 "
-            f"{regua.TAXA[1]}. É o resultado do grupo, não uma previsão sobre a pessoa, e a "
-            "conta está em research/calibrar_senado.py.",
+            "Entre os candidatos que estavam nesta mesma banda nas pesquisas de 2010 e "
+            "2018, essa foi a proporção que terminou entre os 2 mais votados. É o resultado "
+            "do grupo, não uma previsão sobre a pessoa. Banda "
+            f"{taxas}; bandas 3, 2 e 1 valem {regua.TAXA[1]}. A conta está em "
+            "research/calibrar_senado.py.",
         "Alta, média ou baixa":
-            "Classe da taxa, para comparar com as outras abas do Radar. Alta são as bandas "
-            "6 e 7, dentro das duas vagas. Média são as bandas 4 e 5, à distância de uma "
-            "margem. Baixa são as bandas 1 a 3.",
+            "Leitura rápida da coluna ao lado, para comparar com as outras abas. Alta são "
+            "as bandas 6 e 7, dentro das duas vagas. Média, as bandas 4 e 5. Baixa, as "
+            "bandas 1 a 3.",
         "Nota da régua":
-            "7 lidera isoladamente; 6 entre os 2 primeiros; 5 empatado tecnicamente com o "
-            "2º; 4 até 1 margem de erro atrás; 3 entre 1 e 2 margens; 2 entre 2 e 3 margens; "
-            "1 mais de 3 margens atrás. A linha de corte é o 2º colocado, porque 2026 tem "
-            "duas vagas por estado; para quem já está em 1º ou 2º, a referência passa a ser "
-            "o 3º. A banda é calculada na escala comparável, com os percentuais do estado "
-            "normalizados para somar 100 entre as candidaturas medidas, que é a escala em "
-            "que o histórico de 2010 e 2018 foi medido.",
+            "De 1 a 7. Quanto maior, mais perto da vaga. O nome de cada banda está na "
+            "coluna ao lado.",
+        "Cenário eleitoral (banda)":
+            "Onde o candidato está na disputa pelas duas vagas do estado. A linha de corte "
+            "é o 2º colocado; para quem já está em 1º ou 2º, a referência passa a ser o 3º. "
+            "A banda é calculada com os percentuais do estado normalizados para somar 100, "
+            "que é a escala do histórico de 2010 e 2018.",
         "É competitivo?":
-            "Competitivo é quem está numa das duas vagas do estado (banda 6 ou 7) ou "
-            "empatado tecnicamente com quem está na segunda (banda 5). O corte é o mesmo da "
-            f"régua, não um critério à parte. Dá de {c['min_uf']} a {c['max_uf']} nomes por "
-            f"UF, {c['competitivos']} no total.",
+            "Sim para quem está numa das duas vagas ou empatado tecnicamente com a segunda, "
+            "quer dizer banda 5, 6 ou 7. São "
+            f"{c['competitivos']} nomes, de {c['min_uf']} a {c['max_uf']} por UF.",
         "Posição na disputa":
-            "Posição na média móvel do estado, entre as candidaturas que aparecem em "
-            "pesquisa. Ordenar não depende da escala: é a mesma posição nas duas.",
+            "Posição na média móvel do estado, entre quem aparece em pesquisa.",
         "Média das pesquisas":
-            "Média móvel híbrida de 30 dias da matriz de polling, na data mais recente do "
-            "estado. É o percentual como o instituto publicou, sem redistribuir branco, "
-            "nulo e indeciso, e por isso a soma do estado não fecha em 100. Não é o número "
-            "de uma pesquisa avulsa.",
+            "Média móvel de 30 dias da matriz de polling, na data mais recente do estado. É "
+            "o percentual como o instituto publicou, sem redistribuir branco, nulo e "
+            "indeciso, então a soma do estado não fecha em 100.",
         "Distância para a linha de corte":
-            "Distância em pontos da média móvel para a linha de corte: o 3º colocado, para "
-            "quem está em 1º ou 2º; o 2º colocado, para os demais. A mesma distância na "
-            "escala comparável, que é a que define a banda, está na coluna ao lado.",
+            "Em pontos da média móvel. Positivo quer dizer dentro das vagas.",
         "Como o índice foi calculado":
-            "Abre a conta: banda, média, posição, distância para a linha de corte, a mesma "
-            "distância na escala comparável, quantas pesquisas sustentam o número, data da "
-            "última pesquisa do estado, a unidade da régua e o que a taxa quer dizer.",
+            "A conta da linha, aberta: banda, média, posição, distância, quantas pesquisas "
+            "sustentam o número e a unidade da régua.",
         "Chapa presidencial":
-            "Vínculo com uma das duas chapas presidenciais, pelo registro no TSE. Lula, "
-            "quando o PT está na coligação estadual do candidato. Flávio, quando o PL está. "
-            "Lula (só nacional), quando o partido integra a coligação nacional de Lula "
-            "(PSB, PDT, PT, PC do B, PV, PSOL, REDE) mas o PT não entrou na coligação "
-            "daquele estado. Outro presidenciável, quando o partido lançou candidato "
-            "próprio à Presidência. Sem vínculo, quando o partido não está em nenhuma das "
-            "duas coligações presidenciais. É fato de registro, não leitura política.",
+            "Vínculo com uma das duas chapas, pelo registro no TSE, não por leitura "
+            "política. Lula, quando o PT está na coligação estadual. Flávio, quando o PL "
+            "está. Lula (só nacional), quando o partido está na coligação nacional de Lula "
+            "mas o PT ficou fora daquele estado. Outro presidenciável, quando o partido "
+            "lançou candidato próprio. Sem vínculo, quando não está em nenhuma das duas.",
         "Base do vínculo de chapa":
-            "Qual fato do registro sustenta a classificação da coluna anterior.",
+            "Qual fato do registro sustenta a coluna anterior.",
         "Coligação no estado":
-            "Nome da coligação estadual e os partidos que a compõem, como registrado no "
-            "DivulgaCand.",
+            "Nome da coligação e os partidos que a compõem, como está no DivulgaCand.",
         "Cabeça de chapa no estado":
-            "Candidato a governador que disputa pela mesma coligação estadual. Traço quando "
-            "a coligação do Senado não tem candidatura ao governo.",
+            "Candidato a governador da mesma coligação. Traço quando a coligação não tem "
+            "candidatura ao governo.",
         "Apoio presidencial declarado":
-            "Camada separada da chapa: declaração nominal de apoio. Três fontes, nesta "
-            "ordem. Flávio: os 47 nomes que ele leu na própria transmissão de 05/08/2026, "
-            "publicados por Poder360 em 07/08 e Gazeta do Povo em 13/08, que batem nome a "
-            "nome. Lula: o mapa do time de Lula publicado pelo PT em 24/08/2026, com 50 "
-            "nomes, incluindo aliados de outros partidos. Declarações individuais achadas "
-            "em varredura de imprensa, com a fonte na coluna ao lado. Quem declarou apoio "
-            "sem estar na lista do presidenciável aparece como declarou, fora da lista dos "
-            "47, porque é apoio de mão única e não vale o mesmo. Oposição a um lado não é "
-            "contada como adesão ao outro, porque Caiado e Zema também disputam. Cobre "
-            f"{c['declarados']} dos {c['linhas']} nomes e não contradiz a coluna de chapa "
-            "em nenhum caso.",
+            "Declaração nominal de apoio, que é outra coisa que a coligação. Vem dos 47 "
+            "nomes que Flávio leu na transmissão de 05/08/2026, do mapa do time de Lula "
+            "publicado pelo PT em 24/08/2026 e de declarações achadas na imprensa, com a "
+            "fonte ao lado. Quem declarou apoio sem estar na lista do presidenciável "
+            "aparece como fora da lista, porque é apoio de mão única. Oposição a um lado "
+            "não conta como adesão ao outro. Cobre "
+            f"{c['declarados']} dos {c['linhas']} nomes.",
         "Fonte do apoio declarado":
-            "Link da matéria que sustenta o apoio declarado. Traço quando não há declaração.",
+            "Link da matéria. Traço quando não há declaração.",
         "Mandato legislativo atual":
-            "Casado com as abas Competitividade Senado, Câmara e Assembleias desta "
-            "planilha. Nove senadores só casam por lista manual, porque o nome de urna do "
-            "registro não parece com o nome parlamentar.",
+            "Se a pessoa tem cadeira hoje, casado com as outras abas de competitividade. "
+            "Nove senadores só casam por lista manual, porque o nome de urna não parece com "
+            "o nome parlamentar.",
         "Situação do registro no TSE":
-            "Situação do registro no DivulgaCand na data da atualização. Aguardando "
-            "julgamento é o estado normal de boa parte dos registros neste momento do "
-            "calendário.",
+            "Como está o registro no DivulgaCand. Aguardando julgamento é o normal para boa "
+            "parte deles neste momento do calendário.",
         "Pesquisas na conta":
-            "Pesquisas distintas dos últimos 90 dias que mediram este nome. Com uma só, a "
-            "banda é provisória e o texto da linha avisa.",
+            "Quantas pesquisas dos últimos 90 dias mediram este nome. Com uma só, a banda é "
+            "provisória e o texto da linha avisa.",
         "Última pesquisa do estado":
             "Data de campo da pesquisa mais recente do estado que entrou na média móvel. "
             f"{c['sem_pesquisa']} linhas não têm banda porque nenhuma pesquisa dos últimos "
@@ -183,6 +168,7 @@ def main():
     atual["Índice de competitividade eleitoral"] = (
         texto["Índice de competitividade eleitoral"]
         + " Não se aplica é quem não disputa o Senado em 2026.")
+    atual.pop("Candidato", None)   # a aba Atual chama a coluna de Parlamentar
     gravar(sh, ABA_ATUAL, atual,
            pular=("Parlamentar", "Partido", "UF", "O que disputa em 2026",
                   "Se perder, o que acontece"))
