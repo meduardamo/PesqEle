@@ -229,7 +229,7 @@ for _, r in f.iterrows():
     if pd.isna(r.mm):
         texto = ("Sem banda: nenhuma pesquisa dos últimos 90 dias na matriz mede este nome. "
                  "O registro existe no TSE, o número não.")
-        linhas.append([r.candidato, r.partido, r.uf, "Sem pesquisa recente", "—",
+        linhas.append([r.candidato, r.partido, r.uf, "—", "Sem pesquisa recente", "—",
                        "Sem pesquisa", "—", "—", "—",
                        texto, r.chapa, r.chapa_base, r.coligacao, r.cabeca,
                        r.lado, r.fonte_lado, r.mandato, r.situacao_registro, "0", "—"])
@@ -251,14 +251,16 @@ for _, r in f.iterrows():
              f"pontos, que é a margem da diferença entre dois percentuais{extra}")
     # 2026 tem duas vagas por estado: competitivo é quem está numa delas (banda 6
     # ou 7) ou empatado tecnicamente com quem está na segunda (banda 5).
-    linhas.append([r.candidato, r.partido, r.uf, BANDA[int(r.nota)], str(int(r.nota)),
+    chance = {7: "100%", 6: "72%", 5: "53%", 4: "44%", 3: "14%", 2: "10%", 1: "4%"}[int(r.nota)]
+    classif = "Alta" if r.nota >= 6 else "Média" if r.nota >= 4 else "Baixa"
+    linhas.append([r.candidato, r.partido, r.uf, chance, classif, str(int(r.nota)),
                    "Sim" if r.nota >= 5 else "Não",
                    f"{int(r.posicao)}º", br(r.mm) + "%", brs(r.dist), texto,
                    r.chapa, r.chapa_base, r.coligacao, r.cabeca,
                    r.lado, r.fonte_lado, r.mandato, r.situacao_registro, str(n),
                    f"{r.data_ult:%d/%m/%Y}"])
 
-H = ["Candidato", "Partido", "UF", "Índice de competitividade eleitoral", "Nota da régua",
+H = ["Candidato", "Partido", "UF", "Índice de competitividade eleitoral", "Alta, média ou baixa", "Nota da régua",
      "É competitivo?", "Posição na disputa", "Média das pesquisas",
      "Distância para a linha de corte",
      "Como o índice foi calculado", "Chapa presidencial", "Base do vínculo de chapa",
@@ -340,7 +342,7 @@ def update_radar_tab(sh, aba_nome, linhas_dict):
     if not todas_linhas: return
     headers = todas_linhas[0]
     
-    colunas_injetar = ["Índice de competitividade eleitoral", "Alta, média ou baixa", "Nota da régua", "Cenário eleitoral (banda)", "Última pesquisa", "Recorte avaliado", "Tamanho do recorte", "Janela da média (dias)", "Apoio presidencial 1", "Apoio presidencial 2", "Distância p/ o 1º", "Distância p/ o 2º", "Distância p/ o corte", "Margem de erro", "Candidatos no recorte", "Votos p/ fechar recorte", "Faltam nas pesquisas", "Total"]
+    colunas_injetar = ["Índice de competitividade eleitoral", "Alta, média ou baixa", "Nota da régua", "É competitivo?", "Posição na disputa", "Média das pesquisas", "Distância para a linha de corte", "Como o índice foi calculado", "Chapa presidencial", "Base do vínculo de chapa", "Coligação no estado", "Cabeça de chapa no estado", "Apoio presidencial declarado", "Fonte do apoio declarado", "Mandato legislativo atual", "Situação do registro no TSE", "Pesquisas na conta", "Última pesquisa do estado"]
     
     # Garante que os headers existem
     headers_modificados = False
