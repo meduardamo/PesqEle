@@ -27,9 +27,16 @@ import pandas as pd
 # corrupted", exit 134, e um segfault 139), sempre depois de dezenas de planos
 # lidos, que é a cara de corrupção de memória e não de bug de dado.
 #
-# Toda chamada que entra no MuPDF passa por esta trava. Ela cobre só o trabalho
-# do fitz: o download, o tesseract e a chamada do modelo continuam em paralelo,
-# e é neles que está o tempo de uma rodada.
+# A trava é GROSSA de propósito: vale por documento, do open ao close, e não por
+# chamada. Travar chamada a chamada não bastou (crash de novo em 01/09, "free():
+# corrupted unsorted chunks", exit 134, com 3 de 42 planos feitos). O motivo é
+# que o objeto do MuPDF continua vivo entre uma chamada e outra, e quem o libera
+# é o coletor do Python, em qualquer thread e sem passar por trava nenhuma: o
+# destrutor cai dentro do MuPDF enquanto outra thread está lá.
+#
+# Segurando o documento inteiro, nenhum objeto do MuPDF sobrevive fora da região
+# travada. Fica de fora o que não é MuPDF e é onde está o tempo: download,
+# tesseract e a chamada do modelo continuam em paralelo.
 _LOCK_MUPDF = threading.RLock()
 
 # Paleta Eixo
@@ -1097,6 +1104,9 @@ def _ocr_pagina(page, dpi: int = OCR_DPI, lang: str = "por") -> str:
                 with _LOCK_MUPDF:
                     pixmap = page.get_pixmap(dpi=tentativa_dpi, alpha=False)
                     pixmap.save(f.name)
+                    # Soltar aqui, e não deixar para o coletor: fora da trava o
+                    # destrutor do Pixmap entra no MuPDF por conta própria.
+                    del pixmap
                 # O comando tesseract precisa saber que a saída vai para o stdout
                 res = subprocess.run(
                     ["tesseract", f.name, "stdout", "-l", lang],
@@ -1442,21 +1452,20 @@ def extrair_texto(pdf_path: str | Path, usar_ocr: bool = True,
     """Texto de um PDF em disco. Faz OCR só nas páginas sem camada de texto."""
     with _LOCK_MUPDF:
         doc = fitz.open(pdf_path)
-    try:
-        return _extrair_doc(doc, usar_ocr, min_chars)
-    finally:
-        with _LOCK_MUPDF:
+        try:
+            return _extrair_doc(doc, usar_ocr, min_chars)
+        finally:
             doc.close()
 
 
 def extrair_texto_bytes(data: bytes, usar_ocr: bool = True,
                         min_chars: int = 200) -> str:
     """Texto de um PDF recebido como bytes (ex.: upload no Streamlit)."""
-    doc = _abrir_pdf(data)
-    try:
-        return _extrair_doc(doc, usar_ocr, min_chars)
-    finally:
-        with _LOCK_MUPDF:
+    with _LOCK_MUPDF:
+        doc = _abrir_pdf(data)
+        try:
+            return _extrair_doc(doc, usar_ocr, min_chars)
+        finally:
             doc.close()
 
 
@@ -1582,11 +1591,12 @@ def baixar_plano(url: str) -> bytes:
 
 def extrair_paginas_url(url: str, usar_ocr: bool = True) -> list[str]:
     """Baixa o PDF do link e devolve o texto de cada página, na ordem."""
-    doc = _abrir_pdf(baixar_plano(url))
-    try:
-        return _extrair_paginas(doc, usar_ocr, 200)
-    finally:
-        with _LOCK_MUPDF:
+    dados = baixar_plano(url)          # rede fica fora da trava
+    with _LOCK_MUPDF:
+        doc = _abrir_pdf(dados)
+        try:
+            return _extrair_paginas(doc, usar_ocr, 200)
+        finally:
             doc.close()
 
 
