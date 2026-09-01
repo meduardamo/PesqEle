@@ -408,6 +408,4 @@ def update_radar_tab(sh, aba_nome, df_comp):
 if "--apply" in sys.argv:
     # Update das 3 abas
     update_radar_tab(sh, "Competitividade Senado Atual", f)
-    update_radar_tab(sh, "Competitividade Câmara Atual", f)
-    update_radar_tab(sh, "Competitividade Assembleias Atual", f)
 
