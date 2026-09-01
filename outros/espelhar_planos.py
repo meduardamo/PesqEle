@@ -309,12 +309,7 @@ def montar_fila(base: pd.DataFrame, salvos: pd.DataFrame, cargo: str,
     elif cargo.upper() == "PRESIDENTE":
         b = b[cargos == "PRESIDENTE"]
     else:
-        # VICE-GOVERNADOR entra porque o processar_planos com --cargo TODOS não
-        # filtra cargo nenhum: sem ele o espelho parava em 203 dos 207 planos e
-        # os 4 vices (todos do MISSÃO, número 14, em ES, CE, MA e PE) ficavam
-        # dependendo do DivulgaCand. O documento deles é outro id de arquivo, e
-        # não o mesmo PDF do titular da chapa.
-        b = b[cargos.isin(["GOVERNADOR", "PRESIDENTE", "VICE-GOVERNADOR"])]
+        b = b[cargos.isin(["GOVERNADOR", "PRESIDENTE"])]
 
     if uf:
         b = b[b["SG_UF"].astype(str).str.strip().str.upper() == uf.upper()]
