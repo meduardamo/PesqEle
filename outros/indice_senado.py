@@ -360,65 +360,16 @@ def update_radar_tab(sh, aba_nome, linhas_dict):
         return
 
     updates = []
-    # Usando o DataFrame 'f' (ou 'df_comp') que tem as colunas finais calculadas
     for row_idx, row_data in enumerate(todas_linhas[1:], start=2):
-        row_data += [''] * (len(headers) - len(row_data)) # pad
-        
+        row_data += [''] * (len(headers) - len(row_data))
         nome = norm(row_data[idx_parlamentar])
         uf = str(row_data[idx_uf]).strip()
-        
-        match = df_comp[(df_comp["uf"] == uf) & (df_comp["candidato"].apply(norm) == nome)]
-        if not match.empty:
-            r = match.iloc[0]
-            
-            # Formatação
-            if pd.isna(r["mm"]):
-                valores = {
-                    "Índice de competitividade eleitoral": "—",
-                    "Alta, média ou baixa": "Sem pesquisa recente",
-                    "Nota da régua": "—",
-                    "Cenário eleitoral (banda)": "—",
-                    "Última pesquisa": "—",
-                    "Recorte avaliado": "Sem pesquisa",
-                    "Tamanho do recorte": "—",
-                    "Janela da média (dias)": "—",
-                    "Apoio presidencial 1": l1,
-                    "Apoio presidencial 2": l2,
-                    "Distância p/ o 1º": "—",
-                    "Distância p/ o 2º": "—",
-                    "Distância p/ o corte": "—",
-                    "Margem de erro": "—",
-                    "Candidatos no recorte": "—",
-                    "Votos p/ fechar recorte": "—",
-                    "Faltam nas pesquisas": "—",
-                    "Total": "0"
-                }
-            else:
-                valores = {
-                    "Índice de competitividade eleitoral": {7: "100%", 6: "72%", 5: "53%", 4: "44%", 3: "14%", 2: "10%", 1: "4%"}[int(r["nota"])],
-                    "Alta, média ou baixa": "Alta" if r["nota"] >= 6 else "Média" if r["nota"] >= 4 else "Baixa",
-                    "Nota da régua": str(int(r["nota"])),
-                    "Cenário eleitoral (banda)": BANDA[int(r["nota"])],
-                    "Última pesquisa": f"{r['data_ult']:%d/%m/%Y}",
-                    "Recorte avaliado": texto,
-                    "Tamanho do recorte": str(r["n_pesq"]),
-                    "Janela da média (dias)": "90",
-                    "Apoio presidencial 1": l1,
-                    "Apoio presidencial 2": l2,
-                    "Distância p/ o 1º": brs(r["dist_p1"]),
-                    "Distância p/ o 2º": brs(r["dist_p2"]),
-                    "Distância p/ o corte": brs(r["dist"]),
-                    "Margem de erro": brs(r["me_uf"]),
-                    "Candidatos no recorte": str(r["n_uf"]),
-                    "Votos p/ fechar recorte": brs(faltam_votos),
-                    "Faltam nas pesquisas": brs(faltam_pesq),
-                    "Total": "1"
-                }
-                
-            for col in colunas_injetar:
+        if (nome, uf) in linhas_dict:
+            linha_completa = linhas_dict[(nome, uf)]
+            for i, col in enumerate(colunas_injetar):
                 col_idx = headers.index(col)
-                val = valores[col]
-                if row_data[col_idx] != val: # só atualiza se mudou
+                val = str(linha_completa[3 + i])
+                if row_data[col_idx] != val:
                     updates.append({
                         "range": gspread.utils.rowcol_to_a1(row_idx, col_idx + 1),
                         "values": [[val]]
