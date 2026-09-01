@@ -1,0 +1,56 @@
+name: 27 - Índice de competitividade Senado
+
+on:
+  schedule:
+    # GitHub Actions usa UTC; Brasil/Recife = UTC-3. Uma vez por dia, 15 minutos
+    # depois do rebuild das 08:25 UTC do workflow 05, que é quem atualiza a média
+    # móvel de que este índice depende. Rodar de 4 em 4 horas junto com o 05 não
+    # ajuda: a aba é regravada inteira e o TSE é consultado candidato a candidato.
+    - cron: '40 9 * * *'   # 06:40 BRT
+  repository_dispatch:      # disparo externo, ver cron-job.org
+    types: [indice-senado]
+  workflow_dispatch:        # permite rodar manualmente pelo GitHub
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      TZ: "America/Recife"
+      PYTHONUNBUFFERED: "1"
+      GOOGLE_CREDENTIALS_PATH: credentials.json
+      SPREADSHEET_ID_POLLINGDATA: ${{ secrets.SPREADSHEET_ID_POLLINGDATA }}
+      SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
+      SPREADSHEET_ID_RECANDIDATURAS: ${{ secrets.SPREADSHEET_ID_RECANDIDATURAS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Credenciais
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
+
+      - name: Baixar bases e coligações
+        run: python -u -m outros.indice_senado_dados
+
+      - name: Casar registro do TSE com a matriz de polling
+        run: python -u -m outros.indice_senado_casar
+
+      - name: Publicar a aba
+        run: python -u -m outros.indice_senado --apply
+
+      - name: Gravar as notas de cabeçalho
+        run: python -u -m outros.indice_senado_notas
