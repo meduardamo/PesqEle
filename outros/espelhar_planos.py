@@ -377,7 +377,16 @@ def registrar_espelho(sh=None, drive=None, caminho_credenciais: str = "") -> int
             log(f"    espelho {fid} não abriu ({str(e)[:100]}); tentando o TSE")
             return None
 
-    analise_planos.FONTE_ESPELHO = _do_drive
+    # O módulo entra em sys.modules com dois nomes: quem põe outros/ no
+    # sys.path e importa por caminho (processar_planos, auditar_planos) recebe
+    # "analise_planos", e quem importa como pacote (aferir_acao) recebe
+    # "outros.analise_planos". São dois objetos com globais separados, então
+    # marcar um só deixa o outro baixando do TSE. Foi o que fez a aferição de
+    # 01/09/2026 cair nos 19 planos em 403 com o espelho ligado no log.
+    for nome in ("analise_planos", "outros.analise_planos"):
+        mod = sys.modules.get(nome)
+        if mod is not None:
+            mod.FONTE_ESPELHO = _do_drive
     return len(por_link)
 
 

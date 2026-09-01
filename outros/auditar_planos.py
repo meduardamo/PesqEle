@@ -132,6 +132,17 @@ def main() -> int:
                    help="mede em N linhas se o trecho é mesmo do tema em que está")
     args = p.parse_args()
 
+    # Cópia do PDF no Drive antes do TSE. O DivulgaCand devolve 403 de WAF para
+    # IP de datacenter, e sem isto a rodada de 01/09/2026 marcou 205 dos 207
+    # planos como indisponíveis e reportou os contadores como se tivesse
+    # medido a base. É o mesmo espelho do processar_planos, ver 19/08/2026.
+    try:
+        from espelhar_planos import registrar_espelho
+        n_espelho = registrar_espelho()
+        print(f"espelho do Drive ativo para {n_espelho} planos\n")
+    except Exception as e:  # noqa: BLE001
+        print(f"espelho não pôde ser ligado ({str(e)[:120]}); seguindo no TSE\n")
+
     aba = cliente().open_by_key(os.environ["SPREADSHEET_ID_TSE"]).worksheet(ANALISE_ABA)
     valores = aba.get_all_values()
     cab, linhas = valores[0], valores[1:]
