@@ -970,7 +970,7 @@ TEMAS_EDUCACAO = dict(EIXOS["Educação"])
 # e o 2.5-flash passou a responder 404 "no longer available to new users" nas 17
 # análises da fila. Não dá mais nem para comparar os dois modelos no mesmo plano,
 # porque o antigo não atende esta chave.
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
 
 
 _CLIENT = None
@@ -1051,7 +1051,7 @@ def _frac_invalido(t: str) -> float:
     t = (t or "").strip()
     if not t:
         return 1.0
-    validos = re.findall(r"[A-Za-zÀ-ÿ0-9\s.,;:!?()\-\"'/%R$º°ªü]", t)
+    validos = re.findall(r"[A-Za-zÀ-ÿ0-9\s.,;:!?()\-\"'/%R$º°ªü•–—“”‘’§&*+=\[\]]", t)
     return 1 - len(validos) / len(t)
 
 
@@ -1242,7 +1242,7 @@ def _extrair_paginas(doc, usar_ocr: bool, min_chars: int) -> list[str]:
         raw = _texto_da_pagina(page)
         # OCR quando a página está sem texto OU quando a camada de texto veio
         # embaralhada (codificação de fonte quebrada).
-        precisa = len(raw.strip()) < min_chars or _frac_invalido(raw) > 0.10
+        precisa = len(raw.strip()) < min_chars or _frac_invalido(raw) > 0.03
         if precisa:
             precisam_ocr += 1
         if usar_ocr and precisa and ocradas < PAGINAS_OCR_MAX:
