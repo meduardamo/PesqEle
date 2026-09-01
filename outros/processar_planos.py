@@ -994,7 +994,8 @@ def main() -> int:
         if base.empty or "LINK_PLANO" not in base.columns:
             raise SystemExit(f"A aba {ABA_BASE} está vazia ou sem LINK_PLANO.")
         base = base[base["LINK_PLANO"].astype(str).str.startswith("http")]
-        # Vice fora, sempre. A Lei 9.504/1997, art. 11, §1º, IX, pede as
+        # Só governador e presidente, mesmo em --cargo TODOS, que é a mesma
+        # régua do espelhar_planos. A Lei 9.504/1997, art. 11, §1º, IX, pede as
         # "propostas defendidas pelo candidato a Prefeito, a Governador de
         # Estado e a Presidente da República", e não do vice. O DivulgaCand
         # aceita o anexo nos dois registros da chapa, e em 01/09/2026 os quatro
@@ -1002,8 +1003,12 @@ def main() -> int:
         # documento do titular: três byte a byte, e o do Ceará com o mesmo
         # texto, 50 páginas e 86.111 caracteres, mudando só o metadado do PDF.
         # Contá-los é contar o mesmo plano duas vezes.
+        #
+        # Lista fechada, e não "tudo menos VICE": o que entrar de novo na base
+        # com link de plano (candidatura de senador com anexo trocado, cargo
+        # escrito de outro jeito) fica de fora até alguém decidir que entra.
         _cargos = base["DS_CARGO"].astype(str).str.strip().str.upper()
-        base = base[~_cargos.str.startswith("VICE")]
+        base = base[_cargos.isin(["GOVERNADOR", "PRESIDENTE"])]
         if args.cargo.upper() != "TODOS":
             base = base[base["DS_CARGO"].astype(str).str.strip().str.upper()
                         == args.cargo.upper()]
