@@ -1118,31 +1118,178 @@ COMUNS_CIFRA = {
     "publico", "educacao", "saude", "social", "desenvolvimento", "municipios",
 }
 
+# Onde o alfabeto cai quando o mapa ToUnicode da fonte está deslocado: as letras
+# viram pontuação ASCII. É o sinal para procurar cifra no meio de uma linha que,
+# no resto, está limpa.
+_CIFRA_SUSPEITO = re.compile(r"[\]\[`^_\\{|}~]")
+
+# Faixa em que o deslocamento pode mexer. Abaixo de 32 é caractere de controle e
+# acima disso é símbolo/CJK, que não é o que uma fonte latina quebrada produz.
+_CIFRA_MIN, _CIFRA_MAX = 33, 0x2500
+
+
+def _score_cifra(t: str) -> int:
+    """Quantas palavras comuns do português o texto tem. É o que diz se um
+    deslocamento acertou."""
+    t = unicodedata.normalize("NFD", t.lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return sum(p in COMUNS_CIFRA for p in re.findall(r"\b[a-z]{1,20}\b", t))
+
+
+def _deslocar(t: str, d: int) -> str:
+    saida = []
+    for c in t:
+        n = ord(c) - d
+        saida.append(chr(n) if _CIFRA_MIN <= ord(c) <= _CIFRA_MAX
+                     and _CIFRA_MIN <= n <= _CIFRA_MAX else c)
+    return "".join(saida)
+
+
+def _melhor_deslocamento(t: str) -> tuple[str, float, float, int, int]:
+    """Melhor deslocamento para o pedaço, NOS DOIS SENTIDOS.
+
+    O critério é a fração de caractere fora do português, e não a contagem de
+    palavras comuns: metade das entradas de COMUNS_CIFRA tem uma ou duas letras
+    ("a", "o", "de"), e o texto cifrado produz esses tokens por acaso o
+    suficiente para empatar com o texto decifrado. Medido em 01/09/2026 nos 73
+    trechos cifrados da base, a contagem de palavras resolveu zero deles.
+
+    Só subtrair também cobria metade dos casos. O Felipe Camarão é do sentido
+    que já funcionava (FXMD = CUJA, -3); o Hildon Chaves (Fjmibjbkq^o =
+    Implementar, +3), o Marcos Rogério, o José Moita e o Pedro Brito (]hp] =
+    alta, AOPNQPQN=N = ESTRUTURAR, +4) são do sentido que nunca era testado.
+
+    Devolve (texto, fração inválida, português da saída, e os dois da entrada).
+    """
+    base = _frac_invalido(t)
+    melhor_f, melhor_t = base, t
+    melhor_palavras = _score_portugues(t)
+    for d in [x for x in range(-12, 13) if x]:
+        dec = _deslocar(t, d)
+        f = _frac_invalido(dec)
+        pal = _score_portugues(dec)
+        # Empate na fração é desempatado por palavra reconhecida, que é o que
+        # separa deslocamento certo de deslocamento que só trocou um símbolo
+        # inválido por outro válido.
+        if f < melhor_f - 1e-9 or (abs(f - melhor_f) <= 1e-9 and pal > melhor_palavras):
+            melhor_f, melhor_t, melhor_palavras = f, dec, pal
+    return melhor_t, melhor_f, base, melhor_palavras, _score_portugues(t)
+
+
+# Terminações e palavras que só sobram quando o deslocamento acertou. É o lado
+# POSITIVO do critério: a fração de caractere inválido diz que a saída não tem
+# lixo, e isto diz que ela é português. Sem os dois, um deslocamento errado que
+# troque "@A" por letra qualquer passa como conserto ("NKP=O PAI½PE?=O" virou
+# "YJRÆYNHFX -J]?" no Pedro Brito, CE, em 01/09/2026).
+_PT_MORF = re.compile(
+    r"(ç[ãõ]o|ções|mento|ente|ência|ância|dade|agem|ismo|ista|eiro|eira|"
+    r"[áa]vel|[íi]vel|ais\b|ões\b|ndo\b|ad[ao]s?\b|id[ao]s?\b|"
+    r"\b(?:de|da|do|das|dos|em|na|no|nas|nos|para|com|que|por|uma|aos|"
+    r"pelo|pela|sobre|entre|ser[aá]|mais)\b)", re.I)
+
+
+def _score_portugues(t: str) -> int:
+    return len(_PT_MORF.findall(t))
+
+
+def _token_suspeito(tok: str) -> bool:
+    """Se a palavra tem cara de ter saído de fonte com mapa quebrado. Junta o
+    caractere fora do português (`, _, @) com a pontuação em que o alfabeto cai
+    quando desliza ([, ], ^), que _frac_invalido conta como válida."""
+    return _frac_invalido(tok) > 0 or bool(_CIFRA_SUSPEITO.search(tok))
+
+
+def _cifra_resolvida(frac: float, base: float, pt: int, pt_base: int) -> bool:
+    """Se o deslocamento vale a troca.
+
+    Quatro exigências: a entrada estava suja, a saída ficou limpa, a melhora foi
+    grande, e a saída é português de verdade. As três primeiras sozinhas deixam
+    passar deslocamento que só troca símbolo inválido por letra."""
+    return (base > 0.03 and frac <= 0.03 and (base - frac) >= 0.05
+            and pt >= 2 and (pt - pt_base) >= 2)
+
+
 def _decodificar_linha(linha: str) -> str:
-    """Tenta desfazer deslocamentos de fonte (como cifra de César) na linha."""
+    """Tenta desfazer deslocamentos de fonte (como cifra de César) na linha.
+
+    Duas passadas, porque o defeito aparece das duas formas: a linha inteira sai
+    da fonte quebrada, ou só um pedaço dela sai, com o resto da linha legível.
+    O segundo caso vinha passando batido: decodificar a linha toda estragava a
+    parte limpa, então o ganho não alcançava o corte e nada era feito ("Garantia
+    de internet de ]hp] rahk_e`]`a", do José Moita, PA).
+    """
     linha_strip = linha.strip()
     if len(linha_strip) < 18:
         return linha
 
-    def score(t: str) -> int:
-        t = unicodedata.normalize("NFD", t.lower())
-        t = "".join(c for c in t if unicodedata.category(c) != "Mn")
-        return sum(p in COMUNS_CIFRA for p in re.findall(r"\b[a-z]{1,20}\b", t))
+    texto, frac, base, pt, pt_base = _melhor_deslocamento(linha_strip)
+    if _cifra_resolvida(frac, base, pt, pt_base):
+        return linha.replace(linha_strip, texto)
 
-    base = score(linha_strip)
-    melhor_score = base
-    melhor_texto = linha_strip
+    # Linha mista: decodifica cada TRECHO cifrado, e não a linha toda. O
+    # primeiro-ao-último engolia a parte limpa do fim ("PARA APOIAR HOSPITAIS DE
+    # MENOR PORTE", do Pedro Brito, CE, virava "TPYZMEMW I WM"). Um token limpo
+    # no meio não corta o trecho, porque número e sigla atravessam a fonte
+    # quebrada sem se deslocar.
+    tokens = [(m.start(), m.end()) for m in re.finditer(r"\S+", linha_strip)]
+    suspeitos = [_token_suspeito(linha_strip[a:b]) for a, b in tokens]
+    if not any(suspeitos):
+        return linha
 
-    for d in range(1, 13):
-        dec = "".join(chr(ord(c) - d) if ord(c) >= d else c for c in linha_strip)
-        s = score(dec)
-        if s > melhor_score:
-            melhor_score = s
-            melhor_texto = dec
+    trechos, n = [], 0
+    while n < len(tokens):
+        if not suspeitos[n]:
+            n += 1
+            continue
+        ini = fim = n
+        m = n + 1
+        while m < len(tokens):
+            if suspeitos[m]:
+                fim, m = m, m + 1
+            elif m + 1 < len(tokens) and suspeitos[m + 1]:
+                m += 2
+                fim = m - 1
+            else:
+                break
+        trechos.append((ini, fim))          # índices de token, não de caractere
+        n = m
 
-    if melhor_score >= 3 and (melhor_score - base) >= 3:
-        return linha.replace(linha_strip, melhor_texto)
-    return linha
+    saida = linha_strip
+    for ini, fim in reversed(trechos):
+        # Cresce o trecho para os lados enquanto o MESMO deslocamento continuar
+        # produzindo português. O marcador de suspeita é o caractere inválido, e
+        # a palavra vizinha muitas vezes não tem nenhum: no Pedro Brito (CE),
+        # "AJOEJK IÅ@EK ?KI EJOPEPQEÃÑAO" não tem caractere inválido e é
+        # "ENSINO MÉDIO COM INSTITUIÇÕES" no mesmo deslocamento do resto.
+        a, b = tokens[ini][0], tokens[fim][1]
+        pedaco = linha_strip[a:b]
+        if len(pedaco) < 18:
+            continue
+        texto, frac, base, pt, pt_base = _melhor_deslocamento(pedaco)
+        if not _cifra_resolvida(frac, base, pt, pt_base):
+            continue
+        d = ord(pedaco[0]) - ord(texto[0]) if texto and pedaco else 0
+        if d:
+            e = ini
+            while e > 0:
+                ta, tb = tokens[e - 1]
+                tok = linha_strip[ta:tb]
+                if _score_portugues(_deslocar(tok, d)) <= _score_portugues(tok):
+                    break
+                e -= 1
+            f = fim
+            while f + 1 < len(tokens):
+                ta, tb = tokens[f + 1]
+                tok = linha_strip[ta:tb]
+                if _score_portugues(_deslocar(tok, d)) <= _score_portugues(tok):
+                    break
+                f += 1
+            if (e, f) != (ini, fim):
+                a, b = tokens[e][0], tokens[f][1]
+                texto = _deslocar(linha_strip[a:b], d)
+        saida = saida[:a] + texto + saida[b:]
+    return linha.replace(linha_strip, saida) if saida != linha_strip else linha
+
 
 def _texto_da_pagina(page) -> str:
     """Texto de uma página, tentando os modos do PyMuPDF em ordem de qualidade.
