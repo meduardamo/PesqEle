@@ -7,11 +7,17 @@ Roda em quatro passos, na ordem, todos do diretório de trabalho:
     python -m outros.indice_senado_notas     grava as notas de cabeçalho
 
 
-Universo: todo titular com registro de Senado no TSE, menos renúncias (313).
+Universo: todo titular com registro de Senado no TSE, menos renúncias.
 Número: média móvel híbrida de 30 dias, na data mais recente de cada UF.
 Régua: sete bandas em cima da distância para a linha de corte. 2026 tem duas
 vagas por estado, então a linha de corte é o 2º colocado; para quem já está em
 1º ou 2º, a referência passa a ser o 3º.
+
+A régua e as taxas por banda vivem em `outros/regua_senado.py`, que é o mesmo
+módulo que o `research/calibrar_senado.py` usa para medir. A banda é calculada
+na escala comparável, com os percentuais do estado normalizados para somar 100,
+porque é assim que o histórico de 2010 e 2018 foi medido; a média móvel bruta
+soma cerca de 76 por UF e comprimiria todo mundo para dentro do empate técnico.
 """
 import os
 import math, re, sys, unicodedata
@@ -19,6 +25,8 @@ import numpy as np, pandas as pd, gspread
 from difflib import SequenceMatcher
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+
+from outros import regua_senado as regua
 
 # O repositório é público: id de planilha vem de variável de ambiente.
 ID = os.getenv("SPREADSHEET_ID_RECANDIDATURAS", "").strip()
@@ -47,15 +55,13 @@ def sim(a, b):
 d = pd.read_csv("casado.csv")
 d["data_ult"] = pd.to_datetime(d.data_ult, errors="coerce")
 
-# --- margem de erro por UF -----------------------------------------------------
-pe = pd.read_csv("pesquisas.csv")
-pe["dt"] = pd.to_datetime(pe.data_campo, errors="coerce")
-pe["me"] = pd.to_numeric(pe.margem_erro, errors="coerce")
-ps = pe[pe.cargo.astype(str).str.contains("senad", case=False, na=False)
-        & (CORTE - pe.dt).dt.days.between(0, JANELA)]
-me_uf = ps.groupby("uf").me.median()
-# MAE histórico do Senado calibrado a partir de 2010 e 2018 (média dos 2 anos: ~5.3%)
-ME = 5.3
+# --- unidade da régua ----------------------------------------------------------
+# Não é a margem declarada pelo instituto: é o erro absoluto médio das pesquisas
+# de Senado contra o resultado, medido em 2010 e 2018 na mesma escala em que a
+# régua roda. A mediana da margem declarada por UF chegou a ser calculada aqui e
+# nunca foi usada, o que deixou o texto da planilha dizendo "margem de erro do
+# estado" para um número nacional.
+ME = regua.ME
 
 # --- lado presidencial declarado ----------------------------------------------
 # Só o que a base de apoios registra como declaração. Oposição a um lado não é
@@ -176,9 +182,31 @@ if radar:
 else:
     radar = pd.DataFrame(columns=["Parlamentar", "UF", "rot", "nb"])
 
+# Nome de urna que o casamento por semelhança não alcança até o nome parlamentar
+# das abas Radar. São nove senadores em exercício que, sem esta lista, saíam da
+# planilha como "Sem mandato legislativo hoje" nas duas abas de Senado. Baixar o
+# limiar não resolve: em AL, "Renan" empata entre Renan Calheiros e Renan Filho,
+# que também tem cadeira. A chave é (UF, nome de urna no TSE).
+NOME_NO_RADAR = {
+    ("PB", "VENEZIANO"): "Veneziano Vital do Rêgo",
+    ("AL", "RENAN"): "Renan Calheiros",
+    ("DF", "LEILA DO VOLEI"): "Leila Barros",
+    ("AP", "RANDOLFE"): "Randolfe Rodrigues",
+    ("MA", "WEVERTON ROCHA"): "Weverton",
+    ("SE", "ALESSANDRO"): "Alessandro Vieira",
+    ("MT", "FAVARO"): "Carlos Fávaro",
+    ("AC", "PETECAO"): "Sérgio Petecão",
+    ("MS", "SORAYA"): "Soraya Thronicke",
+}
+
 def mandato(uf, nome):
     alvo = norm(nome)
     g = radar[radar.UF == uf]
+    manual = NOME_NO_RADAR.get((uf, alvo))
+    if manual is not None:
+        achado = g[g.nb == norm(manual)]
+        if len(achado): return f"{achado.iloc[0].rot} hoje"
+        print(f"nome do radar não encontrado: {uf} {manual}")
     for _, x in g.iterrows():
         if sim(alvo, x.nb) >= 0.88: return f"{x.rot} hoje"
     return "Sem mandato legislativo hoje"
@@ -186,31 +214,40 @@ def mandato(uf, nome):
 d["mandato"] = [mandato(r.uf, r.candidato) for _, r in d.iterrows()]
 
 # --- régua ---------------------------------------------------------------------
-BANDA = {7: "Lidera isoladamente", 6: "Entre os 2 primeiros", 5: "Empatado tecnicamente com o 2º",
-         4: "Até 1 margem de erro atrás", 3: "Entre 1 e 2 margens de erro atrás",
-         2: "Entre 2 e 3 margens de erro atrás", 1: "Mais de 3 margens de erro atrás"}
+BANDA = regua.BANDA
 
 def aplicar(g):
-    # Usa o erro histórico calibrado para 2 vagas (5.3%) em vez da margem declarada pelo instituto
-    me = ME
-    E = me * math.sqrt(2)   # empate é a margem da diferença entre dois percentuais
+    """Banda, posição e distância de um estado.
+
+    A conta roda na escala comparável (`mm_c`), com os percentuais do estado
+    normalizados para somar 100 entre as candidaturas medidas. É a escala do
+    histórico de 2010 e 2018, e é a única em que o erro de 5,3 pontos e as taxas
+    por banda querem dizer alguma coisa. A média móvel bruta (`mm`) continua nas
+    colunas de leitura, porque é o número que bate com a pesquisa publicada.
+    """
+    E = regua.EMPATE
     g = g.sort_values("mm", ascending=False, na_position="last").reset_index(drop=True)
     com = g.mm.dropna().tolist()
-    p2 = com[1] if len(com) > 1 else 0.0
-    p3 = com[2] if len(com) > 2 else 0.0
-    notas, pos, ref = [], [], []
+    escala = regua.normalizar(com)
+    g["mm_c"] = pd.Series(escala + [np.nan] * (len(g) - len(escala)))
+    p2 = escala[1] if len(escala) > 1 else 0.0
+    p3 = escala[2] if len(escala) > 2 else 0.0
+    p2b = com[1] if len(com) > 1 else 0.0
+    p3b = com[2] if len(com) > 2 else 0.0
+    notas, pos, ref, refc = [], [], [], []
     for i, p in enumerate(g.mm):
-        if pd.isna(p): notas.append(np.nan); pos.append(np.nan); ref.append(np.nan); continue
+        if pd.isna(p):
+            notas.append(np.nan); pos.append(np.nan); ref.append(np.nan); refc.append(np.nan)
+            continue
         pos.append(i + 1)
-        if i == 0:   notas.append(7 if (p - p2) > E else 6)
-        elif i == 1: notas.append(6)
-        else:
-            dd = p2 - p
-            notas.append(5 if dd <= E else 4 if dd <= E + me else 3 if dd <= E + 2*me
-                         else 2 if dd <= E + 3*me else 1)
-        ref.append(round(p - (p3 if i <= 1 else p2), 1))
-    g["nota"], g["posicao"], g["dist"] = notas, pos, ref
-    g["me_uf"], g["empate"], g["n_uf"] = round(me, 1), round(E, 1), len(com)
+        notas.append(regua.nota(i, escala[i], p2))
+        # A distância publicada é em pontos da média móvel, que é o que se confere
+        # contra a pesquisa; a da escala comparável fica no texto, que é onde a
+        # banda pode ser refeita à mão.
+        ref.append(round(p - (p3b if i <= 1 else p2b), 1))
+        refc.append(round(escala[i] - (p3 if i <= 1 else p2), 1))
+    g["nota"], g["posicao"], g["dist"], g["dist_c"] = notas, pos, ref, refc
+    g["me_uf"], g["empate"], g["n_uf"] = round(ME, 1), round(E, 1), len(com)
     g["nome2"] = g.candidato.iloc[1] if len(com) > 1 else ""
     g["part2"] = g.partido.iloc[1] if len(com) > 1 else ""
     g["nome3"] = g.candidato.iloc[2] if len(com) > 2 else ""
@@ -222,6 +259,10 @@ f = pd.concat([aplicar(g) for _, g in d.groupby("uf")]).sort_values(
 
 # --- texto ---------------------------------------------------------------------
 def br(x, c=1): return f"{x:.{c}f}".replace(".", ",")
+# Célula vazia numa aba publicada lê como dado faltando. O traço diz que a
+# coluna não se aplica àquela linha, que é o caso da coligação sem candidatura
+# ao governo e de quem não tem declaração de apoio.
+def ou_traco(x): return str(x).strip() or "—"
 def brs(x, c=1): return f"{x:+.{c}f}".replace(".", ",")
 
 linhas = []
@@ -231,8 +272,8 @@ for _, r in f.iterrows():
                  "O registro existe no TSE, o número não.")
         linhas.append([r.candidato, r.partido, r.uf, "—", "Sem pesquisa recente", "—",
                        "Sem pesquisa", "—", "—", "—",
-                       texto, r.chapa, r.chapa_base, r.coligacao, r.cabeca,
-                       r.lado, r.fonte_lado, r.mandato, r.situacao_registro, "0", "—"])
+                       texto, r.chapa, r.chapa_base, r.coligacao, ou_traco(r.cabeca),
+                       r.lado, ou_traco(r.fonte_lado), r.mandato, r.situacao_registro, "0", "—"])
         continue
     if r.posicao <= 2:
         alvo = f", {r.nome3} ({r.part3})" if r.nome3 else ""
@@ -242,22 +283,28 @@ for _, r in f.iterrows():
     n = int(r.n_pesq)
     lastro = "1 pesquisa, banda provisória" if n <= 1 else f"{n} pesquisas"
     extra = f"\n• {r.nota_casamento}" if isinstance(r.nota_casamento, str) and r.nota_casamento else ""
+    # 2026 tem duas vagas por estado: competitivo é quem está numa delas (banda 6
+    # ou 7) ou empatado tecnicamente com quem está na segunda (banda 5).
+    chance = regua.TAXA[int(r.nota)]
+    classif = regua.classe(r.nota)
     texto = (f"Banda {int(r.nota)} de 7: {BANDA[int(r.nota)].lower()}.\n"
              f"• Média das pesquisas: {br(r.mm)}%, {int(r.posicao)}º entre os {int(r.n_uf)} "
              f"registros do estado que aparecem em pesquisa\n"
              f"• {refr}\n"
+             f"• Escala comparável: {br(r.mm_c)}%, {brs(r.dist_c)} para a linha de corte. "
+             f"É a média móvel do estado normalizada para somar 100 entre as candidaturas "
+             f"medidas, que é a escala em que a régua roda\n"
              f"• Base: {lastro}. Última pesquisa de Senado do estado em {r.data_ult:%d/%m/%Y}\n"
-             f"• Margem de erro do estado: {br(r.me_uf)} pontos. Empate técnico até {br(r.empate)} "
-             f"pontos, que é a margem da diferença entre dois percentuais{extra}")
-    # 2026 tem duas vagas por estado: competitivo é quem está numa delas (banda 6
-    # ou 7) ou empatado tecnicamente com quem está na segunda (banda 5).
-    chance = {7: "100%", 6: "72%", 5: "53%", 4: "44%", 3: "14%", 2: "10%", 1: "4%"}[int(r.nota)]
-    classif = "Alta" if r.nota >= 6 else "Média" if r.nota >= 4 else "Baixa"
+             f"• Unidade da régua: {br(r.me_uf)} pontos, o erro médio das pesquisas de Senado "
+             f"contra o resultado em 2010 e 2018. Empate técnico até {br(r.empate)} pontos, "
+             f"que é a margem da diferença entre dois percentuais\n"
+             f"• {chance} é a taxa de eleição observada nesta banda em 2010 e 2018, não uma "
+             f"previsão sobre a pessoa{extra}")
     linhas.append([r.candidato, r.partido, r.uf, chance, classif, str(int(r.nota)),
                    "Sim" if r.nota >= 5 else "Não",
                    f"{int(r.posicao)}º", br(r.mm) + "%", brs(r.dist), texto,
-                   r.chapa, r.chapa_base, r.coligacao, r.cabeca,
-                   r.lado, r.fonte_lado, r.mandato, r.situacao_registro, str(n),
+                   r.chapa, r.chapa_base, r.coligacao, ou_traco(r.cabeca),
+                   r.lado, ou_traco(r.fonte_lado), r.mandato, r.situacao_registro, str(n),
                    f"{r.data_ult:%d/%m/%Y}"])
 
 H = ["Candidato", "Partido", "UF", "Índice de competitividade eleitoral", "Alta, média ou baixa", "Nota da régua",
@@ -331,7 +378,7 @@ print(f"\naba '{ABA}' regravada com {len(linhas)} linhas.")
 
 # --- Atualização Parcial das Abas Radar (Senadores, Deputados Federais, Deputados Estaduais) ---
 # Adiciona ou atualiza as colunas de Competitividade sem destruir as outras colunas preexistentes
-def update_radar_tab(sh, aba_nome, linhas_dict):
+def update_radar_tab(sh, aba_nome, linhas_dict, ausente="Não se aplica"):
     try:
         ws = sh.worksheet(aba_nome)
     except Exception:
@@ -361,27 +408,38 @@ def update_radar_tab(sh, aba_nome, linhas_dict):
         print(f"Colunas Parlamentar ou UF não encontradas em {aba_nome}.")
         return
 
-    updates = []
+    # O nome parlamentar da aba Radar nem sempre é o nome de urna do registro.
+    # Sem esta volta, os nove do NOME_NO_RADAR não achavam a própria linha e a
+    # aba os publicava como se não tivessem pesquisa nenhuma.
+    por_chave = dict(linhas_dict)
+    for (uf_, urna), parlamentar in NOME_NO_RADAR.items():
+        linha = linhas_dict.get((urna, uf_))
+        if linha is not None:
+            por_chave.setdefault((norm(parlamentar), uf_), linha)
+
+    updates, achados = [], 0
     for row_idx, row_data in enumerate(todas_linhas[1:], start=2):
         row_data += [''] * (len(headers) - len(row_data))
         nome = norm(row_data[idx_parlamentar])
         uf = str(row_data[idx_uf]).strip()
-        if (nome, uf) in linhas_dict:
-            linha_completa = linhas_dict[(nome, uf)]
-            for i, col in enumerate(colunas_injetar):
-                col_idx = headers.index(col)
-                val = str(linha_completa[3 + i])
-                if row_data[col_idx] != val:
-                    updates.append({
-                        "range": gspread.utils.rowcol_to_a1(row_idx, col_idx + 1),
-                        "values": [[val]]
-                    })
+        linha_completa = por_chave.get((nome, uf))
+        achados += linha_completa is not None
+        for i, col in enumerate(colunas_injetar):
+            col_idx = headers.index(col)
+            # Quem não tem linha no índice não disputa o Senado em 2026: a coluna
+            # diz isso, em vez de ficar em branco.
+            val = str(linha_completa[3 + i]) if linha_completa is not None else ausente
+            if row_data[col_idx] != val:
+                updates.append({
+                    "range": gspread.utils.rowcol_to_a1(row_idx, col_idx + 1),
+                    "values": [[val]]
+                })
 
     if updates:
-        ws.batch_update(updates, value_input_option="USER_ENTERED")
-        print(f"{aba_nome}: {len(updates)} células atualizadas.")
-    else:
-        print(f"{aba_nome}: nenhuma célula precisou ser atualizada.")
+        # RAW e não USER_ENTERED: com USER_ENTERED o Sheets lê "+8,0" como número e
+        # a coluna, que é toda texto, passa a mostrar 8 em umas linhas e -3,8 em outras.
+        ws.batch_update(updates, value_input_option="RAW")
+    print(f"{aba_nome}: {achados} linhas casadas, {len(updates)} células atualizadas.")
 
 if "--apply" in sys.argv:
     # Update das 3 abas
