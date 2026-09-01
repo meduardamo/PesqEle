@@ -11,6 +11,12 @@ alertas novos ao fim da raspagem. A régua veio do prompt do agente de
 monitoramento que o time usa no Slack, então a classificação daqui e o alerta
 que a Monique cria por lá seguem o mesmo critério.
 
+Em 01/09/2026 a Jessica e o Fe fecharam a pauta do que a busca diária tem que
+cobrir: debate e sabatina, visita de presidenciável no estado, pesquisa
+divulgada, fato com potencial impacto eleitoral e impugnação de candidatura. Os
+cinco viraram tema de alerta (ALERTA_TEMAS) e têm termo de busca próprio
+(TERMOS_FATO, TERMOS_VISITA, PAUTAS_UF).
+
 Secrets do email: BREVO_API_KEY, EMAIL, DESTINATARIOS_NOTICIAS (ou DESTINATARIOS).
 Sem eles a rodada segue normal, só não envia.
 """
@@ -239,17 +245,55 @@ TERMOS_CAMPANHA = ('("agenda de campanha" OR comício OR caravana '
                    'OR "declara apoio" OR "declaração de apoio" OR "anuncia apoio" '
                    'OR educação)')
 
-BLOCOS = (TERMOS, TERMOS_CAMPANHA)
+# Bloco 3: o que sai do calendário de campanha e ainda assim mexe com a disputa —
+# impugnação de candidatura e fato com potencial impacto eleitoral. Os dois vieram
+# da pauta que a Jessica fechou com o Fe (01/09) e ficam juntos porque partilham o
+# vocabulário jurídico-policial; quem separa depois é o campo tipo.
+TERMOS_FATO = ('(impugnação OR "impugnar candidatura" OR "registro de candidatura" '
+               'OR "candidatura indeferida" OR indeferimento OR inelegibilidade '
+               'OR "ficha limpa" OR cassação OR "recurso ao TSE" '
+               'OR "operação da Polícia Federal" OR denúncia OR "acusado de" '
+               'OR investigado OR "vai ou fica" OR "desistir da candidatura")')
+
+# Bloco 4: visita de presidenciável no estado. Não depende do cargo em disputa,
+# então roda uma busca por estado em vez de uma por cargo × estado (seriam três
+# iguais). Sem o prefixo "eleições 2026" de propósito: matéria de visita quase
+# nunca traz a expressão, e o estado por extenso é o que o RSS entende ("Lula
+# visita o Amapá" não casa com "AP").
+TERMOS_VISITA = ('(Lula OR "Flávio Bolsonaro" OR presidenciável) '
+                 '(visita OR desembarca OR comício OR caravana OR viagem '
+                 'OR inauguração OR palanque OR "agenda no estado")')
+
+# Pauta local que já virou ativo da disputa em um estado e não sai por termo
+# genérico. Uma busca a mais por UF listada; para acrescentar outra, é só somar
+# a chave da UF com os termos entre parênteses.
+PAUTAS_UF = {
+    "AP": '("Margem Equatorial" OR "exploração de petróleo" OR Petrobras)',
+}
+
+# Nome do estado por sigla, a partir do NOME_UF (que já vem com a grafia
+# acentuada antes da sem acento em todo par).
+UF_NOME = {}
+for _nome, _sigla in NOME_UF.items():
+    UF_NOME.setdefault(_sigla, _nome)
+
+BLOCOS_CARGO = (TERMOS, TERMOS_CAMPANHA, TERMOS_FATO)
+# Nos sites regionais o site: já diz o estado e o cargo não entra na busca, então
+# o bloco de visita roda igual aos outros.
+BLOCOS = BLOCOS_CARGO + (TERMOS_VISITA,)
 
 
 def gerar_buscas(cargos=('presidente', 'governador', 'senador')):
     buscas = []
-    for termos in BLOCOS:
+    for termos in BLOCOS_CARGO:
         for cargo in cargos:
             if cargo == 'presidente':        # presidente é nacional, sem UF
                 buscas.append(f"eleições 2026 presidente {termos}")
             else:
                 buscas += [f"eleições 2026 {cargo} {uf} {termos}" for uf in UFS]
+    buscas += [f"{UF_NOME[uf]} {TERMOS_VISITA}" for uf in UFS]
+    buscas += [f"eleições 2026 {UF_NOME[uf]} {pauta}"
+               for uf, pauta in PAUTAS_UF.items()]
     return buscas
 
 
@@ -350,7 +394,8 @@ def normalize_partido(raw) -> str:
 # para o filtro do painel não virar uma lista de quase-duplicatas (foi o que
 # aconteceu com o campo partido).
 TIPOS = ("agenda", "pesquisa", "debate", "aliança", "apoio", "crítica-educação",
-         "proposta-educação", "outro")
+         "proposta-educação", "visita-presidencial", "impugnação", "fato-eleitoral",
+         "outro")
 _TIPO_ALIAS = {
     "alianca": "aliança", "aliancas": "aliança", "alianças": "aliança",
     "coligacao": "aliança", "coligação": "aliança", "federacao": "aliança",
@@ -366,7 +411,17 @@ _TIPO_ALIAS = {
     "proposta educação": "proposta-educação", "propostas de educação": "proposta-educação",
     "proposta de educação": "proposta-educação",
     "proposta de governo em educação": "proposta-educação",
-    "debates": "debate", "sabatina": "debate",
+    "debates": "debate", "sabatina": "debate", "sabatinas": "debate",
+    # visita de presidenciável é separada de agenda: agenda é o compromisso do
+    # próprio candidato, visita é o presidenciável entrando no estado dos outros
+    "visita": "visita-presidencial", "visita presidencial": "visita-presidencial",
+    "visita-presidenciavel": "visita-presidencial",
+    "visita de presidenciável": "visita-presidencial",
+    "impugnacao": "impugnação", "impugnações": "impugnação",
+    "impugnacoes": "impugnação", "impugnação de candidatura": "impugnação",
+    "registro de candidatura": "impugnação",
+    "fato eleitoral": "fato-eleitoral", "impacto eleitoral": "fato-eleitoral",
+    "fato com impacto eleitoral": "fato-eleitoral",
     "agendas": "agenda", "agenda de campanha": "agenda",
     "pesquisas": "pesquisa", "pesquisa eleitoral": "pesquisa",
 }
@@ -422,10 +477,12 @@ def normalize_status(raw) -> str:
 
 
 # ─── Régua de alerta ──────────────────────────────────────────────────────────
-# Os quatro temas que o time trata como alerta, do prompt do agente de
-# monitoramento do Slack. "Executivo" aqui é só governador ou presidente: pesquisa
+# Os temas que o time trata como alerta. Os quatro primeiros vieram do prompt do
+# agente de monitoramento do Slack; os quatro últimos, da pauta que a Jessica
+# fechou com o Fe (01/09) para o que a busca diária tem que cobrir. "Executivo" aqui é só governador ou presidente: pesquisa
 # ou apoio para Senado e Câmara não vira alerta, mesmo sendo notícia relevante.
-ALERTA_TEMAS = ("pesquisa-executivo", "apoio", "rompimento", "educação")
+ALERTA_TEMAS = ("pesquisa-executivo", "apoio", "rompimento", "educação",
+                "debate", "visita-presidencial", "impugnação", "fato-eleitoral")
 _TEMA_ALIAS = {
     "pesquisa": "pesquisa-executivo", "pesquisa executivo": "pesquisa-executivo",
     "pesquisa-eleitoral": "pesquisa-executivo", "pesquisa eleitoral": "pesquisa-executivo",
@@ -433,6 +490,16 @@ _TEMA_ALIAS = {
     "apoio e aliança": "apoio", "apoio/aliança": "apoio",
     "rompimentos": "rompimento", "rompimento de aliança": "rompimento",
     "rompimento de alianca": "rompimento",
+    "debates": "debate", "sabatina": "debate", "sabatinas": "debate",
+    "debate e sabatina": "debate", "debate ou sabatina": "debate",
+    "visita": "visita-presidencial", "visita presidencial": "visita-presidencial",
+    "visita-presidenciavel": "visita-presidencial",
+    "visita de presidenciável": "visita-presidencial",
+    "impugnacao": "impugnação", "impugnações": "impugnação",
+    "impugnacoes": "impugnação", "impugnação de candidatura": "impugnação",
+    "fato eleitoral": "fato-eleitoral", "impacto eleitoral": "fato-eleitoral",
+    "fato com impacto eleitoral": "fato-eleitoral",
+    "acontecimento": "fato-eleitoral",
     "educacao": "educação", "proposta-educação": "educação",
     "proposta-educacao": "educação", "proposta educação": "educação",
     "proposta de governo em educação": "educação", "crítica-educação": "educação",
@@ -442,6 +509,13 @@ _TEMA_ALIAS = {
 # O tema de educação muda o cabeçalho do alerta ("Eixo | Educação" no lugar de
 # "Eixo | Eleições"), que é como o time separa os dois envios.
 TEMAS_EDUCACAO = ("educação",)
+
+# Temas que escapam da trava de cargo do executivo em aplicar_regra_alerta. Em
+# debate e em fato eleitoral o cargo que o modelo devolve é o de quem falou ou de
+# quem está no meio do caso, não o da disputa, então travar por cargo derrubaria
+# justamente o alerta que o time pediu (o caso do MA é um exemplo: o acusado não
+# é candidato ao executivo, o candidato ligado a ele é que interessa).
+TEMAS_LIVRES_DE_CARGO = TEMAS_EDUCACAO + ("debate", "fato-eleitoral")
 _TEMA_VAZIO = {"", "nenhum", "none", "null", "nan", "não", "nao", "n/a"}
 
 # Só pesquisa desses institutos vira alerta (lista fechada, do prompt do time).
@@ -515,10 +589,10 @@ def aplicar_regra_alerta(dados) -> dict:
         # estado não é alerta. Alerta de pesquisa é governador na UF dele e
         # presidente no Brasil inteiro.
         tema = ""
-    elif tema and tema not in TEMAS_EDUCACAO and cargo and cargo not in CARGOS_EXECUTIVO:
-        # educação escapa da trava de cargo: o alerta costuma sair de debate com
-        # vários candidatos na mesa, e nesse caso o cargo que o modelo devolve é
-        # o de quem falou, não o da disputa
+    elif tema and tema not in TEMAS_LIVRES_DE_CARGO and cargo and cargo not in CARGOS_EXECUTIVO:
+        # educação, debate e fato eleitoral escapam da trava de cargo (ver
+        # TEMAS_LIVRES_DE_CARGO): nesses três o cargo que o modelo devolve é o de
+        # quem falou ou de quem está no caso, não o da disputa
         tema = ""
     if dados.get("status") == "não relacionado":
         tema = ""
@@ -546,8 +620,12 @@ def _uf_relevante(n) -> str:
     cargo = str(n.get("cargo") or "").strip().lower()
     if cargo != "presidente":
         return uf
-    if n.get("alerta_tema") != "pesquisa-executivo":
+    # Em visita de presidenciável a UF é o fato inteiro (Lula na Bahia), então
+    # fica mesmo com cargo='presidente'.
+    if n.get("alerta_tema") not in ("pesquisa-executivo", "visita-presidencial"):
         return ""
+    if n.get("alerta_tema") == "visita-presidencial":
+        return uf
     # Pesquisa presidencial: a UF só entra se a pesquisa for estadual mesmo. Um
     # levantamento nacional publicado por site de Pernambuco saiu como
     # "Subnacional | PE" em 10/08, porque a UF veio de quem publicou.
@@ -591,13 +669,13 @@ def classificar_com_gemini(titulo, trecho=""):
         '  "status": "confirmado | pré-candidato | em disputa | renúncia | desistência | pesquisa | cobertura geral | não relacionado | indefinido",\n'
         '  "convencao": true ou false — true SOMENTE se a notícia trata diretamente de uma convenção partidária '
         "(data, realização, resultado ou decisão tomada em convenção). Independente do status da candidatura.\n"
-        '  "tipo": "agenda | pesquisa | debate | aliança | apoio | crítica-educação | proposta-educação | outro",\n'
+        '  "tipo": "agenda | pesquisa | debate | aliança | apoio | crítica-educação | proposta-educação | visita-presidencial | impugnação | fato-eleitoral | outro",\n'
         '  "instituto": "Nome do instituto de pesquisa, se a notícia trata de pesquisa de intenção de voto '
         "(ex: Datafolha, Quaest, Ipec, AtlasIntel). null se não for pesquisa ou se o instituto não for citado\",\n"
         '  "abrangencia": "Só quando a notícia trata de pesquisa eleitoral: \'nacional\' se a pesquisa ouviu o '
         "Brasil inteiro, 'estadual' se ouviu só um estado. Repare que site regional publica pesquisa nacional "
         "o tempo todo: o que vale é quem foi ouvido, não quem publicou. null se não for pesquisa\",\n"
-        '  "alerta_tema": "pesquisa-executivo | apoio | rompimento | proposta-educação | nenhum",\n'
+        '  "alerta_tema": "pesquisa-executivo | apoio | rompimento | proposta-educação | debate | visita-presidencial | impugnação | fato-eleitoral | nenhum",\n'
         '  "confianca": "alto | médio | baixo"\n'
         "}\n\n"
         "Regras de preenchimento:\n"
@@ -641,6 +719,18 @@ def classificar_com_gemini(titulo, trecho=""):
         "  - tipo='proposta-educação': candidato ou pré-candidato apresenta proposta, promessa ou "
         "compromisso de governo na área de educação. É o que ele diz que vai fazer, não ataque ao "
         "adversário (isso é 'crítica-educação')\n"
+        "  - tipo='visita-presidencial': Lula, Flávio Bolsonaro ou outro presidenciável "
+        "com agenda em um estado (visita, desembarque, comício, caravana, inauguração, "
+        "palanque com candidato local), tanto o anúncio quanto a cobertura do que "
+        "aconteceu. Agenda institucional em Brasília não conta. Prefira este a 'agenda', "
+        "que é o compromisso de campanha do próprio candidato daquela disputa\n"
+        "  - tipo='impugnação': pedido de impugnação, indeferimento, cassação ou "
+        "questionamento judicial do registro de uma candidatura, inclusive recurso e "
+        "decisão de TRE ou TSE\n"
+        "  - tipo='fato-eleitoral': acontecimento que não é campanha (acusação, denúncia, "
+        "operação policial, prisão, condenação, morte, afastamento, indefinição pública "
+        "sobre disputar ou não, disputa em torno de um tema local) e que a notícia liga a "
+        "um candidato, pré-candidato, partido ou governo da eleição de 2026\n"
         "  - tipo='outro': não se encaixa em nenhum dos anteriores\n"
         "- confianca='alto': candidato, cargo e UF estão todos explícitos no texto\n"
         "- confianca='médio': algum campo foi inferido com boa certeza pelo contexto\n"
@@ -673,7 +763,29 @@ def classificar_com_gemini(titulo, trecho=""):
         "diga que educação será um dos temas. O alerta é sobre o que foi dito, não sobre o que será "
         "discutido;\n"
         "    · matéria de jornalista, sindicato ou especialista sobre educação sem candidato na história\n"
-        "- 'nenhum': todo o resto, inclusive notícia relevante que não se encaixa nos quatro temas acima\n"
+        "- 'debate': debate ou sabatina entre candidatos, tanto o anúncio (data, emissora, "
+        "quem confirmou e quem recusou o convite) quanto a cobertura do que foi dito. "
+        "Vale para qualquer cargo em disputa, não só executivo\n"
+        "- 'visita-presidencial': Lula, Flávio Bolsonaro ou outro presidenciável com agenda "
+        "em um estado, anunciada ou já realizada. O que interessa é o presidenciável "
+        "pisando no estado e com quem ele aparece; agenda institucional em Brasília, "
+        "viagem internacional e entrevista sem deslocamento não contam\n"
+        "- 'impugnação': pedido de impugnação, indeferimento, cassação ou questionamento "
+        "judicial do registro de uma candidatura, em qualquer cargo, inclusive recurso e "
+        "decisão de TRE ou TSE\n"
+        "- 'fato-eleitoral': acontecimento que não é campanha mas mexe com a disputa. "
+        "Precisa das DUAS coisas ao mesmo tempo:\n"
+        "  (1) um fato concreto: acusação, denúncia, operação policial, prisão, condenação, "
+        "morte, afastamento, indefinição pública sobre disputar ou não ('fulano ainda não "
+        "decidiu se disputa o governo'), ou um tema que virou disputa política no estado "
+        "(exploração de petróleo na Margem Equatorial, no Amapá, por exemplo);\n"
+        "  (2) ligação com a eleição de 2026 dita na própria notícia: o fato envolve "
+        "candidato, pré-candidato, partido, aliado ou governo que está na disputa, ou o "
+        "tema está sendo tratado como bandeira de campanha.\n"
+        "  Não conta: crime, operação, tragédia ou decisão judicial que a notícia não amarra "
+        "a ninguém da disputa; notícia de gestão pública sem candidato na história; "
+        "especulação de terceiro sobre o que um político faria\n"
+        "- 'nenhum': todo o resto, inclusive notícia relevante que não se encaixa nos temas acima\n"
         "- Na dúvida entre 'nenhum' e um tema que se encaixa, escolha o tema\n\n"
         "- Responda SOMENTE o objeto JSON, sem texto extra, sem markdown, sem bloco de código\n\n"
         f"{contexto}"
@@ -1374,6 +1486,10 @@ ROTULO_TEMA = {
     "apoio": "Apoio e aliança ao executivo",
     "rompimento": "Rompimento de aliança",
     "educação": "Educação na campanha",
+    "debate": "Debate e sabatina",
+    "visita-presidencial": "Visita de presidenciável no estado",
+    "impugnação": "Impugnação de candidatura",
+    "fato-eleitoral": "Fato com impacto eleitoral",
 }
 
 PAINEL_URL = os.getenv("PAINEL_NOTICIAS_URL",
