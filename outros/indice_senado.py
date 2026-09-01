@@ -24,7 +24,7 @@ from googleapiclient.discovery import build
 ID = os.getenv("SPREADSHEET_ID_RECANDIDATURAS", "").strip()
 if not ID:
     raise RuntimeError("Variável SPREADSHEET_ID_RECANDIDATURAS não configurada.")
-ABA = "Competitividade Senado 2026"
+ABA = "Competitividade Senado 2026 (teste)"
 # A janela anda com o dia: congelar a data faria o workflow diário parar de
 # enxergar pesquisa nova sem dar erro. DATA_CORTE force a data só em teste.
 CORTE = pd.Timestamp(os.getenv("DATA_CORTE") or pd.Timestamp.today().normalize())
