@@ -6,7 +6,7 @@ c=Credentials.from_service_account_file(os.getenv("GOOGLE_CREDENTIALS_PATH", "cr
 ID=os.getenv("SPREADSHEET_ID_RECANDIDATURAS","").strip()
 if not ID: raise RuntimeError("Variável SPREADSHEET_ID_RECANDIDATURAS não configurada.")
 ws=gspread.authorize(c).open_by_key(ID).worksheet(
-    "Competitividade Senado 2026 (teste)")
+    "Competitividade Senado 2026")
 N={
 "A1":"Universo: todo titular com registro de candidatura ao Senado no TSE (DivulgaCand), "
      "menos as quatro renúncias. São 313 nomes. Não é um recorte de nomes competitivos: "
