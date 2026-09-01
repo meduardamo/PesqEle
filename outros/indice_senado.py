@@ -220,7 +220,8 @@ for _, r in f.iterrows():
     if pd.isna(r.mm):
         texto = ("Sem banda: nenhuma pesquisa dos últimos 90 dias na matriz mede este nome. "
                  "O registro existe no TSE, o número não.")
-        linhas.append([r.candidato, r.partido, r.uf, "Sem pesquisa recente", "—", "—", "—", "—",
+        linhas.append([r.candidato, r.partido, r.uf, "Sem pesquisa recente", "—",
+                       "Sem pesquisa", "—", "—", "—",
                        texto, r.chapa, r.chapa_base, r.coligacao, r.cabeca,
                        r.lado, r.fonte_lado, r.mandato, r.situacao_registro, "0", "—"])
         continue
@@ -239,14 +240,18 @@ for _, r in f.iterrows():
              f"• Base: {lastro}. Última pesquisa de Senado do estado em {r.data_ult:%d/%m/%Y}\n"
              f"• Margem de erro do estado: {br(r.me_uf)} pontos. Empate técnico até {br(r.empate)} "
              f"pontos, que é a margem da diferença entre dois percentuais{extra}")
+    # 2026 tem duas vagas por estado: competitivo é quem está numa delas (banda 6
+    # ou 7) ou empatado tecnicamente com quem está na segunda (banda 5).
     linhas.append([r.candidato, r.partido, r.uf, BANDA[int(r.nota)], str(int(r.nota)),
+                   "Sim" if r.nota >= 5 else "Não",
                    f"{int(r.posicao)}º", br(r.mm) + "%", brs(r.dist), texto,
                    r.chapa, r.chapa_base, r.coligacao, r.cabeca,
                    r.lado, r.fonte_lado, r.mandato, r.situacao_registro, str(n),
                    f"{r.data_ult:%d/%m/%Y}"])
 
 H = ["Candidato", "Partido", "UF", "Índice de competitividade eleitoral", "Nota da régua",
-     "Posição na disputa", "Média das pesquisas", "Distância para a linha de corte",
+     "É competitivo?", "Posição na disputa", "Média das pesquisas",
+     "Distância para a linha de corte",
      "Como o índice foi calculado", "Chapa presidencial", "Base do vínculo de chapa",
      "Coligação no estado", "Cabeça de chapa no estado",
      "Apoio presidencial declarado", "Fonte do apoio declarado",
@@ -257,6 +262,9 @@ print(f"{len(linhas)} linhas, {len(H)} colunas")
 print("\nbandas:")
 print(f.nota.map(lambda n: BANDA.get(n, "Sem pesquisa recente")).value_counts()
       .reindex(list(BANDA.values()) + ["Sem pesquisa recente"]).to_string())
+print("\ncompetitivos:", int((f.nota >= 5).sum()), "de", len(f),
+      "| por UF, de", int(f[f.nota >= 5].groupby("uf").size().min()),
+      "a", int(f[f.nota >= 5].groupby("uf").size().max()))
 print("\nchapa presidencial (registro do TSE):")
 print(f.chapa.value_counts().to_string())
 print("\napoio presidencial declarado (base de apoios):")
@@ -271,14 +279,16 @@ gc = gspread.authorize(c); svc = build("sheets", "v4", credentials=c); sh = gc.o
 try: sh.del_worksheet(sh.worksheet(ABA))
 except Exception: pass
 ws = sh.add_worksheet(title=ABA, rows=len(linhas) + 1, cols=len(H))
-ws.update([H] + linhas, "A1", value_input_option="USER_ENTERED")
+# RAW e não USER_ENTERED: com USER_ENTERED o Sheets lê "16,6%" como número e
+# guarda 0,166, e a coluna, que é toda texto, passa a mostrar 0,166.
+ws.update([H] + linhas, "A1", value_input_option="RAW")
 sid = ws.id
 CINZA = {"red": .882, "green": .882, "blue": .882}
 MAR = {"red": .098, "green": .176, "blue": .306}
 VIN = {"red": .588, "green": .18, "blue": .302}
-tons = [CINZA, CINZA, CINZA, VIN, VIN, MAR, MAR, MAR, MAR,
+tons = [CINZA, CINZA, CINZA, VIN, VIN, VIN, MAR, MAR, MAR, MAR,
         VIN, MAR, MAR, MAR, VIN, MAR, MAR, MAR, MAR, MAR]
-larg = [195, 105, 45, 250, 95, 110, 120, 150, 480,
+larg = [195, 105, 45, 250, 95, 105, 110, 120, 150, 480,
         150, 290, 330, 180, 165, 200, 200, 175, 110, 130]
 req = [{"updateSheetProperties": {"properties": {"sheetId": sid, "gridProperties":
         {"frozenRowCount": 1, "frozenColumnCount": 1}},

@@ -12,11 +12,15 @@ from collections import Counter
 from pathlib import Path
 
 import gspread
-import requests
+# O WAF do TSE recusa o handshake TLS do urllib3 e devolve 403 no runner do
+# Actions, mesmo com cabeçalho de navegador. curl_cffi refaz o handshake com o
+# perfil do Chrome, que é o que o tse_candidaturas.py já faz.
+from curl_cffi import requests
 
 
 ANO = 2026
 API = "https://divulgacandcontas.tse.jus.br/divulga/rest/v1"
+IMPERSONAR = os.getenv("TSE_IMPERSONAR", "chrome")
 HEADERS_HTTP = {"User-Agent": "Mozilla/5.0"}
 CREDS_FILE = Path(os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json"))
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID_TSE", "").strip()
@@ -46,10 +50,11 @@ HEADERS = [
 def get_json(session, url, attempts=5):
     for attempt in range(1, attempts + 1):
         try:
-            response = session.get(url, headers=HEADERS_HTTP, timeout=45)
+            response = session.get(url, headers=HEADERS_HTTP, timeout=45,
+                                   impersonate=IMPERSONAR)
             response.raise_for_status()
             return response.json()
-        except (requests.RequestException, ValueError):
+        except Exception:
             if attempt == attempts:
                 raise
             time.sleep(attempt * 2)
@@ -131,7 +136,7 @@ def _fetch_candidate_detail(item, election, headers_http):
     s = requests.Session()
     s.headers.update(headers_http)
     try:
-        r = s.get(source_url, timeout=30)
+        r = s.get(source_url, timeout=30, impersonate=IMPERSONAR)
         r.raise_for_status()
         detail = r.json()
     except Exception:
