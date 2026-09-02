@@ -2792,6 +2792,12 @@ def reconstruir_resultados_bi(gc, sheet_id: str):
     aba_pesquisas = garantir_aba(sh, "pesquisas", rows=50000, cols=35)
     aba_resultados_bi = garantir_aba(sh, "resultados_bi", rows=20000, cols=40)
 
+    # Antes de consolidar: a nota de cada linha tem que estar na escala vigente,
+    # senão o resultados_bi e a média saem ponderados por uma régua misturada.
+    # A rotina também roda no salvar_tudo; aqui ela dá o caminho de consertar a
+    # matriz sob demanda, disparando só o rebuild.
+    normalizar_institutos_retroativo(aba_pesquisas, aba_resultados)
+
     df_resultados_all = carregar_df_da_aba(aba_resultados)
     df_pesquisas_all = carregar_df_da_aba(aba_pesquisas)
     df_resultados_bi = construir_resultados_bi(df_resultados_all, df_pesquisas_all)
