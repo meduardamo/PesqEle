@@ -265,6 +265,15 @@ def gravar(sh, nome: str, colunas: list[str], chave: list[str],
         atual = atual[~atual["sq_candidato"].astype(str).isin(sqs)]
     juntas = pd.concat([atual, pd.DataFrame(novas)], ignore_index=True) \
         if not atual.empty else pd.DataFrame(novas)
+    # A aba manda no conjunto de colunas, e não o COLS de quem está gravando.
+    # A gravação é clear + update: coluna que a aba tem e a lista daqui não
+    # some da planilha, e some sem erro nenhum. Em 02/09/2026 foi assim que as
+    # três colunas de etapa do tempo integral, preenchidas às 13:12, sumiram às
+    # 14:42 numa rodada saída de um clone antigo do repo, com o COLS de 22
+    # nomes. Preservar o que está na aba custa uma coluna a mais no update e
+    # protege qualquer coluna criada depois desta cópia do código.
+    extras = [c for c in atual.columns if c and c not in colunas]
+    colunas = list(colunas) + extras
     juntas = juntas.reindex(columns=colunas).fillna("").astype(str)
     if "analisado_em" in juntas.columns:
         # Ordem por data de análise, não por posição na aba: com keep="last" a
