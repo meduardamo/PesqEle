@@ -2979,18 +2979,40 @@ def classificar_etapas_tempo_integral(contexto: str, nivel: str) -> dict:
         "\"inferencia\": \"explícita|inferida|não especificada\"}. Lista vazia "
         "quando a etapa não estiver especificada.\n\n"
         f"TRECHOS DO PLANO:\n{contexto}")
-    resp = _gerar(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json"),
-    )
-    item = _carregar_json(getattr(resp, "text", ""),
-                          "etapas de Tempo Integral")
-    if not isinstance(item, dict):
-        raise RespostaIlegivel("etapas de Tempo Integral não vieram como objeto")
-    return conferir_etapas_tempo_integral(
-        item.get("etapas", []), item.get("evidencia", ""),
-        item.get("inferencia", ""), contexto, nivel)
+    def perguntar(texto_prompt: str) -> dict:
+        resp = _gerar(
+            model=GEMINI_MODEL,
+            contents=texto_prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        item = _carregar_json(getattr(resp, "text", ""),
+                              "etapas de Tempo Integral")
+        if not isinstance(item, dict):
+            raise RespostaIlegivel(
+                "etapas de Tempo Integral não vieram como objeto")
+        return conferir_etapas_tempo_integral(
+            item.get("etapas", []), item.get("evidencia", ""),
+            item.get("inferencia", ""), contexto, nivel)
+
+    resultado = perguntar(prompt)
+    # Uma resposta genérica não apaga um indício forte que está no contexto.
+    # O Gemini oscilou no piloto do Daniel Vilela (GO): na primeira leitura
+    # achou "Ensino Médio Integral"; na segunda devolveu evidência vazia. Só
+    # repete quando o próprio texto contém jornada integral e algum indício de
+    # etapa, para não dobrar custo nos casos realmente não especificados.
+    n_contexto = _norm_acentos(contexto)
+    tem_indicio = (any(rx.search(n_contexto)
+                       for rx in _INDICIOS_ETAPA_INTEGRAL.values())
+                   or _INDICIO_REDE_ESTADUAL.search(n_contexto))
+    if (resultado["etapas_tempo_integral"] == ETAPA_NAO_ESPECIFICADA
+            and _INDICIO_JORNADA_INTEGRAL.search(n_contexto) and tem_indicio):
+        revisao = perguntar(
+            prompt + "\n\nREVISE COM ATENÇÃO: o contexto contém indício de etapa. "
+            "Localize a passagem em que esse indício está ligado à jornada "
+            "integral e não devolva lista vazia sem conferir essa passagem.")
+        if revisao["etapas_tempo_integral"] != ETAPA_NAO_ESPECIFICADA:
+            resultado = revisao
+    return resultado
 
 
 # Sem mínimo de caracteres dentro das aspas. Com o mínimo de 8 que estava aqui,

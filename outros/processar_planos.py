@@ -988,6 +988,11 @@ def preencher_etapas_tempo_integral(sh, uf: str = "", limite: int = 0,
             print(f"ERRO: {type(e).__name__}: {e}")
             erros.append(nome)
             continue
+        anterior = str(r.get("etapas_tempo_integral", "") or "")
+        if (anterior and anterior not in ("Etapa não especificada", "Não se aplica")
+                and resultado["etapas_tempo_integral"] == "Etapa não especificada"):
+            print(f"mantido resultado anterior mais específico: {anterior}")
+            continue
         linha = indice + 2
         for campo_resultado in colunas_novas:
             coluna = COLS.index(campo_resultado) + 1
