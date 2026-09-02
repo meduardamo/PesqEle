@@ -1,5 +1,6 @@
 from outros.analise_planos import (
-    _limpa, conferir_etapas_tempo_integral, limpar_ruido_citacao)
+    _limpa, conferir_etapas_tempo_integral,
+    etapas_tempo_integral_no_mesmo_contexto, limpar_ruido_citacao)
 
 
 def test_tira_numero_editorial_sem_tirar_meta():
@@ -81,3 +82,14 @@ def test_tempo_integral_ausente_nao_se_aplica():
     r = conferir_etapas_tempo_integral(
         ["Ensino Médio"], "", "inferida", "", "Não menciona")
     assert r["etapas_tempo_integral"] == "Não se aplica"
+
+
+def test_fallback_exige_etapa_e_integral_na_mesma_frase():
+    ligado = ("A política prevê ampliação da sinergia entre o Ensino Médio "
+              "Integral e a Educação Profissional.")
+    separado = ("A política reformará o Ensino Médio. [...] Também ampliará "
+                "as escolas de tempo integral.")
+    assert etapas_tempo_integral_no_mesmo_contexto(
+        ligado, "Propõe ação")["etapas_tempo_integral"] == "Ensino Médio"
+    assert etapas_tempo_integral_no_mesmo_contexto(
+        separado, "Propõe ação")["etapas_tempo_integral"] == "Etapa não especificada"

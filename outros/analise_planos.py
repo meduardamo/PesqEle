@@ -2892,7 +2892,8 @@ _INDICIOS_ETAPA_INTEGRAL = {
 _INDICIO_REDE_ESTADUAL = re.compile(
     r"\b(rede estadual|escolas? estaduais?|colegios? estaduais?)\b")
 _INDICIO_JORNADA_INTEGRAL = re.compile(
-    r"\b(tempo integral|ensino integral|educacao integral|"
+    r"\b(tempo integral|ensino integral|ensino(?:\s+\w+){1,2}\s+integral|"
+    r"educacao integral|"
     r"escola(?:\s+\w+){0,3}\s+integral|"
     r"jornada ampliada|periodo integral|turno integral)\b")
 
@@ -2949,6 +2950,47 @@ def conferir_etapas_tempo_integral(etapas, evidencia: str, inferencia: str,
                 e for e in ETAPAS_TEMPO_INTEGRAL if e in validadas),
             "evidencia_etapas_tempo_integral": evidencia,
             "etapas_inferidas_tempo_integral": " | ".join(inferidas)}
+
+
+def etapas_tempo_integral_no_mesmo_contexto(contexto: str, nivel: str) -> dict:
+    """Fallback para relações inequívocas dentro da mesma frase.
+
+    Não é a classificação principal: estabiliza o que está literalmente unido
+    no texto, como "Ensino Médio Integral". Menções em frases ou blocos
+    diferentes não são aproximadas.
+    """
+    if nivel == "Não menciona":
+        return conferir_etapas_tempo_integral([], "", "", contexto, nivel)
+    achadas, evidencias, inferidas = [], [], []
+    pedacos = re.split(r"\[\.\.\.\]|(?<=[.!?;])\s+|\n+", str(contexto or ""))
+    for pedaco in pedacos:
+        pedaco = pedaco.strip()
+        n = _norm_acentos(pedaco)
+        if not pedaco or not _INDICIO_JORNADA_INTEGRAL.search(n):
+            continue
+        locais = []
+        if re.search(r"\b(educacao|escola) basica\b", n):
+            locais = list(ETAPAS_TEMPO_INTEGRAL)
+        else:
+            locais = [etapa for etapa, rx in _INDICIOS_ETAPA_INTEGRAL.items()
+                      if rx.search(n)]
+            if (not locais and _INDICIO_REDE_ESTADUAL.search(n)):
+                locais = ["Ensino Médio"]
+                inferidas.append("Ensino Médio")
+        if locais:
+            for etapa in locais:
+                if etapa not in achadas:
+                    achadas.append(etapa)
+            evidencias.append(pedaco)
+    if not achadas:
+        return {"etapas_tempo_integral": ETAPA_NAO_ESPECIFICADA,
+                "evidencia_etapas_tempo_integral": "",
+                "etapas_inferidas_tempo_integral": ""}
+    resultado = conferir_etapas_tempo_integral(
+        achadas, " [...] ".join(evidencias),
+        "inferida" if inferidas else "explícita", contexto, nivel)
+    # conferir_etapas calcula a procedência etapa a etapa a partir da evidência.
+    return resultado
 
 
 def classificar_etapas_tempo_integral(contexto: str, nivel: str) -> dict:
@@ -3012,6 +3054,10 @@ def classificar_etapas_tempo_integral(contexto: str, nivel: str) -> dict:
             "integral e não devolva lista vazia sem conferir essa passagem.")
         if revisao["etapas_tempo_integral"] != ETAPA_NAO_ESPECIFICADA:
             resultado = revisao
+    if resultado["etapas_tempo_integral"] == ETAPA_NAO_ESPECIFICADA:
+        fallback = etapas_tempo_integral_no_mesmo_contexto(contexto, nivel)
+        if fallback["etapas_tempo_integral"] != ETAPA_NAO_ESPECIFICADA:
+            resultado = fallback
     return resultado
 
 
