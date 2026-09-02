@@ -424,6 +424,26 @@ ALIASES_INSTITUTO = {
     "IMAPE - INST. MAJORITARIO DE PESQUISAS E ESTATISTICAS": "IMAPE",
     # Nomes como o Pindograma publica, apontando para a grafia que a matriz já
     # usa. Sem eles, a nota existe na tabela e não é encontrada.
+    #
+    # Os cinco abaixo saíram de CLASSIFICACAO_SEM_FONTE em 02/09/2026, depois de
+    # cruzar UF, fonte e registro TSE das pesquisas gravadas com a base. Nos
+    # quatro primeiros a nota que já valia é igual à da base, então o peso não
+    # muda; o alias só liga o nome ao instituto certo.
+    #   Instituto Ranking Brasil Inteligência: as 4 pesquisas (MS, senador) são
+    #     publicadas em rankingpesquisa.com.br, que é a entrada "Ranking
+    #     Pesquisa" da base.
+    #   Delta Pesquisas: 30 pesquisas no AC, nome e nota (B) da Delta Agência.
+    #   Direct Pesquisas: 13 em GO, nome e nota (D) da Directa Pesquisa.
+    #   DMP Pesquisa: 3 no AM, nome e nota (B-) da DMP.
+    #   Opinião: 8 pesquisas, todas do DF, e a única entrada de "Opinião" no DF
+    #     é a Opinião Brasil (DF). Este é o único que muda de peso, de B+ (0,55)
+    #     para B- (0,40). É o que a UF sustenta; para certeza seria preciso bater
+    #     o CNPJ do registro no PesqEle contra o que a base publica.
+    "Instituto Ranking Brasil Inteligência": "Instituto Ranking",
+    "Delta Pesquisas": "Delta Agência de Pesquisa",
+    "Direct Pesquisas": "Directa Pesquisa",
+    "DMP Pesquisa": "DMP",
+    "Opinião": "Opinião Brasil (DF)",
     "Agorasei Pesquisa": "Agorasei",
     "Census Pesquisas": "Census",
     "Colectta Consultoria": "Colectta",
@@ -501,6 +521,13 @@ def normalizar_instituto(nome) -> str:
 #
 # Cada linha aqui precisa estar escrita na página de Metodologia dos painéis.
 # Rebaixamento que o leitor não vê é a Eixo mexendo no número em silêncio.
+# A Indexa saiu daqui em 02/09/2026, sem alias: ela não está na base do
+# Pindograma, e a entrada "Index Pesquisas" é outra empresa (institutoindex.com.br,
+# CNPJ próprio), não a Indexa Pesquisas das pesquisas nacionais da CNN e da
+# CartaCapital. Instituto sem nota publicada vale "Ainda não foi avaliado" (0,25),
+# não o B- (0,40) que estava aqui sem procedência. São 16 pesquisas, nacionais e
+# de presidente, 13 delas no 2º turno.
+#
 # Notas que estavam na transcrição manual antiga e que não foram encontradas na
 # base publicada do Pindograma, seja porque o nome não existe lá, seja porque há
 # mais de um candidato e o nome não desempata ("Opinião" bate com sete). Ficam
@@ -508,13 +535,11 @@ def normalizar_instituto(nome) -> str:
 # para não derrubar para 0,25 quem já tinha peso. Precisam de conferência: ou
 # viram alias para o nome certo da base, ou saem.
 CLASSIFICACAO_SEM_FONTE = {
+    # Sobrou um. As 3 pesquisas são de MT, governador e senador. O único
+    # candidato na base é "Index Pesquisas", que tem a mesma nota B-, mas o nome
+    # é bem diferente e o erro médio daquela entrada é 6,0. Como a nota bate, na
+    # prática nada muda; fica aqui marcado até alguém bater o CNPJ.
     'Data Index': 'B-',
-    'Delta Pesquisas': 'B',
-    'Direct Pesquisas': 'D',
-    'DMP Pesquisa': 'B-',
-    'Indexa': 'B-',
-    'Instituto Ranking Brasil Inteligência': 'B',
-    'Opinião': 'B+',
 }
 
 
