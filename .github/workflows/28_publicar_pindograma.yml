@@ -1,0 +1,47 @@
+name: 28 - Publicar base do Pindograma
+
+# Sem cron: o ranking do Pindograma é atualizado de anos em anos (a versão atual
+# é de 24/09/2024). Rodar sozinho seria gastar execução para reescrever a mesma
+# coisa. Dispara na mão quando o Pindograma publicar versão nova, ou quando a
+# aba for editada por engano e precisar voltar ao que a fonte diz.
+on:
+  workflow_dispatch:
+    inputs:
+      spreadsheet_id:
+        description: "ID da planilha (o trecho entre /d/ e /edit na URL)"
+        required: true
+        type: string
+      aba:
+        description: "Nome da aba a escrever"
+        required: false
+        default: "Pindograma"
+        type: string
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      TZ: "America/Recife"
+      PYTHONUNBUFFERED: "1"
+      GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Publicar aba
+        run: |
+          python -u -m outros.publicar_pindograma \
+            "${{ inputs.spreadsheet_id }}" "${{ inputs.aba }}"
