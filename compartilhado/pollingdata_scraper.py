@@ -280,6 +280,224 @@ CLASSIFICACAO_INSTITUTOS = {
     'Ágora Pesquisa (RJ)': 'A',
 }
 
+# Índice contínuo de desempenho publicado pelo Pindograma (`pred_pm_adj`).
+# Menor é melhor. A letra do Pindograma comprime 75 institutos na faixa B; a
+# O painel usa o mesmo índice, sem alterar a ordem, e o divide em dez grupos de
+# tamanho semelhante para comunicar melhor as diferenças internas.
+INDICE_PINDOGRAMA = {
+    '6 Sigma': 0.390,
+    'ABC Dados': 0.941,
+    'Access': 1.264,
+    'Acertar': 0.855,
+    'Action Marketing': -0.322,
+    'Advise': 1.779,
+    'Agili Pesquisas': 0.485,
+    'Agora Pesquisa (BA)': 0.124,
+    'Agorasei': 0.216,
+    'Alternativa Dados': 0.820,
+    'American Analytics': 0.065,
+    'Amostragem': -1.022,
+    'AR7 Pesquisa': 1.080,
+    'AtlasIntel': -0.576,
+    'Avaliar Pesquisa': 0.255,
+    'Badra Comunicação': 0.000,
+    'BMO': 0.267,
+    'BR Marketing': 2.066,
+    'Brand Consultoria': 0.229,
+    'Brasil Dados': 0.223,
+    'Brasmarket': 2.001,
+    'Camminus Marketing': -0.298,
+    'Captavox': -0.153,
+    'Census': 0.627,
+    'Certifica Consultoria': 0.305,
+    'Certus': 0.314,
+    'Colectta': 0.399,
+    'Compet': 0.398,
+    'Comunicare': 0.658,
+    'Conpar': -0.161,
+    'Consult Pesquisa': 0.124,
+    'Consulte Inteligência (PI)': -0.344,
+    'Cooperfil': 1.262,
+    'Correio do Povo Tocantinense': 0.196,
+    'CP2 Pesquisa': 0.225,
+    'CTAS Tecnologia': 0.001,
+    'Dados Pesquisa (GO)': 0.230,
+    'Data AZ': 0.713,
+    'Data Fato': 0.600,
+    'Data M': 0.630,
+    'Dataconsulte': 1.401,
+    'Datafolha': -0.395,
+    'Dataform': 0.100,
+    'Datamax': 0.463,
+    'Datamédia': 1.394,
+    'Dataqualy': 0.342,
+    'Datasonda': 0.403,
+    'Datavox (PB)': 0.674,
+    'Delta Agência de Pesquisa': 0.271,
+    'Desttaq': 0.815,
+    'DGABC Pesquisas': 0.575,
+    'Diagnóstico Pesquisas': 0.197,
+    'Directa Pesquisa': 1.615,
+    'DMP': 0.553,
+    'Doxa': 0.212,
+    'Econométrica': 0.252,
+    'Eficaz Pesquisas': -0.049,
+    'Empresa de Pesquisas Técnicas': 0.301,
+    'Enquet Pesquisas': 0.475,
+    'EPP': -0.589,
+    'Equação Pesquisas': 0.124,
+    'Escutec': 0.042,
+    'Estimativa': 1.610,
+    'Exata OP': 0.649,
+    'Exata Pesquisa (MA)': -0.048,
+    'Exata.GO': 1.624,
+    'Exatus': 0.416,
+    'F5 Atualiza Dados': -0.338,
+    'Falpe Pesquisas': 1.995,
+    'Fernandes Consultoria': 0.871,
+    'FLS Pesquisa': 0.205,
+    'Folha Capital': 0.343,
+    'Fortiori': 0.501,
+    'FSB Pesquisa': 0.015,
+    'Futura': -0.752,
+    'Gazeta Dados': -0.429,
+    'GERP': 0.844,
+    'Goiás Pesquisas': 0.261,
+    'Govnet/Instituto Opinião (SP)': -0.352,
+    'GPP': 0.170,
+    'Grupo M': 0.559,
+    'IABR': 0.043,
+    'IBPS': 0.172,
+    'Ideia Big Data': -0.159,
+    'IMAPE': 0.970,
+    'Incope': -0.366,
+    'Index Pesquisas': 0.516,
+    'Infornews': 0.185,
+    'INOP': 2.066,
+    'INOPE': -0.020,
+    'INOR': 1.080,
+    'Inove Consultoria': -0.157,
+    'Instituto Credibilidade': 1.076,
+    'Instituto Datailha': 0.769,
+    'Instituto Datasensus': -0.031,
+    'Instituto de Pesquisa Resultado (MS)': 0.102,
+    'Instituto Estimativa': 0.920,
+    'Instituto Exatta (PE)': 0.580,
+    'Instituto França': 0.588,
+    'Instituto Gauss': 1.146,
+    'Instituto Haverroth': 0.363,
+    'Instituto Jales': 0.553,
+    'Instituto Múltipla': 0.412,
+    'Instituto Opinião (PR)': 0.313,
+    'Instituto Podium': 0.778,
+    'Instituto Qualitativa': 0.324,
+    'Instituto Ranking': 0.093,
+    'Instituto Realidade': 2.322,
+    'Instituto Seta': 0.237,
+    'Instituto Skala': 0.408,
+    'Instituto Stylo': 0.136,
+    'Instituto Vision Survey': 0.580,
+    'Instituto VOPE': 1.240,
+    'Inteligence Serviços': 1.644,
+    'IPAT': -0.070,
+    'IPC': 0.332,
+    'Ipec': -0.606,
+    'IPEMS': -0.473,
+    'Ipespe': 0.173,
+    'IPMN': 0.910,
+    'IPPEC (PR)': 0.084,
+    'IPPI': 0.334,
+    'IRG Consultoria': -0.382,
+    'Item Pesquisas': -0.242,
+    'J. J. Coelho': 1.039,
+    'Jornal Correio Continental': 1.658,
+    'Jornal Girassol': 0.004,
+    'Jornal O Coletivo': 0.996,
+    'Jornal O+Positivo': 0.305,
+    'Jornal Sudoeste (BA)': 2.269,
+    'London Pesquisas': 1.731,
+    'M S Passos Comunicação': 0.352,
+    'Malujoa Comunicações': 2.326,
+    'Mapa Marketing': -0.581,
+    'Mark Instituto de Pesquisa': 0.671,
+    'MAS Opinião': -0.372,
+    'MBO': 0.757,
+    'MDA': -0.425,
+    'Merita Comunicações': 1.365,
+    'Methodus': -0.308,
+    'MT Dados': 0.162,
+    'Multidados': 1.146,
+    'Naipes Marketing': 0.531,
+    'Novo Ibrape': -0.048,
+    'Opinar': 0.093,
+    'Opinião Brasil (DF)': 0.679,
+    'Opinião Pesquisas (PB)': -0.192,
+    'Painel Brasil': 0.232,
+    'Paraná Pesquisas': -0.421,
+    'Perfil Pesquisas Técnicas': 0.088,
+    'Perspectiva Mercado e Opinião': 0.277,
+    'PoderData': 0.367,
+    'Polo Pesquisas': -0.278,
+    'Pontual Pesquisas': 0.638,
+    'Pop Pesquisas': 0.868,
+    'Porto News': 0.886,
+    'Potencial': 0.026,
+    'Prever Pesquisas': -0.164,
+    'Promídia': 0.826,
+    'Quaest': 0.013,
+    'Quallity Serviços Inteligente': 1.969,
+    'R M Mariath': 0.738,
+    'Radar Inteligência': -0.324,
+    'Real Dados': -0.735,
+    'Real Time Big Data': 0.066,
+    'RF Consultoria': 1.381,
+    'RPP Logística': 0.930,
+    'Rádio Maracu': 1.104,
+    'Sebram': 2.278,
+    'Seculus': 1.055,
+    'Sensatus Pesquisa': 0.277,
+    'Sensus': 0.961,
+    'Serpes': -0.056,
+    'Sinfor': -0.037,
+    'Solução Treinamento': -0.203,
+    'Studio Pesquisas': 0.049,
+    'Surgiu Pesquisas': 0.444,
+    'TDL Pesquisa': 1.546,
+    'Tecnodados': 0.313,
+    'Tendência Pesquisa (SC)': 0.410,
+    'TS2 Soluções': 0.864,
+    'UP Pesquisas': 0.762,
+    'Vale Consultoria': 0.665,
+    'Veiga Consultoria e Pesquisa': 0.133,
+    'Ver Pesquisa': -0.666,
+    'Veritá': 0.441,
+    'Vetor Assessoria': -0.042,
+    'Visão Pesquisas': 1.877,
+    'Voga Pesquisas': 1.061,
+    'Voice Pesquisas (MT)': 0.031,
+    'Vox Opinião Pública (SP)': 0.562,
+    'Vox Populi': 0.067,
+    'W J Mendes': 0.467,
+    'Zaytec Brasil': 0.313,
+    'Ágora Pesquisa (RJ)': -0.532,
+}
+
+ORDEM_CLASSIFICACOES = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D"]
+
+
+def _montar_classificacoes_por_indice() -> tuple[dict[str, str], dict[str, int]]:
+    ordenados = sorted(INDICE_PINDOGRAMA, key=INDICE_PINDOGRAMA.get)
+    total = len(ordenados)
+    faixas = {}
+    posicoes = {}
+    for i, nome in enumerate(ordenados):
+        faixas[nome] = ORDEM_CLASSIFICACOES[min(9, int(i * 10 / total))]
+        posicoes[nome] = i + 1
+    return faixas, posicoes
+
+
+CLASSIFICACAO_POR_INDICE, POSICAO_PINDOGRAMA = _montar_classificacoes_por_indice()
+
 
 METODOLOGIA_INSTITUTOS = {
     "Datafolha": "Pesquisa quantitativa, por amostragem, com aplicação de questionário estruturado e abordagem presencial em pontos de fluxo. Universo: população brasileira com 16 anos ou mais.",
@@ -466,9 +684,7 @@ ALIASES_INSTITUTO = {
     "Pontual Pesquisas (AM)": "Pontual Pesquisas",
     "Ranking Pesquisa": "Instituto Ranking",
     "Seculus Consultoria": "Seculus",
-    # Veritá — grafias sem acento e com prefixo. Aqui o alias não é cosmético:
-    # o instituto está em OVERRIDES_CLASSIFICACAO, e uma grafia não resolvida
-    # cairia em "Ainda não foi avaliado", peso 0,25, cinco vezes o rebaixamento.
+    # Veritá — grafias sem acento e com prefixo.
     "Verita": "Veritá",
     "VERITA": "Veritá",
     "VERITÁ": "Veritá",
@@ -496,37 +712,11 @@ def normalizar_instituto(nome) -> str:
     return ALIASES_INSTITUTO.get(nome_norm, nome_norm)
 
 
-# Rebaixamentos decididos pela Eixo, por fora do ranking. Existem porque toda
-# régua de acurácia disponível é histórica: o Pindograma fecha em 2022, o
-# PollsterGraph também, e o ranking de acerto que o TSE anunciou em setembro de
-# 2026 só sai depois da eleição. Nenhuma delas enxerga o ciclo corrente, então
-# um instituto pode carregar nota de meio da tabela enquanto o método dele está
-# sendo derrubado na Justiça.
-#
-# A régua para entrar aqui é estreita, e é a mesma para todos: decisão de
-# Justiça Eleitoral, em série, apontando falha de composição de amostra. Não
-# entra instituto por divergir do agregado, por errar uma eleição ou por má
-# reputação.
-#
-# Veritá, 02/09/2026 → D. A Justiça Eleitoral suspendeu ou proibiu a divulgação
-# de pesquisas dele em 13 estados e no DF em agosto de 2026. No Amazonas, 62% da
-# amostra tinha dado duplicado. No Rio Grande do Norte, 34% dos entrevistados
-# com ensino superior contra 13,73% do eleitorado do estado pelo TSE, e o dobro
-# da faixa de renda mais alta em relação aos demais institutos. Na Paraíba, o
-# TRE apontou falta de isonomia e falha no controle territorial. O que está em
-# causa é a representatividade da amostra, que é a premissa da pesquisa, e não a
-# margem de acerto, que é o que o ranking mede. Vale para todas as pesquisas do
-# instituto, não a partir da data das decisões: elas apontam falha de método, e
-# o método é o mesmo desde o começo do ciclo.
-#
-# Cada linha aqui precisa estar escrita na página de Metodologia dos painéis.
-# Rebaixamento que o leitor não vê é a Eixo mexendo no número em silêncio.
-# A Indexa saiu daqui em 02/09/2026, sem alias: ela não está na base do
+# A Indexa não está na base do
 # Pindograma, e a entrada "Index Pesquisas" é outra empresa (institutoindex.com.br,
 # CNPJ próprio), não a Indexa Pesquisas das pesquisas nacionais da CNN e da
 # CartaCapital. Instituto sem nota publicada vale "Ainda não foi avaliado" (0,25),
-# não o B- (0,40) que estava aqui sem procedência. São 16 pesquisas, nacionais e
-# de presidente, 13 delas no 2º turno.
+# não uma classificação atribuída por aproximação de nome.
 #
 # Notas que estavam na transcrição manual antiga e que não foram encontradas na
 # base publicada do Pindograma, seja porque o nome não existe lá, seja porque há
@@ -543,35 +733,28 @@ CLASSIFICACAO_SEM_FONTE = {
 }
 
 
-OVERRIDES_CLASSIFICACAO = {
-    "Veritá": "D",
-}
+OVERRIDES_CLASSIFICACAO = {}
 
 
 def classificar_instituto(nome):
     canonico = normalizar_instituto(nome)
-    if canonico in OVERRIDES_CLASSIFICACAO:
-        return OVERRIDES_CLASSIFICACAO[canonico]
-    if canonico in CLASSIFICACAO_INSTITUTOS:
-        return CLASSIFICACAO_INSTITUTOS[canonico]
+    if canonico in CLASSIFICACAO_POR_INDICE:
+        return CLASSIFICACAO_POR_INDICE[canonico]
     return CLASSIFICACAO_SEM_FONTE.get(canonico, "Ainda não foi avaliado")
 
 
-# Score de confiabilidade por classificação, conforme nota metodológica
-# "Cálculo da Média das Pesquisas Presidenciais 2026". B (sem + ou -) usa o
-# ponto médio entre B+ e B- (0,475) para preservar a ordinalidade da escala.
+# Pesos graduais das dez faixas de classificação formadas a partir do índice
+# contínuo do Pindograma. Instituto sem índice mantém o peso conservador 0,25.
 SCORE_INSTITUTO = {
-    "A+": 1.00,
-    "A":  0.85,
-    "A-": 0.70,
-    "B+": 0.55,
-    "B":  0.475,
+    "A+": 0.85,
+    "A":  0.76,
+    "A-": 0.67,
+    "B+": 0.58,
+    "B":  0.49,
     "B-": 0.40,
-    "C+": 0.30,
-    "C":  0.20,
-    "C-": 0.10,
-    # A escala do Pindograma vai até D e não tem A+, C+ nem C-. As faixas que
-    # ele não usa ficam no dicionário porque a nota histórica pode reaparecer.
+    "C+": 0.31,
+    "C":  0.22,
+    "C-": 0.135,
     "D":  0.05,
     "Ainda não foi avaliado": 0.25,
 }
@@ -2994,10 +3177,8 @@ def montar_df_institutos() -> pd.DataFrame:
     nomes = sorted(canonicos, key=lambda n: n.lower())
     for nome in nomes:
         nota = classificar_instituto(nome)
-        if nome in OVERRIDES_CLASSIFICACAO:
-            fonte = "Eixo (rebaixamento)"
-        elif nome in CLASSIFICACAO_INSTITUTOS:
-            fonte = "Pindograma"
+        if nome in INDICE_PINDOGRAMA:
+            fonte = "Índice do Pindograma"
         elif nome in CLASSIFICACAO_SEM_FONTE:
             fonte = "Sem fonte confirmada"
         else:
@@ -3006,6 +3187,9 @@ def montar_df_institutos() -> pd.DataFrame:
             "instituto": nome,
             "classificacao": nota,
             "peso": score_instituto(nota),
+            "indice_pindograma": INDICE_PINDOGRAMA.get(nome, ""),
+            "posicao_pindograma": POSICAO_PINDOGRAMA.get(nome, ""),
+            "classificacao_pindograma": CLASSIFICACAO_INSTITUTOS.get(nome, ""),
             "fonte_da_nota": fonte,
             "metodologia": obter_metodologia(nome),
         })
@@ -3026,12 +3210,10 @@ def publicar_aba_institutos(sh) -> None:
     df = montar_df_institutos()
     if df.empty:
         return
-    aba = garantir_aba(sh, "institutos", rows=max(200, len(df) + 20), cols=7)
+    aba = garantir_aba(sh, "institutos", rows=max(200, len(df) + 20), cols=len(df.columns))
     sobrescrever_aba(aba, df)
-    n_pindograma = int((df["fonte_da_nota"] == "Pindograma").sum())
-    n_override = int((df["fonte_da_nota"] == "Eixo (rebaixamento)").sum())
-    print(f"[+] institutos: {len(df)} linhas ({n_pindograma} com nota do Pindograma, "
-          f"{n_override} rebaixado(s) pela Eixo)")
+    n_pindograma = int((df["fonte_da_nota"] == "Índice do Pindograma").sum())
+    print(f"[+] institutos: {len(df)} linhas ({n_pindograma} com índice do Pindograma)")
 
 
 def _publicar_cache_parquet(gc, sheet_id: str) -> None:

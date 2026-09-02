@@ -1,9 +1,7 @@
 """Publica a base do Ranking de Institutos do Pindograma numa aba de planilha.
 
-Existe porque a nota que o painel aplica é uma letra, e a letra esconde
-diferença grande dentro da mesma faixa: Quaest e Veritá são os dois B, com erro
-médio 3,44 e 4,85. Quem precisa conferir uma nota tem que conseguir ver o número
-que está por trás dela sem abrir código.
+Existe para permitir a conferência do índice contínuo usado pelo painel e da
+classificação correspondente, sem precisar abrir o código.
 
 A fonte é o arquivo que o próprio Pindograma serve para montar o ranking no
 site. A aba é reescrita inteira a cada execução: editar na mão não muda nada.
@@ -23,7 +21,8 @@ import pandas as pd
 from compartilhado.pollingdata_scraper import (
     CLASSIFICACAO_INSTITUTOS,
     CLASSIFICACAO_SEM_FONTE,
-    OVERRIDES_CLASSIFICACAO,
+    INDICE_PINDOGRAMA,
+    POSICAO_PINDOGRAMA,
     classificar_instituto,
     garantir_aba,
     gs_client_from_env,
@@ -84,8 +83,6 @@ def montar_df(dados: list[dict]) -> pd.DataFrame:
 
         if nome in repetidos:
             situacao = "Fora, nome repetido na base"
-        elif canonico in OVERRIDES_CLASSIFICACAO:
-            situacao = "Rebaixado pela Eixo"
         elif canonico in CLASSIFICACAO_SEM_FONTE and canonico not in CLASSIFICACAO_INSTITUTOS:
             situacao = "Nota sem fonte confirmada"
         elif aplicada == "Ainda não foi avaliado":
@@ -102,7 +99,9 @@ def montar_df(dados: list[dict]) -> pd.DataFrame:
             "ABEP": sim(d["has_abep"]),
             "CONRE": sim(d["has_conre"]),
             "Situação no painel": situacao,
-            "Nota aplicada no painel": "" if aplicada == "Ainda não foi avaliado" else aplicada,
+            "Classificação aplicada": "" if aplicada == "Ainda não foi avaliado" else aplicada,
+            "Índice usado": INDICE_PINDOGRAMA.get(canonico, ""),
+            "Posição no índice": POSICAO_PINDOGRAMA.get(canonico, ""),
             "Peso aplicado": score_instituto(aplicada),
             "company_id": d["company_id"],
         }
