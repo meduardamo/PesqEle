@@ -1,4 +1,4 @@
-"""Tamanho e cor do cabeçalho das abas da planilha Recandidaturas 2026.
+"""Tamanho e cor do cabeçalho das abas da planilha Radar do Congresso 2026.
 
 Roda sozinho, da raiz:  python -m outros.formato_recandidaturas
 
@@ -32,9 +32,9 @@ BRANCO = {"red": 1, "green": 1, "blue": 1}
 
 # As abas que o Radar desenha. As de cliente são editadas à mão e só recebem
 # tamanho, não cor.
-COM_COR = {"Competitividade Câmara Atual", "Competitividade Senado Atual",
-           "Competitividade Assembleias Atual", "Bancadas Temáticas",
-           "Competitividade Senado 2026 (teste)"}
+COM_COR = {"Competitividade Câmara (em exercício)", "Competitividade Senado (em exercício)",
+           "Competitividade Assembleias (em exercício)", "Bancadas Temáticas",
+           "Competitividade Senado (todas as candidaturas)"}
 
 ALTURA_CABECALHO = 54
 ALTURA_LINHA = 21

@@ -33,7 +33,7 @@ from outros import formato_recandidaturas as formato
 ID = os.getenv("SPREADSHEET_ID_RECANDIDATURAS", "").strip()
 if not ID:
     raise RuntimeError("Variável SPREADSHEET_ID_RECANDIDATURAS não configurada.")
-ABA = "Competitividade Senado 2026 (teste)"
+ABA = "Competitividade Senado (todas as candidaturas)"
 # A janela anda com o dia: congelar a data faria o workflow diário parar de
 # enxergar pesquisa nova sem dar erro. DATA_CORTE force a data só em teste.
 CORTE = pd.Timestamp(os.getenv("DATA_CORTE") or pd.Timestamp.today().normalize())
@@ -421,5 +421,5 @@ def update_radar_tab(sh, aba_nome, linhas_dict, ausente="Não se aplica"):
 
 if "--apply" in sys.argv:
     # Update das 3 abas
-    update_radar_tab(sh, "Competitividade Senado Atual", { (norm(r[0]), str(r[2]).strip()): r for r in linhas })
+    update_radar_tab(sh, "Competitividade Senado (em exercício)", { (norm(r[0]), str(r[2]).strip()): r for r in linhas })
 

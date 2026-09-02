@@ -1,4 +1,4 @@
-"""Grava as notas de cabeçalho das duas abas de Senado da Recandidaturas 2026.
+"""Grava as notas de cabeçalho das duas abas de Senado do Radar do Congresso 2026.
 
 Roda depois do `indice_senado --apply`:  python -m outros.indice_senado_notas
 
@@ -23,8 +23,8 @@ ID = os.getenv("SPREADSHEET_ID_RECANDIDATURAS", "").strip()
 if not ID:
     raise RuntimeError("Variável SPREADSHEET_ID_RECANDIDATURAS não configurada.")
 
-ABA_TESTE = "Competitividade Senado 2026 (teste)"
-ABA_ATUAL = "Competitividade Senado Atual"
+ABA_CANDIDATURAS = "Competitividade Senado (todas as candidaturas)"
+ABA_ATUAL = "Competitividade Senado (em exercício)"
 
 
 def contexto(valores):
@@ -158,9 +158,9 @@ def main():
         os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json"), scopes=ESCOPO)
     sh = gspread.authorize(cred).open_by_key(ID)
 
-    valores = sh.worksheet(ABA_TESTE).get_all_values()
+    valores = sh.worksheet(ABA_CANDIDATURAS).get_all_values()
     texto = notas(contexto(valores))
-    gravar(sh, ABA_TESTE, texto)
+    gravar(sh, ABA_CANDIDATURAS, texto)
 
     # A aba Atual tem as mesmas colunas de índice, mais as cinco de mandato, que
     # já têm nota do outro pipeline e não são tocadas aqui.

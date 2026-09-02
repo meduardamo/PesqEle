@@ -2,8 +2,8 @@
 
 Quatro fontes: a matriz de polling (média móvel, resultados e pesquisas), o
 DivulgaCand espelhado na planilha do TSE (registros e apoios), a composição das
-coligações direto da API do TSE e as três abas Radar da planilha Recandidaturas.
-Grava CSVs no diretório de trabalho, que os outros passos leem.
+coligações direto da API do TSE e as três abas de competitividade em exercício do
+Radar do Congresso 2026. Grava CSVs no diretório de trabalho, que os outros passos leem.
 """
 import os
 from pathlib import Path
@@ -45,9 +45,9 @@ ABAS = [
     (ID_POLLING, "pesquisas", "pesquisas.csv"),
     (ID_TSE, "chapas_divulgacand", "chapas.csv"),
     (ID_TSE, "apoio por candidatura", "apoios.csv"),
-    (ID_RADAR, "Competitividade Senado Atual", "Competitividade_Senado_Atual.csv"),
-    (ID_RADAR, "Competitividade Câmara Atual", "Competitividade_Câmara_Atual.csv"),
-    (ID_RADAR, "Competitividade Assembleias Atual", "Competitividade_Assembleias_Atual.csv"),
+    (ID_RADAR, "Competitividade Senado (em exercício)", "Competitividade_Senado_Atual.csv"),
+    (ID_RADAR, "Competitividade Câmara (em exercício)", "Competitividade_Câmara_Atual.csv"),
+    (ID_RADAR, "Competitividade Assembleias (em exercício)", "Competitividade_Assembleias_Atual.csv"),
 ]
 
 
