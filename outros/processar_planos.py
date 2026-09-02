@@ -611,8 +611,10 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
     tempo_integral = classif.get("Tempo Integral", {})
     contexto_etapas = contexto_do_tema(
         texto, _norm_busca(texto), "Tempo Integral", janela=5000, maximo=8)
-    if not contexto_etapas:
-        contexto_etapas = str(tempo_integral.get("trecho", ""))
+    citacao_ti = str(tempo_integral.get("trecho", ""))
+    contexto_etapas = (f"CITAÇÃO JÁ VALIDADA PARA TEMPO INTEGRAL:\n{citacao_ti}\n"
+                       f"[...]\nOUTROS CONTEXTOS:\n{contexto_etapas}"
+                       if contexto_etapas else citacao_ti)
     try:
         etapas = classificar_etapas_tempo_integral(
             contexto_etapas, tempo_integral.get("nivel", "Não menciona"))
@@ -976,9 +978,11 @@ def preencher_etapas_tempo_integral(sh, uf: str = "", limite: int = 0,
                 texto_norm = _norm_busca(texto)
                 contexto = contexto_do_tema(
                     texto, texto_norm, "Tempo Integral", janela=5000, maximo=8)
-                if not contexto:
-                    contexto = (str(r.get("contexto", "")) + " "
-                                + str(r.get("trecho", ""))).strip()
+                citacao = str(r.get("trecho", ""))
+                contexto = (f"CITAÇÃO JÁ VALIDADA PARA TEMPO INTEGRAL:\n{citacao}\n"
+                            f"[...]\nOUTROS CONTEXTOS:\n{contexto}"
+                            if contexto else
+                            (str(r.get("contexto", "")) + " " + citacao).strip())
                 resultado = classificar_etapas_tempo_integral(contexto, nivel)
         except Exception as e:
             print(f"ERRO: {type(e).__name__}: {e}")

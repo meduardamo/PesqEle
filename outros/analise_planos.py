@@ -2891,6 +2891,10 @@ _INDICIOS_ETAPA_INTEGRAL = {
 }
 _INDICIO_REDE_ESTADUAL = re.compile(
     r"\b(rede estadual|escolas? estaduais?|colegios? estaduais?)\b")
+_INDICIO_JORNADA_INTEGRAL = re.compile(
+    r"\b(tempo integral|ensino integral|educacao integral|"
+    r"escola(?:\s+\w+){0,3}\s+integral|"
+    r"jornada ampliada|periodo integral|turno integral)\b")
 
 
 def conferir_etapas_tempo_integral(etapas, evidencia: str, inferencia: str,
@@ -2921,8 +2925,12 @@ def conferir_etapas_tempo_integral(etapas, evidencia: str, inferencia: str,
             candidatas.append(canonica)
 
     n = _norm_acentos(evidencia)
+    if not _INDICIO_JORNADA_INTEGRAL.search(n):
+        return {"etapas_tempo_integral": ETAPA_NAO_ESPECIFICADA,
+                "evidencia_etapas_tempo_integral": evidencia,
+                "etapas_inferidas_tempo_integral": ""}
     # "Educação básica" abrange legalmente as três etapas e sustenta o conjunto.
-    todas = bool(re.search(r"\beducacao basica\b", n))
+    todas = bool(re.search(r"\b(educacao|escola) basica\b", n))
     validadas = [e for e in candidatas
                  if todas or _INDICIOS_ETAPA_INTEGRAL[e].search(n)]
     rede_estadual = bool(_INDICIO_REDE_ESTADUAL.search(n))
@@ -2958,7 +2966,8 @@ def classificar_etapas_tempo_integral(contexto: str, nivel: str) -> dict:
         "- Creche, pré-escola e 0 a 5 anos = Educação Infantil.\n"
         "- Anos iniciais/finais e 1º ao 9º ano = Ensino Fundamental.\n"
         "- Novo Ensino Médio, suas séries ou EPT integrada = Ensino Médio.\n"
-        "- Educação básica ligada ao tempo integral abrange as três etapas.\n"
+        "- Educação básica ou escola básica ligada ao tempo integral abrange as "
+        "três etapas.\n"
         "- Por regra editorial desta base, 'rede estadual', 'escola estadual' ou "
         "'colégio estadual', sem etapa contrária, permite Ensino Médio, mas marque "
         "a inferência como 'inferida', não 'explícita'.\n"

@@ -53,6 +53,22 @@ def test_rede_estadual_e_ensino_medio_inferido():
     assert r["etapas_inferidas_tempo_integral"] == "Ensino Médio"
 
 
+def test_escola_basica_integral_abrange_as_tres_etapas():
+    evidencia = "Efetivar um plano estadual da Escola Básica Integral."
+    r = conferir_etapas_tempo_integral(
+        ["Educação Infantil", "Ensino Fundamental", "Ensino Médio"],
+        evidencia, "explícita", evidencia, "Propõe ação")
+    assert r["etapas_tempo_integral"] == (
+        "Educação Infantil | Ensino Fundamental | Ensino Médio")
+
+
+def test_etapa_solta_sem_ligacao_com_jornada_integral_e_rejeitada():
+    evidencia = "Ampliar as matrículas do ensino médio."
+    r = conferir_etapas_tempo_integral(
+        ["Ensino Médio"], evidencia, "explícita", evidencia, "Propõe ação")
+    assert r["etapas_tempo_integral"] == "Etapa não especificada"
+
+
 def test_escola_sem_etapa_fica_nao_especificada():
     evidencia = "Expandir as escolas de tempo integral."
     r = conferir_etapas_tempo_integral(
