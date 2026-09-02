@@ -69,75 +69,215 @@ ORIGEM_PDF_RELATORIO = "PDF (relatório do instituto)"
 #
 # Instituto que o Pindograma não avalia fica como "Ainda não foi avaliado" em
 # vez de herdar a nota antiga: misturar duas escalas daria peso sem sentido.
+#
+# 02/09/2026: a tabela passou a ser a base inteira, gerada de ranking_data_4.js,
+# e não mais uma transcrição manual. A versão anterior tinha 68 dos 196
+# institutos publicados, então 134 caíam em "Ainda não foi avaliado" com a nota
+# existindo, entre eles Ideia Big Data (B+), FSB Pesquisa (B), PoderData (B) e
+# Sensus (B-). Nenhuma das 68 notas transcritas estava errada; o que faltava era
+# o resto. Onde o nome que a matriz usa é mais curto que o do Pindograma
+# (Amostragem, Methodus, Ipec), a chave continua sendo o nome da matriz e o nome
+# publicado entrou como alias, para não renomear o que já está gravado.
+#
+# "Sensor Pesquisas" ficou de fora de propósito: aparece duas vezes na base, com
+# CNPJs diferentes e notas diferentes (B- e D). Pelo nome não dá para saber qual
+# das duas empresas assina a pesquisa, e escolher uma seria inventar.
 CLASSIFICACAO_INSTITUTOS = {
-    'Real Time Big Data': 'B',
-    'Veritá': 'B',
-    'Quaest': 'B',
-    'Paraná Pesquisas': 'B+',
-    'AtlasIntel': 'A',
-    'Futura': 'A',
-    'Instituto Seta': 'B',
-    'Datafolha': 'B+',
-    'Delta Pesquisas': 'B',
-    'Instituto França': 'B-',
-    'GERP': 'B-',
-    'Doxa': 'B',
-    'Amostragem': 'A',
-    'Brasmarket': 'D',
-    'Direct Pesquisas': 'D',
-    'Consult Pesquisa': 'B',
-    'Exatus': 'B',
-    'IRG Consultoria': 'B+',
-    'Ipec': 'A',
-    'CTAS Tecnologia': 'B',
-    'Instituto Múltipla': 'B',
-    'Instituto Ranking': 'B',
-    'Ipespe': 'B',
-    'Item Pesquisas': 'B+',
-    'Perfil Pesquisas': 'B',
-    'Exata.GO': 'D',
-    'Novo Ibrape': 'B+',
-    'Badra Comunicação': 'B+',
-    'Mapa Marketing': 'A',
-    'Methodus': 'B+',
-    'TDL Pesquisa': 'D',
-    'Diagnóstico Pesquisas': 'B',
-    'IPPI': 'B',
-    'Opinião': 'B+',
+    '6 Sigma': 'B',
+    'ABC Dados': 'B-',
+    'Access': 'C',
+    'Acertar': 'B-',
     'Action Marketing': 'B+',
-    'Datamax': 'B',
-    'Econométrica': 'B',
-    'Goiás Pesquisas': 'B',
-    'MT Dados': 'B',
-    'PoderData': 'B',
-    'DMP Pesquisa': 'B-',
-    'INOR': 'C',
-    'IPEMS': 'B+',
-    'Indexa': 'B-',
-    'MDA': 'B+',
-    'Opinar': 'B',
-    'Pontual Pesquisas': 'B-',
-    'Seculus': 'C',
+    'Advise': 'D',
+    'Agili Pesquisas': 'B',
+    'Agora Pesquisa (BA)': 'B',
     'Agorasei': 'B',
-    'Census': 'B-',
-    'Data AZ': 'B-',
-    'Data Index': 'B-',
-    'F5 Atualiza Dados': 'B+',
-    'Instituto VOPE': 'C',
-    'Radar Inteligência': 'B+',
-    'Visão Pesquisas': 'D',
+    'Alternativa Dados': 'B-',
     'American Analytics': 'B',
+    'Amostragem': 'A',
+    'AR7 Pesquisa': 'C',
+    'AtlasIntel': 'A',
+    'Avaliar Pesquisa': 'B',
+    'Badra Comunicação': 'B+',
+    'BMO': 'B',
+    'BR Marketing': 'D',
+    'Brand Consultoria': 'B',
     'Brasil Dados': 'B',
+    'Brasmarket': 'D',
+    'Camminus Marketing': 'B+',
+    'Captavox': 'B+',
+    'Census': 'B-',
+    'Certifica Consultoria': 'B',
+    'Certus': 'B',
     'Colectta': 'B',
+    'Compet': 'B',
+    'Comunicare': 'B-',
+    'Conpar': 'B+',
+    'Consult Pesquisa': 'B',
+    'Consulte Inteligência (PI)': 'B+',
+    'Cooperfil': 'C',
+    'Correio do Povo Tocantinense': 'B',
+    'CP2 Pesquisa': 'B',
+    'CTAS Tecnologia': 'B',
+    'Dados Pesquisa (GO)': 'B',
+    'Data AZ': 'B-',
+    'Data Fato': 'B-',
+    'Data M': 'B-',
+    'Dataconsulte': 'C',
+    'Datafolha': 'B+',
+    'Dataform': 'B',
+    'Datamax': 'B',
+    'Datamédia': 'C',
+    'Dataqualy': 'B',
+    'Datasonda': 'B',
+    'Datavox (PB)': 'B-',
+    'Delta Agência de Pesquisa': 'B',
+    'Desttaq': 'B-',
+    'DGABC Pesquisas': 'B-',
+    'Diagnóstico Pesquisas': 'B',
+    'Directa Pesquisa': 'D',
+    'DMP': 'B-',
+    'Doxa': 'B',
+    'Econométrica': 'B',
     'Eficaz Pesquisas': 'B+',
+    'Empresa de Pesquisas Técnicas': 'B',
+    'Enquet Pesquisas': 'B',
+    'EPP': 'A',
+    'Equação Pesquisas': 'B',
+    'Escutec': 'B',
+    'Estimativa': 'D',
     'Exata OP': 'B-',
+    'Exata Pesquisa (MA)': 'B+',
+    'Exata.GO': 'D',
+    'Exatus': 'B',
+    'F5 Atualiza Dados': 'B+',
+    'Falpe Pesquisas': 'D',
+    'Fernandes Consultoria': 'B-',
+    'FLS Pesquisa': 'B',
+    'Folha Capital': 'B',
+    'Fortiori': 'B-',
+    'FSB Pesquisa': 'B',
+    'Futura': 'A',
+    'Gazeta Dados': 'B+',
+    'GERP': 'B-',
+    'Goiás Pesquisas': 'B',
+    'Govnet/Instituto Opinião (SP)': 'B+',
+    'GPP': 'B',
+    'Grupo M': 'B-',
+    'IABR': 'B',
+    'IBPS': 'B',
+    'Ideia Big Data': 'B+',
     'IMAPE': 'B-',
-    'IPC': 'B',
+    'Incope': 'B+',
+    'Index Pesquisas': 'B-',
+    'Infornews': 'B',
+    'INOP': 'D',
+    'INOPE': 'B+',
+    'INOR': 'C',
+    'Inove Consultoria': 'B+',
+    'Instituto Credibilidade': 'C',
+    'Instituto Datailha': 'B-',
+    'Instituto Datasensus': 'B+',
+    'Instituto de Pesquisa Resultado (MS)': 'B',
+    'Instituto Estimativa': 'B-',
+    'Instituto Exatta (PE)': 'B-',
+    'Instituto França': 'B-',
+    'Instituto Gauss': 'C',
+    'Instituto Haverroth': 'B',
+    'Instituto Jales': 'B-',
+    'Instituto Múltipla': 'B',
+    'Instituto Opinião (PR)': 'B',
+    'Instituto Podium': 'B-',
     'Instituto Qualitativa': 'B',
-    'Instituto Ranking Brasil Inteligência': 'B',
+    'Instituto Ranking': 'B',
+    'Instituto Realidade': 'D',
+    'Instituto Seta': 'B',
+    'Instituto Skala': 'B',
     'Instituto Stylo': 'B',
+    'Instituto Vision Survey': 'B-',
+    'Instituto VOPE': 'C',
+    'Inteligence Serviços': 'D',
+    'IPAT': 'B+',
+    'IPC': 'B',
+    'Ipec': 'A',
+    'IPEMS': 'B+',
+    'Ipespe': 'B',
+    'IPMN': 'B-',
+    'IPPEC (PR)': 'B',
+    'IPPI': 'B',
+    'IRG Consultoria': 'B+',
+    'Item Pesquisas': 'B+',
+    'J. J. Coelho': 'C',
+    'Jornal Correio Continental': 'D',
+    'Jornal Girassol': 'B',
+    'Jornal O Coletivo': 'B-',
+    'Jornal O+Positivo': 'B',
+    'Jornal Sudoeste (BA)': 'D',
+    'London Pesquisas': 'D',
+    'M S Passos Comunicação': 'B',
+    'Malujoa Comunicações': 'D',
+    'Mapa Marketing': 'A',
+    'Mark Instituto de Pesquisa': 'B-',
+    'MAS Opinião': 'B+',
+    'MBO': 'B-',
+    'MDA': 'B+',
+    'Merita Comunicações': 'C',
+    'Methodus': 'B+',
+    'MT Dados': 'B',
+    'Multidados': 'C',
+    'Naipes Marketing': 'B-',
+    'Novo Ibrape': 'B+',
+    'Opinar': 'B',
+    'Opinião Brasil (DF)': 'B-',
+    'Opinião Pesquisas (PB)': 'B+',
+    'Painel Brasil': 'B',
+    'Paraná Pesquisas': 'B+',
     'Perfil Pesquisas Técnicas': 'B',
+    'Perspectiva Mercado e Opinião': 'B',
+    'PoderData': 'B',
+    'Polo Pesquisas': 'B+',
+    'Pontual Pesquisas': 'B-',
+    'Pop Pesquisas': 'B-',
+    'Porto News': 'B-',
+    'Potencial': 'B',
+    'Prever Pesquisas': 'B+',
+    'Promídia': 'B-',
+    'Quaest': 'B',
+    'Quallity Serviços Inteligente': 'D',
+    'R M Mariath': 'B-',
+    'Radar Inteligência': 'B+',
+    'Real Dados': 'A',
+    'Real Time Big Data': 'B',
+    'RF Consultoria': 'C',
+    'RPP Logística': 'B-',
+    'Rádio Maracu': 'C',
+    'Sebram': 'D',
+    'Seculus': 'C',
+    'Sensatus Pesquisa': 'B',
+    'Sensus': 'B-',
+    'Serpes': 'B+',
+    'Sinfor': 'B+',
+    'Solução Treinamento': 'B+',
+    'Studio Pesquisas': 'B',
+    'Surgiu Pesquisas': 'B',
+    'TDL Pesquisa': 'D',
+    'Tecnodados': 'B',
+    'Tendência Pesquisa (SC)': 'B',
     'TS2 Soluções': 'B-',
+    'UP Pesquisas': 'B-',
+    'Vale Consultoria': 'B-',
+    'Veiga Consultoria e Pesquisa': 'B',
+    'Ver Pesquisa': 'A',
+    'Veritá': 'B',
+    'Vetor Assessoria': 'B+',
+    'Visão Pesquisas': 'D',
+    'Voga Pesquisas': 'C',
+    'Voice Pesquisas (MT)': 'B',
+    'Vox Opinião Pública (SP)': 'B-',
+    'Vox Populi': 'B',
+    'W J Mendes': 'B',
+    'Zaytec Brasil': 'B',
+    'Ágora Pesquisa (RJ)': 'A',
 }
 
 
@@ -282,6 +422,42 @@ ALIASES_INSTITUTO = {
     "ECM-Pesquisas": "ECM Pesquisas",
     # IMAPE — nome legal do TSE.
     "IMAPE - INST. MAJORITARIO DE PESQUISAS E ESTATISTICAS": "IMAPE",
+    # Nomes como o Pindograma publica, apontando para a grafia que a matriz já
+    # usa. Sem eles, a nota existe na tabela e não é encontrada.
+    "Agorasei Pesquisa": "Agorasei",
+    "Census Pesquisas": "Census",
+    "Colectta Consultoria": "Colectta",
+    "Consult Pesquisa (RN)": "Consult Pesquisa",
+    "Exata GO": "Exata.GO",
+    "Exata Op (DF)": "Exata OP",
+    "Exatus Consultoria (RN)": "Exatus",
+    "Ibrape": "Novo Ibrape",
+    "Instituto Amostragem": "Amostragem",
+    "Instituto Econométrica": "Econométrica",
+    "Instituto Methodus": "Methodus",
+    "Instituto Visão (PR)": "Visão Pesquisas",
+    "Instituto Vope": "Instituto VOPE",
+    "IPPI Pesquisas e Consultoria": "IPPI",
+    "Jornal Stylo": "Instituto Stylo",
+    "Múltipla Pesquisa (PE)": "Instituto Múltipla",
+    "Opinar Pesquisas": "Opinar",
+    "Perfil Pesquisas": "Perfil Pesquisas Técnicas",
+    "Perfil Pesquisas Técnicas (RN)": "Perfil Pesquisas Técnicas",
+    "Pontual Pesquisas (AM)": "Pontual Pesquisas",
+    "Ranking Pesquisa": "Instituto Ranking",
+    "Seculus Consultoria": "Seculus",
+    # Veritá — grafias sem acento e com prefixo. Aqui o alias não é cosmético:
+    # o instituto está em OVERRIDES_CLASSIFICACAO, e uma grafia não resolvida
+    # cairia em "Ainda não foi avaliado", peso 0,25, cinco vezes o rebaixamento.
+    "Verita": "Veritá",
+    "VERITA": "Veritá",
+    "VERITÁ": "Veritá",
+    "verita": "Veritá",
+    "veritá": "Veritá",
+    "Instituto Veritá": "Veritá",
+    "Instituto Verita": "Veritá",
+    "Veritá Pesquisas": "Veritá",
+    "Verita Pesquisas": "Veritá",
 }
 
 
@@ -300,8 +476,60 @@ def normalizar_instituto(nome) -> str:
     return ALIASES_INSTITUTO.get(nome_norm, nome_norm)
 
 
+# Rebaixamentos decididos pela Eixo, por fora do ranking. Existem porque toda
+# régua de acurácia disponível é histórica: o Pindograma fecha em 2022, o
+# PollsterGraph também, e o ranking de acerto que o TSE anunciou em setembro de
+# 2026 só sai depois da eleição. Nenhuma delas enxerga o ciclo corrente, então
+# um instituto pode carregar nota de meio da tabela enquanto o método dele está
+# sendo derrubado na Justiça.
+#
+# A régua para entrar aqui é estreita, e é a mesma para todos: decisão de
+# Justiça Eleitoral, em série, apontando falha de composição de amostra. Não
+# entra instituto por divergir do agregado, por errar uma eleição ou por má
+# reputação.
+#
+# Veritá, 02/09/2026 → D. A Justiça Eleitoral suspendeu ou proibiu a divulgação
+# de pesquisas dele em 13 estados e no DF em agosto de 2026. No Amazonas, 62% da
+# amostra tinha dado duplicado. No Rio Grande do Norte, 34% dos entrevistados
+# com ensino superior contra 13,73% do eleitorado do estado pelo TSE, e o dobro
+# da faixa de renda mais alta em relação aos demais institutos. Na Paraíba, o
+# TRE apontou falta de isonomia e falha no controle territorial. O que está em
+# causa é a representatividade da amostra, que é a premissa da pesquisa, e não a
+# margem de acerto, que é o que o ranking mede. Vale para todas as pesquisas do
+# instituto, não a partir da data das decisões: elas apontam falha de método, e
+# o método é o mesmo desde o começo do ciclo.
+#
+# Cada linha aqui precisa estar escrita na página de Metodologia dos painéis.
+# Rebaixamento que o leitor não vê é a Eixo mexendo no número em silêncio.
+# Notas que estavam na transcrição manual antiga e que não foram encontradas na
+# base publicada do Pindograma, seja porque o nome não existe lá, seja porque há
+# mais de um candidato e o nome não desempata ("Opinião" bate com sete). Ficam
+# separadas para não se passarem por nota do Pindograma, e continuam valendo
+# para não derrubar para 0,25 quem já tinha peso. Precisam de conferência: ou
+# viram alias para o nome certo da base, ou saem.
+CLASSIFICACAO_SEM_FONTE = {
+    'Data Index': 'B-',
+    'Delta Pesquisas': 'B',
+    'Direct Pesquisas': 'D',
+    'DMP Pesquisa': 'B-',
+    'Indexa': 'B-',
+    'Instituto Ranking Brasil Inteligência': 'B',
+    'Opinião': 'B+',
+}
+
+
+OVERRIDES_CLASSIFICACAO = {
+    "Veritá": "D",
+}
+
+
 def classificar_instituto(nome):
-    return CLASSIFICACAO_INSTITUTOS.get(normalizar_instituto(nome), "Ainda não foi avaliado")
+    canonico = normalizar_instituto(nome)
+    if canonico in OVERRIDES_CLASSIFICACAO:
+        return OVERRIDES_CLASSIFICACAO[canonico]
+    if canonico in CLASSIFICACAO_INSTITUTOS:
+        return CLASSIFICACAO_INSTITUTOS[canonico]
+    return CLASSIFICACAO_SEM_FONTE.get(canonico, "Ainda não foi avaliado")
 
 
 # Score de confiabilidade por classificação, conforme nota metodológica
@@ -2716,11 +2944,18 @@ def montar_df_institutos() -> pd.DataFrame:
         key=lambda n: n.lower(),
     )
     for nome in nomes:
-        nota = CLASSIFICACAO_INSTITUTOS.get(nome, "Ainda não foi avaliado")
+        nota = classificar_instituto(nome)
+        if nome in OVERRIDES_CLASSIFICACAO:
+            fonte = "Eixo (rebaixamento)"
+        elif nome in CLASSIFICACAO_INSTITUTOS:
+            fonte = "Pindograma"
+        else:
+            fonte = ""
         linhas.append({
             "instituto": nome,
             "classificacao": nota,
             "peso": score_instituto(nota),
+            "fonte_da_nota": fonte,
             "metodologia": METODOLOGIA_INSTITUTOS.get(nome, ""),
         })
     df = pd.DataFrame(linhas)
@@ -2740,10 +2975,12 @@ def publicar_aba_institutos(sh) -> None:
     df = montar_df_institutos()
     if df.empty:
         return
-    aba = garantir_aba(sh, "institutos", rows=max(200, len(df) + 20), cols=6)
+    aba = garantir_aba(sh, "institutos", rows=max(200, len(df) + 20), cols=7)
     sobrescrever_aba(aba, df)
-    n_avaliados = int((df["classificacao"] != "Ainda não foi avaliado").sum())
-    print(f"[+] institutos: {len(df)} linhas ({n_avaliados} com nota do Pindograma)")
+    n_pindograma = int((df["fonte_da_nota"] == "Pindograma").sum())
+    n_override = int((df["fonte_da_nota"] == "Eixo (rebaixamento)").sum())
+    print(f"[+] institutos: {len(df)} linhas ({n_pindograma} com nota do Pindograma, "
+          f"{n_override} rebaixado(s) pela Eixo)")
 
 
 def _publicar_cache_parquet(gc, sheet_id: str) -> None:
