@@ -570,12 +570,19 @@ def score_instituto(classificacao) -> float:
 # Como essas grafias viraram alias, procurar direto pela chave normalizada
 # deixava 15 textos inalcançáveis. O índice abaixo resolve cada chave uma vez, na
 # importação, e é por ele que a busca passa.
-_METODOLOGIA_POR_CANONICO: dict[str, str] = {}
-for _nome_metod, _texto_metod in METODOLOGIA_INSTITUTOS.items():
-    _METODOLOGIA_POR_CANONICO.setdefault(normalizar_instituto(_nome_metod), _texto_metod)
+# O índice é montado na primeira chamada, não na importação: normalizar_instituto
+# depende de _norm_ws, que é definido mais abaixo neste arquivo. Montar aqui em
+# cima quebrava o import inteiro do módulo com NameError.
+_METODOLOGIA_POR_CANONICO: dict[str, str] | None = None
 
 
 def obter_metodologia(nome):
+    global _METODOLOGIA_POR_CANONICO
+    if _METODOLOGIA_POR_CANONICO is None:
+        indice: dict[str, str] = {}
+        for _nome_metod, _texto_metod in METODOLOGIA_INSTITUTOS.items():
+            indice.setdefault(normalizar_instituto(_nome_metod), _texto_metod)
+        _METODOLOGIA_POR_CANONICO = indice
     return _METODOLOGIA_POR_CANONICO.get(normalizar_instituto(nome), "")
 
 
