@@ -34,7 +34,10 @@ API_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
 # Abas que os painéis leem. Vale a pena publicar até as pequenas: o custo do
 # Sheets é de latência, não de tamanho, e uma aba fora do cache obriga a página
 # a abrir a planilha do mesmo jeito, jogando fora o ganho das outras.
-ABAS_PADRAO = ("resultados_bi", "resultados", "pesquisas")
+# "institutos" entra não pelo tamanho, que é pequeno, mas pelo carimbo: é o
+# modifiedTime do Parquet que mata o memo do painel quando a aba muda. Sem
+# Parquet, o carimbo é sempre "" e a tabela velha sobrevivia o TTL inteiro.
+ABAS_PADRAO = ("resultados_bi", "resultados", "pesquisas", "institutos")
 
 
 def pasta_cache() -> str:
