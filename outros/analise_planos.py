@@ -2209,14 +2209,79 @@ def extrair_plano_diagnostico(url: str, usar_ocr: bool = True) -> dict:
     return saida
 
 
-def _limpa(t: str, n: int = 400) -> str:
+_MARCADOR_ITEM_CITACAO = r"\d{1,3}(?:\.\d{1,2})*\s*[-–—.)]"
+_BULLET_CITACAO = r"[•▪●■□◦‣∙]"
+_PALAVRAS_MINUSCULAS_TITULO = {
+    "a", "o", "e", "as", "os", "à", "às", "ao", "aos", "da", "de",
+    "do", "das", "dos", "em", "na", "no", "nas", "nos", "por", "para",
+    "com", "sem", "sob", "entre", "ou", "que", "um", "uma",
+}
+
+
+def _caixa_de_titulo(bloco: str) -> str:
+    """Baixa título extraído em caixa alta, preservando siglas curtas."""
+    saida = []
+    for i, palavra in enumerate(bloco.split()):
+        limpa = re.sub(r"[^A-ZÁÉÍÓÚÂÊÔÀÃÕÇ]", "", palavra)
+        if i and palavra.lower().strip(".,;:") in _PALAVRAS_MINUSCULAS_TITULO:
+            saida.append(palavra.lower())
+        elif limpa and len(limpa) <= 3:
+            saida.append(palavra)
+        else:
+            saida.append(palavra.capitalize())
+    return " ".join(saida)
+
+
+def limpar_ruido_citacao(t: str) -> str:
+    """Remove artefatos de lista e diagramação trazidos do PDF.
+
+    A limpeza é só de apresentação: numeração no começo do item, bullet, hífen
+    separado pela quebra de linha e título inicial em caixa alta. Números no
+    corpo da frase (metas, valores e prazos) não são alterados.
+    """
+    t = re.sub(r"\s+", " ", t or "").strip()
+    # Hífen que a extração separou na virada de linha: "pós- graduação".
+    t = re.sub(r"([a-zà-ÿ]{2})-\s+([a-zà-ÿ])", r"\1-\2", t)
+    # Numeração editorial no início da citação ou logo depois de um corte.
+    t = re.sub(rf"^\s*{_MARCADOR_ITEM_CITACAO}\s*(?=[A-Za-zÀ-ÿ])", "", t)
+    t = re.sub(
+        rf"(\[\.\.\.\])\s*{_MARCADOR_ITEM_CITACAO}\s*(?=[A-Za-zÀ-ÿ])",
+        r"\1 ", t)
+
+    def trocar_bullet(m: re.Match) -> str:
+        antes = m.group(1) or ""
+        if not antes:
+            return ""
+        return f"{antes} " if antes[-1] in ".;:!?" else f"{antes}; "
+
+    t = re.sub(rf"^\s*{_BULLET_CITACAO}\s*", "", t)
+    t = re.sub(rf"(\S)?\s*{_BULLET_CITACAO}\s*", trocar_bullet, t)
+
+    # Só o bloco inicial contínuo em caixa alta. Para antes da primeira palavra
+    # já grafada normalmente, de modo que o restante da citação fica intacto.
+    palavras = t.split()
+    n_caps = 0
+    for palavra in palavras:
+        letras = re.sub(r"[^A-Za-zÀ-ÿ]", "", palavra)
+        if letras and letras == letras.upper():
+            n_caps += 1
+        else:
+            break
+    if n_caps >= 3:
+        palavras[:n_caps] = _caixa_de_titulo(" ".join(palavras[:n_caps])).split()
+        t = " ".join(palavras)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _limpa(t: str, n: int = 400, ruido_citacao: bool = False) -> str:
     """Normaliza espaços e corta em `n` caracteres, sem partir palavra.
 
     O corte antigo era em 240 e caía no meio da palavra: 143 dos 346 trechos
     gravados em 03/08/2026 terminavam assim ('Reduzir a distorção idade-s…').
     Agora o corte recua até o fim da última frase, ou até o último espaço.
     """
-    t = re.sub(r"\s+", " ", t or "").strip()
+    t = (limpar_ruido_citacao(t) if ruido_citacao
+         else re.sub(r"\s+", " ", t or "").strip())
     if len(t) <= n:
         return t
     pedaco = t[:n]
@@ -2572,7 +2637,7 @@ def _classificar_bloco(texto: str, temas: dict = TEMAS) -> dict:
         out[tema] = {
             "nivel":         nivel,
             "score":         NIVEIS.index(nivel),
-            "trecho":        _limpa(item.get("trecho", "")),
+            "trecho":        _limpa(item.get("trecho", ""), ruido_citacao=True),
             "responsavel":   _limpa(item.get("responsavel", ""),   n=120),
             "prazo":         _limpa(item.get("prazo", ""),          n=80),
             "publico_alvo":  _limpa(item.get("publico_alvo", ""),  n=120),
@@ -2801,12 +2866,122 @@ def reanalisar_tema(contexto: str, tema: str, desc: str = "") -> dict:
     return {
         "nivel":         nivel,
         "score":         NIVEIS.index(nivel),
-        "trecho":        _limpa(item.get("trecho", "")),
+        "trecho":        _limpa(item.get("trecho", ""), ruido_citacao=True),
         "responsavel":   _limpa(item.get("responsavel", ""),   n=120),
         "prazo":         _limpa(item.get("prazo", ""),          n=80),
         "publico_alvo":  _limpa(item.get("publico_alvo", ""),  n=120),
         "programa_nome": _limpa(item.get("programa_nome", ""), n=80),
     }
+
+
+ETAPAS_TEMPO_INTEGRAL = (
+    "Educação Infantil", "Ensino Fundamental", "Ensino Médio")
+ETAPA_NAO_ESPECIFICADA = "Etapa não especificada"
+ETAPA_NAO_SE_APLICA = "Não se aplica"
+
+_INDICIOS_ETAPA_INTEGRAL = {
+    "Educação Infantil": re.compile(
+        r"\b(educacao infantil|creches?|pre escolas?|bercarios?|0 a 5 anos|"
+        r"zero a cinco anos|primeira infancia)\b"),
+    "Ensino Fundamental": re.compile(
+        r"\b(ensino fundamental|anos iniciais|anos finais|[1-9][ºoªa]? ano)\b"),
+    "Ensino Médio": re.compile(
+        r"\b(ensino medio|novo ensino medio|[123][ªa]? serie do ensino medio|"
+        r"ensino tecnico integrado|educacao profissional integrada)\b"),
+}
+_INDICIO_REDE_ESTADUAL = re.compile(
+    r"\b(rede estadual|escolas? estaduais?|colegios? estaduais?)\b")
+
+
+def conferir_etapas_tempo_integral(etapas, evidencia: str, inferencia: str,
+                                   contexto: str, nivel: str) -> dict:
+    """Valida a subclassificação semântica contra a evidência citada.
+
+    A rede estadual é aceita como inferência editorial de Ensino Médio, nunca
+    como menção explícita: estados também podem manter Ensino Fundamental.
+    """
+    if nivel == "Não menciona":
+        return {"etapas_tempo_integral": ETAPA_NAO_SE_APLICA,
+                "evidencia_etapas_tempo_integral": "",
+                "etapas_inferidas_tempo_integral": ""}
+    evidencia = _limpa(evidencia, n=400, ruido_citacao=True)
+    if not evidencia or not citacao_sustenta([_norm_busca(contexto)], evidencia):
+        return {"etapas_tempo_integral": ETAPA_NAO_ESPECIFICADA,
+                "evidencia_etapas_tempo_integral": "",
+                "etapas_inferidas_tempo_integral": ""}
+    if isinstance(etapas, str):
+        etapas = re.split(r"\s*[|,;]\s*", etapas)
+    if not isinstance(etapas, list):
+        etapas = []
+    por_chave = {_chave(x): x for x in ETAPAS_TEMPO_INTEGRAL}
+    candidatas = []
+    for etapa in etapas:
+        canonica = por_chave.get(_chave(str(etapa)))
+        if canonica and canonica not in candidatas:
+            candidatas.append(canonica)
+
+    n = _norm_acentos(evidencia)
+    # "Educação básica" abrange legalmente as três etapas e sustenta o conjunto.
+    todas = bool(re.search(r"\beducacao basica\b", n))
+    validadas = [e for e in candidatas
+                 if todas or _INDICIOS_ETAPA_INTEGRAL[e].search(n)]
+    rede_estadual = bool(_INDICIO_REDE_ESTADUAL.search(n))
+    if "Ensino Médio" in candidatas and rede_estadual and "Ensino Médio" not in validadas:
+        validadas.append("Ensino Médio")
+    if not validadas:
+        return {"etapas_tempo_integral": ETAPA_NAO_ESPECIFICADA,
+                "evidencia_etapas_tempo_integral": evidencia,
+                "etapas_inferidas_tempo_integral": ""}
+    inferidas = []
+    if (rede_estadual and "Ensino Médio" in validadas
+            and not _INDICIOS_ETAPA_INTEGRAL["Ensino Médio"].search(n)
+            and not todas):
+        inferidas.append("Ensino Médio")
+    return {"etapas_tempo_integral": " | ".join(
+                e for e in ETAPAS_TEMPO_INTEGRAL if e in validadas),
+            "evidencia_etapas_tempo_integral": evidencia,
+            "etapas_inferidas_tempo_integral": " | ".join(inferidas)}
+
+
+def classificar_etapas_tempo_integral(contexto: str, nivel: str) -> dict:
+    """Classifica semanticamente a etapa dentro do tema Tempo Integral."""
+    if nivel == "Não menciona":
+        return conferir_etapas_tempo_integral([], "", "", contexto, nivel)
+    from google.genai import types
+    prompt = (
+        "Leia os trechos de um plano de governo e subclassifique SOMENTE a "
+        "proposta de educação em tempo integral. A saída pode ter mais de uma "
+        "etapa. Use apenas: Educação Infantil, Ensino Fundamental e Ensino Médio.\n\n"
+        "REGRAS SEMÂNTICAS:\n"
+        "- Relacione a etapa à jornada integral; uma etapa citada em outro assunto "
+        "não conta.\n"
+        "- Creche, pré-escola e 0 a 5 anos = Educação Infantil.\n"
+        "- Anos iniciais/finais e 1º ao 9º ano = Ensino Fundamental.\n"
+        "- Novo Ensino Médio, suas séries ou EPT integrada = Ensino Médio.\n"
+        "- Educação básica ligada ao tempo integral abrange as três etapas.\n"
+        "- Por regra editorial desta base, 'rede estadual', 'escola estadual' ou "
+        "'colégio estadual', sem etapa contrária, permite Ensino Médio, mas marque "
+        "a inferência como 'inferida', não 'explícita'.\n"
+        "- 'Escolas' ou 'estudantes' sem outro indício = etapa não especificada.\n"
+        "- Não deduza etapa apenas porque o candidato disputa o governo estadual.\n\n"
+        "EVIDÊNCIA: copie literalmente a menor passagem que liga tempo integral à "
+        "etapa ou ao indício usado. Não resuma. Para cortes, use [...].\n\n"
+        "Responda apenas JSON: {\"etapas\": [lista], \"evidencia\": \"citação\", "
+        "\"inferencia\": \"explícita|inferida|não especificada\"}. Lista vazia "
+        "quando a etapa não estiver especificada.\n\n"
+        f"TRECHOS DO PLANO:\n{contexto}")
+    resp = _gerar(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
+    item = _carregar_json(getattr(resp, "text", ""),
+                          "etapas de Tempo Integral")
+    if not isinstance(item, dict):
+        raise RespostaIlegivel("etapas de Tempo Integral não vieram como objeto")
+    return conferir_etapas_tempo_integral(
+        item.get("etapas", []), item.get("evidencia", ""),
+        item.get("inferencia", ""), contexto, nivel)
 
 
 # Sem mínimo de caracteres dentro das aspas. Com o mínimo de 8 que estava aqui,

@@ -47,6 +47,11 @@ on:
         type: boolean
         required: false
         default: false
+      so_etapas_tempo_integral:
+        description: 'Classifica semanticamente a etapa dentro de Tempo Integral'
+        type: boolean
+        required: false
+        default: false
       paralelo:
         description: 'Quantos planos analisar ao mesmo tempo'
         required: false
@@ -121,4 +126,5 @@ jobs:
             ${{ inputs.sq && format('--sq {0}', inputs.sq) || '' }} \
             ${{ inputs.forcar == true && '--forcar' || '' }} \
             ${{ inputs.so_coerencia == true && '--so-coerencia' || '' }} \
+            ${{ inputs.so_etapas_tempo_integral == true && '--so-etapas-tempo-integral' || '' }} \
             ${{ inputs.limpar && format('--limpar-fora-da-base {0}', inputs.limpar) || '' }}

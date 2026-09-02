@@ -37,9 +37,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analise_planos import (  # noqa: E402
     NIVEIS, NIVEIS_LEGADO, TEMAS, PlanoIndisponivel, RespostaIlegivel,
     _norm_busca, _sem_espaco, citacao_sustenta, classificar_plano, resumir_plano,
+    classificar_etapas_tempo_integral,
     contexto_do_trecho,
     contexto_do_tema, contexto_do_vocabulario, posicoes_do_tema,
     extrair_paginas_url, ocorrencias_ancora, paginas_do_trecho, reanalisar_tema,
+    limpar_ruido_citacao,
     normalizar_responsavel, tem_alvo_absoluto, tem_alvo_mensuravel,
     tema_e_item_de_enumeracao,
     verificar_trecho,
@@ -149,7 +151,9 @@ VERSAO_COERENCIA = "13"
 COLS = ["ano", "sq_candidato", "candidato", "partido", "uf", "cargo", "link",
         "tema", "nivel", "trecho", "contexto", "responsavel", "prazo",
         "publico_alvo", "programa_nome", "pagina", "verificacao", "entes",
-        "chars", "chars_analisados", "versao", "analisado_em"]
+        "chars", "chars_analisados", "versao", "analisado_em",
+        "etapas_tempo_integral", "evidencia_etapas_tempo_integral",
+        "etapas_inferidas_tempo_integral"]
 # `resumos_eixos` não entra aqui: quem escreve a coluna é a aba de coerência,
 # uma linha por candidato. Listada em COLS, o reindex de `gravar` criava uma
 # coluna 23 sempre vazia na aba de análise, que tem uma linha por tema.
@@ -604,6 +608,20 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
         time.sleep(3)
         classif = classificar_plano(texto)
     classif = conferir_classificacao(classif, texto, paginas_norm)
+    tempo_integral = classif.get("Tempo Integral", {})
+    contexto_etapas = contexto_do_tema(
+        texto, _norm_busca(texto), "Tempo Integral", janela=5000, maximo=8)
+    if not contexto_etapas:
+        contexto_etapas = str(tempo_integral.get("trecho", ""))
+    try:
+        etapas = classificar_etapas_tempo_integral(
+            contexto_etapas, tempo_integral.get("nivel", "Não menciona"))
+    except RespostaIlegivel as e:
+        print(f"(etapas ilegíveis, tentando de novo: {e})", end=" ", flush=True)
+        time.sleep(3)
+        etapas = classificar_etapas_tempo_integral(
+            contexto_etapas, tempo_integral.get("nivel", "Não menciona"))
+    tempo_integral.update(etapas)
     # Nome e gênero vão para a justificativa da coerência: é ela que atribui a
     # proposta a alguém, e "o candidato" escrito sobre uma mulher é erro de
     # fato. A base de dados abertos pode não trazer a coluna de gênero; sem ela,
@@ -646,6 +664,11 @@ def processar(r, ano: str) -> tuple[list[dict], dict | None, str]:
                    prazo=res.get("prazo", ""),
                    publico_alvo=res.get("publico_alvo", ""),
                    programa_nome=res.get("programa_nome", ""),
+                   etapas_tempo_integral=res.get("etapas_tempo_integral", ""),
+                   evidencia_etapas_tempo_integral=res.get(
+                       "evidencia_etapas_tempo_integral", ""),
+                   etapas_inferidas_tempo_integral=res.get(
+                       "etapas_inferidas_tempo_integral", ""),
                    # Vazio quando o modelo resumiu em vez de citar: aí a frase
                    # não está literal no PDF e não há página para apontar.
                    pagina=", ".join(
@@ -844,6 +867,141 @@ def limpar_fora_da_base(sh, base, gravar_de_verdade: bool) -> int:
     return 0
 
 
+def limpar_trechos(sh, uf: str = "", gravar_de_verdade: bool = False) -> int:
+    """Remove ruído de PDF dos trechos já salvos, sem chamar o modelo.
+
+    Atualiza apenas as células da coluna `trecho`, preservando o restante da
+    aba, sua formatação e a classificação. O modo padrão é simulação.
+    """
+    salvas = ler_aba(sh, ANALISE_ABA)
+    if salvas.empty or "trecho" not in salvas.columns:
+        print(f"A aba {ANALISE_ABA} está vazia ou sem a coluna `trecho`.")
+        return 0
+    alvo = salvas
+    if uf:
+        alvo = alvo[alvo["uf"].astype(str).str.strip().str.upper() == uf.upper()]
+
+    mudancas = []
+    col_trecho = salvas.columns.get_loc("trecho")
+    # A aba tem cabeçalho: índice 0 do DataFrame corresponde à linha 2.
+    for indice, r in alvo.iterrows():
+        antigo = str(r.get("trecho", "") or "")
+        novo = limpar_ruido_citacao(antigo)
+        if novo != antigo:
+            mudancas.append((indice + 2, novo, r.get("candidato", ""),
+                             r.get("tema", "")))
+
+    escopo = uf.upper() if uf else "base inteira"
+    print(f"{escopo}: {len(mudancas)} de {len(alvo)} trechos seriam limpos")
+    for _, novo, candidato, tema in mudancas[:10]:
+        print(f"    {candidato} · {tema}: {novo[:120]}")
+    if len(mudancas) > 10:
+        print(f"    ... e mais {len(mudancas) - 10}")
+    if not gravar_de_verdade or not mudancas:
+        if mudancas:
+            print("Simulação: use --limpar-trechos gravar para aplicar.")
+        return 0
+
+    # Converte índice de coluna em A1 sem assumir que `trecho` será sempre J.
+    n = col_trecho + 1
+    letras = ""
+    while n:
+        n, resto = divmod(n - 1, 26)
+        letras = chr(65 + resto) + letras
+    ws = sh.worksheet(ANALISE_ABA)
+    dados = [{"range": f"{letras}{linha}", "values": [[novo]]}
+             for linha, novo, _, _ in mudancas]
+    ws.batch_update(dados, value_input_option="RAW")
+    print(f"Gravados {len(mudancas)} trechos limpos em {ANALISE_ABA}.")
+    return 0
+
+
+def preencher_etapas_tempo_integral(sh, uf: str = "", limite: int = 0,
+                                    sq: str = "", forcar: bool = False) -> int:
+    """Faz o backfill semântico da etapa dentro de Tempo Integral.
+
+    Baixa apenas os planos cuja linha de Tempo Integral ainda não foi
+    subclassificada. As demais classificações e colunas ficam intactas.
+    """
+    salvas = ler_aba(sh, ANALISE_ABA)
+    if salvas.empty:
+        print(f"A aba {ANALISE_ABA} está vazia.")
+        return 1
+    alvo = salvas[salvas["tema"].astype(str).str.strip() == "Tempo Integral"]
+    if uf:
+        alvo = alvo[alvo["uf"].astype(str).str.strip().str.upper() == uf.upper()]
+    if sq:
+        sqs = {x.strip() for x in str(sq).split(",") if x.strip()}
+        alvo = alvo[alvo["sq_candidato"].astype(str).str.strip().isin(sqs)]
+    campo = "etapas_tempo_integral"
+    if not forcar and campo in alvo.columns:
+        alvo = alvo[alvo[campo].astype(str).str.strip() == ""]
+    if limite:
+        alvo = alvo.head(limite)
+    print(f"{len(alvo)} planos para subclassificar em Tempo Integral")
+    if alvo.empty:
+        return 0
+
+    ws = sh.worksheet(ANALISE_ABA)
+    if ws.col_count < len(COLS):
+        ws.resize(cols=len(COLS))
+    colunas_novas = ["etapas_tempo_integral",
+                     "evidencia_etapas_tempo_integral",
+                     "etapas_inferidas_tempo_integral"]
+
+    def a1(coluna: int) -> str:
+        letras = ""
+        while coluna:
+            coluna, resto = divmod(coluna - 1, 26)
+            letras = chr(65 + resto) + letras
+        return letras
+
+    # As colunas são aditivas e ficam no fim para não deslocar consumidores
+    # antigos da aba. Escrever células individuais preserva a formatação.
+    dados = []
+    for nome in colunas_novas:
+        coluna = COLS.index(nome) + 1
+        dados.append({"range": f"{a1(coluna)}1", "values": [[nome]]})
+    erros = []
+    for pos, (indice, r) in enumerate(alvo.iterrows(), 1):
+        nome = str(r.get("candidato", ""))
+        nivel = str(r.get("nivel", "") or "Não menciona")
+        print(f"[{pos}/{len(alvo)}] {r.get('uf','')} · {nome}...", end=" ", flush=True)
+        try:
+            if nivel == "Não menciona":
+                resultado = classificar_etapas_tempo_integral("", nivel)
+            else:
+                paginas = extrair_paginas_url(str(r.get("link", "")))
+                texto = " ".join(paginas)
+                texto_norm = _norm_busca(texto)
+                contexto = contexto_do_tema(
+                    texto, texto_norm, "Tempo Integral", janela=5000, maximo=8)
+                if not contexto:
+                    contexto = (str(r.get("contexto", "")) + " "
+                                + str(r.get("trecho", ""))).strip()
+                resultado = classificar_etapas_tempo_integral(contexto, nivel)
+        except Exception as e:
+            print(f"ERRO: {type(e).__name__}: {e}")
+            erros.append(nome)
+            continue
+        linha = indice + 2
+        for campo_resultado in colunas_novas:
+            coluna = COLS.index(campo_resultado) + 1
+            dados.append({"range": f"{a1(coluna)}{linha}",
+                          "values": [[resultado.get(campo_resultado, "")]]})
+        print(f"{resultado['etapas_tempo_integral']} "
+              f"(inferidas: {resultado.get('etapas_inferidas_tempo_integral', '') or 'nenhuma'})")
+        # Persiste em lotes para uma interrupção não perder a rodada inteira.
+        if len(dados) >= 33:
+            ws.batch_update(dados, value_input_option="RAW")
+            dados = []
+    if dados:
+        ws.batch_update(dados, value_input_option="RAW")
+    if erros:
+        print(f"{len(erros)} planos com erro: {', '.join(erros[:10])}")
+    return 1 if erros else 0
+
+
 def preencher_paginas(sh, uf: str = "", limite: int = 0) -> int:
     """Preenche a coluna `pagina` das análises já gravadas, sem chamar o modelo.
 
@@ -966,6 +1124,11 @@ def main() -> int:
     p.add_argument("--limpar-fora-da-base", choices=["simular", "gravar"],
                    default="", help="remove das abas os candidatos que não "
                                     "estão mais na base filtrada")
+    p.add_argument("--limpar-trechos", choices=["simular", "gravar"],
+                   default="", help="remove numeração, bullets, hifenização e "
+                                    "caixa alta dos trechos já gravados")
+    p.add_argument("--so-etapas-tempo-integral", action="store_true",
+                   help="preenche semanticamente a etapa dentro de Tempo Integral")
     p.add_argument("--so-paginas", action="store_true",
                    help="só preenche a coluna `pagina` do que já está gravado, "
                         "sem chamar o modelo")
@@ -973,7 +1136,8 @@ def main() -> int:
 
     if not args.planilha:
         raise SystemExit("Informe --planilha ou defina SPREADSHEET_ID_TSE.")
-    if not args.so_paginas and not os.getenv("GEMINI_API_KEY", "").strip():
+    if (not args.so_paginas and not args.limpar_trechos
+            and not os.getenv("GEMINI_API_KEY", "").strip()):
         raise SystemExit("Defina GEMINI_API_KEY: é ela que roda a análise.")
 
     gc = cliente(args.credenciais)
@@ -986,6 +1150,14 @@ def main() -> int:
     try:
         if args.so_paginas:
             return preencher_paginas(sh, args.uf, args.limite)
+
+        if args.limpar_trechos:
+            return limpar_trechos(
+                sh, args.uf, args.limpar_trechos == "gravar")
+
+        if args.so_etapas_tempo_integral:
+            return preencher_etapas_tempo_integral(
+                sh, args.uf, args.limite, args.sq, args.forcar)
 
         if args.so_coerencia:
             return refazer_coerencia(sh, args.uf, args.limite, args.sq)
