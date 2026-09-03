@@ -420,6 +420,8 @@ def update_radar_tab(sh, aba_nome, linhas_dict, ausente="Não se aplica"):
     print(f"{aba_nome}: {achados} linhas casadas, {len(updates)} células atualizadas.")
 
 if "--apply" in sys.argv:
-    # Update das 3 abas
+    # So a aba do Senado em exercicio: este indice e do Senado, e a aba de todas
+    # as candidaturas ja foi regravada inteira acima. Camara e Assembleias tem
+    # indice proprio, o de competitividade a reeleicao.
     update_radar_tab(sh, "Competitividade Senado (em exercício)", { (norm(r[0]), str(r[2]).strip()): r for r in linhas })
 
