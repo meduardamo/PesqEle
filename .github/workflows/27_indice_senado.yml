@@ -23,6 +23,7 @@ jobs:
       SPREADSHEET_ID_POLLINGDATA: ${{ secrets.SPREADSHEET_ID_POLLINGDATA }}
       SPREADSHEET_ID_TSE: ${{ secrets.SPREADSHEET_ID_TSE }}
       SPREADSHEET_ID_RECANDIDATURAS: ${{ secrets.SPREADSHEET_ID_RECANDIDATURAS }}
+      SPREADSHEET_ID_NOMES_COMPETITIVOS: ${{ secrets.SPREADSHEET_ID_NOMES_COMPETITIVOS }}
 
     steps:
       - name: Checkout
@@ -54,3 +55,8 @@ jobs:
 
       - name: Gravar as notas de cabeçalho
         run: python -u -m outros.indice_senado_notas
+
+      # Depois do --apply, porque esta aba e alimentada pela aba do Radar que o
+      # passo anterior acabou de gravar.
+      - name: Atualizar a aba Nomes competitivos Gov e Senado
+        run: python -u -m outros.nomes_competitivos --apply
