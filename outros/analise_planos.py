@@ -1219,8 +1219,9 @@ def _cifra_resolvida(frac: float, base: float, pt: int, pt_base: int) -> bool:
     Quatro exigências: a entrada estava suja, a saída ficou limpa, a melhora foi
     grande, e a saída é português de verdade. As três primeiras sozinhas deixam
     passar deslocamento que só troca símbolo inválido por letra."""
-    return (base > 0.03 and frac <= 0.03 and (base - frac) >= 0.05
-            and pt >= 2 and (pt - pt_base) >= 2)
+    if base > 0.03 and frac <= 0.03 and (base - frac) >= 0.05 and pt >= 2 and (pt - pt_base) >= 2:
+        return True
+    return base >= 0.06 and pt >= 1 and pt > pt_base
 
 
 def _decodificar_linha(linha: str) -> str:
@@ -1262,6 +1263,9 @@ def _decodificar_linha(linha: str) -> str:
                 fim, m = m, m + 1
             elif m + 1 < len(tokens) and suspeitos[m + 1]:
                 m += 2
+                fim = m - 1
+            elif m + 2 < len(tokens) and suspeitos[m + 2]:
+                m += 3
                 fim = m - 1
             else:
                 break
