@@ -335,9 +335,27 @@ if "--apply" not in sys.argv:
 c = Credentials.from_service_account_file(os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json"),
         scopes=["https://www.googleapis.com/auth/spreadsheets"])
 gc = gspread.authorize(c); svc = build("sheets", "v4", credentials=c); sh = gc.open_by_key(ID)
-try: sh.del_worksheet(sh.worksheet(ABA))
-except Exception: pass
-ws = sh.add_worksheet(title=ABA, rows=len(linhas) + 1, cols=len(H))
+# A aba e escrita por cima, nao apagada e recriada. Apagar destroi nota de
+# cabecalho, formato e regra condicional a cada rodada, e deixa a aba pela
+# metade se o script morrer depois da exclusao: foi o que aconteceu em 03/09,
+# quando a aba voltou sem nenhuma das 22 notas.
+try:
+    ws = sh.worksheet(ABA)
+except Exception:
+    ws = sh.add_worksheet(title=ABA, rows=len(linhas) + 1, cols=len(H))
+
+# Trava de sanidade: so escreve se o universo novo for compativel com o
+# publicado. Base magra e sintoma de fonte incompleta, e o certo e nao publicar
+# e deixar a aba de ontem no ar.
+publicado = max(len(ws.get_all_values()) - 1, 0)
+if not linhas:
+    raise RuntimeError("Nada a publicar: o indice nao gerou nenhuma linha.")
+if publicado and len(linhas) < publicado * 0.9:
+    raise RuntimeError(
+        f"Recusando publicar: {len(linhas)} linhas contra {publicado} ja na aba "
+        f"({len(linhas) / publicado:.0%}). Conferir as fontes antes de rodar de novo.")
+
+ws.resize(rows=len(linhas) + 1, cols=len(H))
 # RAW e não USER_ENTERED: com USER_ENTERED o Sheets lê "16,6%" como número e
 # guarda 0,166, e a coluna, que é toda texto, passa a mostrar 0,166.
 ws.update([H] + linhas, "A1", value_input_option="RAW")
@@ -346,8 +364,9 @@ ws.update([H] + linhas, "A1", value_input_option="RAW")
 # deslocadas quando entrou a coluna de porcentagem.
 req = formato.pedidos_da_aba(ws, H, len(linhas) + 1)
 req.append(formato.corpo(ws.id, 1, len(linhas) + 1, len(H)))
-# Marca quem e competitivo e nao aparece por nome em lista nenhuma. A aba e
-# recriada a cada rodada, entao aqui a regra nunca se empilha.
+# Marca quem e competitivo e nao aparece por nome em lista nenhuma. A aba nao
+# e mais recriada, entao a regra antiga sai antes de a nova entrar.
+req += formato.limpar_sem_declaracao(svc, ID, ws.id)
 req += formato.sem_declaracao(ws.id, H, len(linhas) + 1)
 svc.spreadsheets().batchUpdate(spreadsheetId=ID, body={"requests": req}).execute()
 print(f"\naba '{ABA}' regravada com {len(linhas)} linhas.")
