@@ -344,16 +344,22 @@ try:
 except Exception:
     ws = sh.add_worksheet(title=ABA, rows=len(linhas) + 1, cols=len(H))
 
-# Trava de sanidade: so escreve se o universo novo for compativel com o
-# publicado. Base magra e sintoma de fonte incompleta, e o certo e nao publicar
-# e deixar a aba de ontem no ar.
+# Trava de sanidade. O registro de candidaturas fechou, entao o universo e
+# fixo: linha so sai por renuncia, uma de cada vez. Encolhimento de mais de
+# TOLERANCIA linhas nao e movimento eleitoral, e fonte incompleta, e o certo e
+# nao publicar e deixar a aba de ontem no ar.
+TOLERANCIA = 5
 publicado = max(len(ws.get_all_values()) - 1, 0)
 if not linhas:
     raise RuntimeError("Nada a publicar: o indice nao gerou nenhuma linha.")
-if publicado and len(linhas) < publicado * 0.9:
+if publicado and len(linhas) < publicado - TOLERANCIA:
     raise RuntimeError(
-        f"Recusando publicar: {len(linhas)} linhas contra {publicado} ja na aba "
-        f"({len(linhas) / publicado:.0%}). Conferir as fontes antes de rodar de novo.")
+        f"Recusando publicar: {len(linhas)} linhas contra {publicado} ja na aba, "
+        f"{publicado - len(linhas)} a menos. O registro esta fechado, entao esta "
+        f"queda e fonte incompleta. Conferir antes de rodar de novo.")
+if publicado and len(linhas) != publicado:
+    print(f"universo mudou: {publicado} -> {len(linhas)} linhas "
+          f"({len(linhas) - publicado:+d})")
 
 ws.resize(rows=len(linhas) + 1, cols=len(H))
 # RAW e não USER_ENTERED: com USER_ENTERED o Sheets lê "16,6%" como número e
