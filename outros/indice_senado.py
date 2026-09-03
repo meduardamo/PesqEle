@@ -346,6 +346,9 @@ ws.update([H] + linhas, "A1", value_input_option="RAW")
 # deslocadas quando entrou a coluna de porcentagem.
 req = formato.pedidos_da_aba(ws, H, len(linhas) + 1)
 req.append(formato.corpo(ws.id, 1, len(linhas) + 1, len(H)))
+# Marca quem e competitivo e nao aparece por nome em lista nenhuma. A aba e
+# recriada a cada rodada, entao aqui a regra nunca se empilha.
+req += formato.sem_declaracao(ws.id, H, len(linhas) + 1)
 svc.spreadsheets().batchUpdate(spreadsheetId=ID, body={"requests": req}).execute()
 print(f"\naba '{ABA}' regravada com {len(linhas)} linhas.")
 
@@ -432,6 +435,13 @@ def update_radar_tab(sh, aba_nome, linhas_dict, ausente="Não se aplica"):
         # a coluna, que é toda texto, passa a mostrar 8 em umas linhas e -3,8 em outras.
         ws.batch_update(updates, value_input_option="RAW")
     print(f"{aba_nome}: {achados} linhas casadas, {len(updates)} células atualizadas.")
+
+    # Esta aba nao e recriada, entao a regra sai antes de entrar de novo.
+    marca = formato.limpar_sem_declaracao(svc, ID, ws.id)
+    marca += formato.sem_declaracao(ws.id, headers, len(todas_linhas))
+    if marca:
+        svc.spreadsheets().batchUpdate(spreadsheetId=ID, body={"requests": marca}).execute()
+        print(f"{aba_nome}: marca de sem declaração nominal aplicada.")
 
 if "--apply" in sys.argv:
     # So a aba do Senado em exercicio: este indice e do Senado, e a aba de todas

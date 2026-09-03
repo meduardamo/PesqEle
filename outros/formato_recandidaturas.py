@@ -14,6 +14,7 @@ Linha de dado tem 21 pixels em todas as abas. Texto longo fica cortado de
 propósito: quem precisa do texto inteiro clica na célula. Cabeçalho tem 54, que
 é o bastante para três linhas.
 """
+import json
 import os
 
 import gspread
@@ -144,6 +145,74 @@ def pedidos_da_aba(ws, cabecalho, linhas, pintar=True, congelar_coluna=True):
             "range": {"sheetId": sid, "dimension": "ROWS", "startIndex": 1,
                       "endIndex": linhas},
             "properties": {"pixelSize": ALTURA_LINHA}, "fields": "pixelSize"}})
+    return req
+
+
+# Vinho clarinho, para marcar celula sem apagar a leitura do texto.
+VINHO_CLARO = {"red": 242 / 255, "green": 224 / 255, "blue": 229 / 255}
+
+# Marcador na formula da regra, para reconhecer e substituir a nossa regra sem
+# tocar em regra que alguem tenha criado a mao na aba.
+MARCA_SEM_DECLARACAO = "SEM_DECLARACAO_NOMINAL"
+
+
+def _letra(i):
+    """Indice de coluna (0-based) para letra de A1."""
+    letra = ""
+    while True:
+        letra = chr(ord("A") + i % 26) + letra
+        i = i // 26 - 1
+        if i < 0:
+            return letra
+
+
+def sem_declaracao(sid, cabecalho, linhas):
+    """Pinta o apoio declarado de quem e competitivo e nao aparece por nome.
+
+    A regra existe porque as duas colunas respondem coisas diferentes: a chapa
+    sai do registro e vale para todo mundo, o apoio declarado so vale para quem
+    aparece nominalmente numa das listas ou numa declaracao individual. Sem o
+    sinal, "Nao declarado" numa candidatura competitiva se le igual a "Nao
+    declarado" numa que nao disputa nada.
+
+    Devolve [] se a aba nao tiver as tres colunas.
+    """
+    try:
+        col_apoio = cabecalho.index("Apoio presidencial declarado")
+        col_comp = cabecalho.index("É competitivo?")
+    except ValueError:
+        return []
+    # Letra calculada do nome, nunca fixa: foi lista posicional que ja deslocou
+    # notas, larguras e cores nesta aba quando entrou uma coluna nova.
+    a, c = _letra(col_apoio), _letra(col_comp)
+    formula = (f'=AND(${c}2="Sim"; ${a}2="Não declarado"; '
+               f'LEN("{MARCA_SEM_DECLARACAO}")>0)')
+    return [{"addConditionalFormatRule": {"index": 0, "rule": {
+        "ranges": [{"sheetId": sid, "startRowIndex": 1, "endRowIndex": linhas,
+                    "startColumnIndex": col_apoio, "endColumnIndex": col_apoio + 1}],
+        "booleanRule": {
+            "condition": {"type": "CUSTOM_FORMULA",
+                          "values": [{"userEnteredValue": formula}]},
+            "format": {"backgroundColor": VINHO_CLARO,
+                       "textFormat": {"bold": True, "foregroundColor": VINHO}}}}}}]
+
+
+def limpar_sem_declaracao(svc, ident, sid):
+    """Tira a nossa regra antes de recolocar, em aba que nao e recriada.
+
+    Sem isso a regra se empilha a cada rodada. So remove a que tem a marca; regra
+    escrita a mao na aba fica.
+    """
+    meta = svc.spreadsheets().get(spreadsheetId=ident,
+                                  fields="sheets(properties(sheetId),conditionalFormats)").execute()
+    req = []
+    for aba in meta.get("sheets", []):
+        if aba["properties"]["sheetId"] != sid:
+            continue
+        regras = aba.get("conditionalFormats", []) or []
+        for i in range(len(regras) - 1, -1, -1):
+            if MARCA_SEM_DECLARACAO in json.dumps(regras[i], ensure_ascii=False):
+                req.append({"deleteConditionalFormatRule": {"sheetId": sid, "index": i}})
     return req
 
 
