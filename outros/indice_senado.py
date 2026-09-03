@@ -370,8 +370,22 @@ def update_radar_tab(sh, aba_nome, linhas_dict, ausente="Não se aplica"):
     # o bloco do índice não ficar picado.
     faltando = [c for c in colunas_injetar if c not in headers]
     for col in faltando:
-        anterior = colunas_injetar[colunas_injetar.index(col) - 1]
-        pos = headers.index(anterior) + 2 if anterior in headers else len(headers) + 1
+        i = colunas_injetar.index(col)
+        # A primeira da lista nao tem anterior: entra antes da proxima que a aba
+        # ja tem, para o bloco do indice nao ficar picado. Sem esta guarda o
+        # indice -1 dava a volta e devolvia a ultima coluna da lista, e o pos
+        # caia depois do fim da grade: foi o que derrubou a rodada de 03/09 com
+        # 'startIndex must be less than the grid size'.
+        anterior = next((c for c in reversed(colunas_injetar[:i]) if c in headers), None)
+        seguinte = next((c for c in colunas_injetar[i + 1:] if c in headers), None)
+        if anterior is not None:
+            pos = headers.index(anterior) + 2
+        elif seguinte is not None:
+            pos = headers.index(seguinte) + 1
+        else:
+            pos = len(headers) + 1
+        # A API recusa insercao alem do fim da grade.
+        pos = min(pos, ws.col_count + 1)
         ws.insert_cols([[col]], col=pos)
         headers.insert(pos - 1, col)
     if faltando:
